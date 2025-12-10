@@ -15,7 +15,13 @@ from sqlalchemy.orm import joinedload
 
 from extensions import db
 from permissions import role_required
-from models import PaymentRequest, Project, Supplier, PaymentApproval
+from models import (
+    PaymentRequest,
+    Project,
+    Supplier,
+    PaymentApproval,
+    PaymentAttachment,
+)
 from . import payments_bp
 
 
@@ -482,9 +488,27 @@ def edit_payment(payment_id):
 @payments_bp.route("/<int:payment_id>/delete", methods=["POST"])
 @role_required("admin", "engineering_manager")
 def delete_payment(payment_id):
+    """
+    عند حذف الدفعة:
+    - نحذف أولاً كل سجلات الاعتماد PaymentApproval المرتبطة بها
+    - ثم نحذف المرفقات PaymentAttachment
+    - ثم نحذف الدفعة نفسها
+    بذلك نتجنب محاولة تعيين payment_request_id = NULL (وهو NOT NULL).
+    """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_delete(payment)
 
+    # حذف سجلات الاعتماد المرتبطة
+    PaymentApproval.query.filter_by(
+        payment_request_id=payment.id
+    ).delete(synchronize_session=False)
+
+    # حذف المرفقات المرتبطة
+    PaymentAttachment.query.filter_by(
+        payment_request_id=payment.id
+    ).delete(synchronize_session=False)
+
+    # حذف الدفعة نفسها
     db.session.delete(payment)
     db.session.commit()
 
@@ -641,9 +665,8 @@ def eng_reject(payment_id):
 def finance_approve(payment_id):
     """
     موافقة المالية الأولى:
-    - تنقل الدفعة من pending_finance -> ready_for_payment
-    - لا يتم تسجيل مبلغ المالية هنا
-    - إدخال المبلغ الفعلي يكون في خطوة تم الصرف
+    - تتحول الحالة من pending_finance إلى ready_for_payment
+    - لا نسجل مبلغ المالية الفعلي هنا (هيتسجل في خطوة تم الصرف)
     """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
@@ -702,23 +725,27 @@ def finance_reject(payment_id):
 @role_required("admin", "finance")
 def mark_paid(payment_id):
     """
-    خطوة تسجيل الصرف الفعلي:
-    - الحالة يجب أن تكون ready_for_payment
-    - هنا يتم إدخال amount_finance (المبلغ الفعلي المصروف)
-    - ثم تتحول الحالة إلى paid
+    خطوة تم الصرف:
+    - الحالة يجب أن تكون READY_FOR_PAYMENT
+    - يُطلب من المالية إدخال amount_finance (المبلغ الفعلي المعتمد)
+    - يتم حفظ amount_finance وتغيير الحالة إلى PAID
     """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
     if payment.status != STATUS_READY_FOR_PAYMENT:
-        flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد أن تكون جاهزة للصرف.", "warning")
+        flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا وجعلها جاهزة للصرف.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     amount_finance_str = (request.form.get("amount_finance") or "").strip()
+    if not amount_finance_str:
+        flash("برجاء إدخال مبلغ المالية الفعلي قبل تأكيد الصرف.", "danger")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
     try:
         amount_finance = float(amount_finance_str.replace(",", ""))
     except ValueError:
-        flash("برجاء إدخال مبلغ مالي فعلي صحيح للصرف.", "danger")
+        flash("برجاء إدخال مبلغ مالية فعلي صحيح.", "danger")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -726,24 +753,15 @@ def mark_paid(payment_id):
     payment.status = STATUS_PAID
     payment.updated_at = datetime.utcnow()
 
-    diff = None
-    if payment.amount is not None:
-        diff = amount_finance - payment.amount
-
-    comment = f"Actual finance payment recorded: {amount_finance}"
-    if diff is not None:
-        comment += f" | diff = {diff}"
-
     _add_approval_log(
         payment,
         step="finance",
         action="mark_paid",
         old_status=old_status,
         new_status=payment.status,
-        comment=comment,
     )
 
     db.session.commit()
 
-    flash("تم تسجيل أن الدفعة تم صرفها وتسجيل المبلغ المالي الفعلي.", "success")
+    flash("تم تسجيل أن الدفعة تم صرفها وحفظ مبلغ المالية الفعلي.", "success")
     return redirect(url_for("payments.detail", payment_id=payment.id))
