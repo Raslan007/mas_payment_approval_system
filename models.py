@@ -70,14 +70,17 @@ class Supplier(db.Model):
 class PaymentRequest(db.Model):
     """
     طلب دفعة واحد في النظام (مقاول / مشتريات / عهدة)
-    Workflow الحالات المقترحة:
+
+    الحالات المستخدمة حالياً:
         draft              -> قام المهندس بإدخال الطلب
-        under_review_pm    -> أرسله لمراجعة مدير المشروع
-        under_review_eng   -> موافقة مدير المشروع، في انتظار الإدارة الهندسية
-        waiting_finance    -> موافقة الإدارة الهندسية، في انتظار المالية
-        approved           -> موافقة المالية (اعتماد نهائي)
+        pending_pm         -> في انتظار اعتماد مدير المشروع
+        pending_eng        -> في انتظار الإدارة الهندسية
+        pending_finance    -> في انتظار الإدارة المالية
+        ready_for_payment  -> جاهزة للصرف
         paid               -> تم الصرف فعليًا
-        rejected           -> مرفوض في أي مرحلة
+        rejected           -> مرفوضة
+
+    (مع دعم بعض القيم القديمة لو موجودة في البيانات)
     """
     __tablename__ = "payment_requests"
 
@@ -108,13 +111,20 @@ class PaymentRequest(db.Model):
     @property
     def human_status(self) -> str:
         mapping = {
+            # الحالات الحالية
             "draft": "مسودة (بواسطة المهندس)",
+            "pending_pm": "في انتظار اعتماد مدير المشروع",
+            "pending_eng": "في انتظار الإدارة الهندسية",
+            "pending_finance": "في انتظار اعتماد المالية",
+            "ready_for_payment": "جاهزة للصرف",
+            "paid": "تم الصرف",
+            "rejected": "مرفوض",
+
+            # دعم قيم قديمة لو موجودة
             "under_review_pm": "تحت مراجعة مدير المشروع",
             "under_review_eng": "تحت مراجعة الإدارة الهندسية",
             "waiting_finance": "في انتظار اعتماد المالية",
             "approved": "معتمد نهائيًا",
-            "paid": "تم الصرف",
-            "rejected": "مرفوض",
         }
         return mapping.get(self.status, self.status)
 
@@ -122,12 +132,18 @@ class PaymentRequest(db.Model):
     def status_badge_class(self) -> str:
         mapping = {
             "draft": "secondary",
+            "pending_pm": "info",
+            "pending_eng": "primary",
+            "pending_finance": "warning",
+            "ready_for_payment": "info",
+            "paid": "success",
+            "rejected": "danger",
+
+            # قيم قديمة
             "under_review_pm": "info",
             "under_review_eng": "primary",
             "waiting_finance": "warning",
             "approved": "success",
-            "paid": "success",
-            "rejected": "danger",
         }
         return mapping.get(self.status, "secondary")
 
@@ -206,5 +222,5 @@ class Notification(db.Model):
 
     user = db.relationship("User", backref=db.backref("notifications", lazy="dynamic"))
 
-    def __repr__(self) -> str:  # type: ignore
+    def __repr__(self) -> str:
         return f"<Notification {self.id} to user {self.user_id}>"

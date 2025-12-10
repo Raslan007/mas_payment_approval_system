@@ -104,6 +104,24 @@ def _require_can_delete(p: PaymentRequest):
         abort(403)
 
 
+def _log_approval(payment: PaymentRequest, step: str, action: str,
+                  old_status: str, new_status: str, comment=None):
+    """
+    تسجيل حركة اعتماد / رفض في جدول PaymentApproval
+    """
+    log = PaymentApproval(
+        payment_request_id=payment.id,
+        step=step,
+        action=action,
+        old_status=old_status,
+        new_status=new_status,
+        comment=comment,
+        decided_by_id=current_user.id if current_user.is_authenticated else None,
+        decided_at=datetime.utcnow(),
+    )
+    db.session.add(log)
+
+
 @payments_bp.route("/")
 @payments_bp.route("/my")
 @role_required(
@@ -297,14 +315,11 @@ def detail(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    # لو الدفعة مرفوضة، نجيب آخر حركة رفض من جدول PaymentApproval
     rejection_log = None
     if payment.status == STATUS_REJECTED:
         rejection_log = (
-            PaymentApproval.query.filter_by(
-                payment_request_id=payment.id,
-                action="reject",
-            )
+            PaymentApproval.query
+            .filter_by(payment_request_id=payment.id, action="reject")
             .order_by(PaymentApproval.decided_at.desc())
             .first()
         )
@@ -399,8 +414,13 @@ def submit_to_pm(payment_id):
         flash("لا يمكن إرسال دفعة ليست في حالة مسودة.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_PENDING_PM
     payment.updated_at = datetime.utcnow()
+
+    _log_approval(payment, step="engineer", action="submit",
+                  old_status=old_status, new_status=payment.status)
+
     db.session.commit()
 
     flash("تم إرسال الدفعة إلى مدير المشروع للمراجعة.", "success")
@@ -417,8 +437,13 @@ def pm_approve(payment_id):
         flash("هذه الدفعة ليست في مرحلة مراجعة مدير المشروع.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_PENDING_ENG
     payment.updated_at = datetime.utcnow()
+
+    _log_approval(payment, step="pm", action="approve",
+                  old_status=old_status, new_status=payment.status)
+
     db.session.commit()
 
     flash("تم اعتماد الدفعة من مدير المشروع وتم إرسالها للإدارة الهندسية.", "success")
@@ -439,16 +464,8 @@ def pm_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    # تسجيل حركة الرفض في جدول PaymentApproval
-    approval = PaymentApproval(
-        payment_request_id=payment.id,
-        step="pm",
-        action="reject",
-        old_status=old_status,
-        new_status=payment.status,
-        decided_by_id=current_user.id,
-    )
-    db.session.add(approval)
+    _log_approval(payment, step="pm", action="reject",
+                  old_status=old_status, new_status=payment.status)
 
     db.session.commit()
 
@@ -466,8 +483,13 @@ def eng_approve(payment_id):
         flash("هذه الدفعة ليست في مرحلة الإدارة الهندسية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_PENDING_FIN
     payment.updated_at = datetime.utcnow()
+
+    _log_approval(payment, step="engineering_manager", action="approve",
+                  old_status=old_status, new_status=payment.status)
+
     db.session.commit()
 
     flash("تم اعتماد الدفعة من الإدارة الهندسية وتم إرسالها للمالية.", "success")
@@ -488,15 +510,8 @@ def eng_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    approval = PaymentApproval(
-        payment_request_id=payment.id,
-        step="eng_manager",
-        action="reject",
-        old_status=old_status,
-        new_status=payment.status,
-        decided_by_id=current_user.id,
-    )
-    db.session.add(approval)
+    _log_approval(payment, step="engineering_manager", action="reject",
+                  old_status=old_status, new_status=payment.status)
 
     db.session.commit()
 
@@ -514,8 +529,13 @@ def finance_approve(payment_id):
         flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_READY_FOR_PAYMENT
     payment.updated_at = datetime.utcnow()
+
+    _log_approval(payment, step="finance", action="approve",
+                  old_status=old_status, new_status=payment.status)
+
     db.session.commit()
 
     flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف.", "success")
@@ -536,15 +556,8 @@ def finance_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    approval = PaymentApproval(
-        payment_request_id=payment.id,
-        step="finance",
-        action="reject",
-        old_status=old_status,
-        new_status=payment.status,
-        decided_by_id=current_user.id,
-    )
-    db.session.add(approval)
+    _log_approval(payment, step="finance", action="reject",
+                  old_status=old_status, new_status=payment.status)
 
     db.session.commit()
 
@@ -562,8 +575,13 @@ def mark_paid(payment_id):
         flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_PAID
     payment.updated_at = datetime.utcnow()
+
+    _log_approval(payment, step="finance", action="mark_paid",
+                  old_status=old_status, new_status=payment.status)
+
     db.session.commit()
 
     flash("تم تسجيل أن الدفعة تم صرفها.", "success")
