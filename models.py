@@ -10,7 +10,8 @@ class Role(db.Model):
     __tablename__ = "roles"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)  # admin, engineer, project_manager, engineering_manager, finance
+    # admin, engineer, project_manager, engineering_manager, finance
+    name = db.Column(db.String(50), unique=True, nullable=False)
 
     def __repr__(self):
         return f"<Role {self.name}>"
@@ -26,6 +27,10 @@ class User(UserMixin, db.Model):
 
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"))
     role = db.relationship("Role", backref="users")
+
+    # المشروع الرئيسي المرتبط بالمستخدم (مهندس / مدير مشروع)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=True)
+    project = db.relationship("Project", backref="users")
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)

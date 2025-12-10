@@ -3,7 +3,7 @@
 from flask import render_template, request, redirect, url_for, flash
 from flask_login import current_user
 from extensions import db
-from models import User, Role
+from models import User, Role, Project
 from permissions import role_required
 from . import users_bp
 
@@ -20,11 +20,13 @@ def list_users():
 @role_required("admin", "dc")
 def create_user():
     roles = Role.query.order_by(Role.name.asc()).all()
+    projects = Project.query.order_by(Project.project_name.asc()).all()
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
         role_id = request.form.get("role_id")
+        project_id = request.form.get("project_id")  # يمكن أن يكون فارغاً لبعض الأدوار
         password = (request.form.get("password") or "").strip()
         password_confirm = (request.form.get("password_confirm") or "").strip()
         # حالياً لا نستخدم is_active لأنه غير مخرّن في قاعدة البيانات
@@ -45,16 +47,29 @@ def create_user():
             flash("يوجد مستخدم مسجل بنفس البريد الإلكتروني.", "danger")
             return redirect(url_for("users.create_user"))
 
+        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
+        selected_role = Role.query.get(int(role_id)) if role_id else None
+        if selected_role and selected_role.name in ("engineer", "project_manager") and not project_id:
+            flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
+            return redirect(url_for("users.create_user"))
+
         user = User(full_name=full_name, email=email)
         user.role_id = int(role_id)
         user.set_password(password)
+
+        # ربط المشروع إن تم اختياره
+        if project_id:
+            try:
+                user.project_id = int(project_id)
+            except ValueError:
+                user.project_id = None
 
         db.session.add(user)
         db.session.commit()
         flash("تم إضافة المستخدم بنجاح.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/create.html", roles=roles)
+    return render_template("users/create.html", roles=roles, projects=projects)
 
 
 @users_bp.route("/<int:user_id>/edit", methods=["GET", "POST"])
@@ -62,11 +77,13 @@ def create_user():
 def edit_user(user_id):
     user = User.query.get_or_404(user_id)
     roles = Role.query.order_by(Role.name.asc()).all()
+    projects = Project.query.order_by(Project.project_name.asc()).all()
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
         role_id = request.form.get("role_id")
+        project_id = request.form.get("project_id")  # يمكن أن يكون فارغاً لبعض الأدوار
         # نفس الفكرة، لا نستخدم is_active حالياً
         # is_active_flag = bool(request.form.get("is_active"))
         new_password = (request.form.get("new_password") or "").strip()
@@ -84,9 +101,25 @@ def edit_user(user_id):
             flash("يوجد مستخدم آخر مسجل بنفس البريد الإلكتروني.", "danger")
             return redirect(url_for("users.edit_user", user_id=user.id))
 
+        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
+        selected_role = Role.query.get(int(role_id)) if role_id else None
+        if selected_role and selected_role.name in ("engineer", "project_manager") and not project_id:
+            flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
+            return redirect(url_for("users.edit_user", user_id=user.id))
+
         user.full_name = full_name
         user.email = email
         user.role_id = int(role_id)
+
+        # تحديث المشروع المرتبط إن تم اختياره
+        if project_id:
+            try:
+                user.project_id = int(project_id)
+            except ValueError:
+                user.project_id = None
+        else:
+            # في حال ترك الحقل فارغاً نلغي الربط
+            user.project_id = None
 
         # تحديث كلمة المرور لو تم إدخال واحدة جديدة
         if new_password:
@@ -96,7 +129,7 @@ def edit_user(user_id):
         flash("تم تحديث بيانات المستخدم بنجاح.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/edit.html", user=user, roles=roles)
+    return render_template("users/edit.html", user=user, roles=roles, projects=projects)
 
 
 @users_bp.route("/<int:user_id>/delete", methods=["POST"])

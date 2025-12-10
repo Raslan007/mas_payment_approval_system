@@ -10,7 +10,7 @@
             تعديل بيانات المستخدم
         </h1>
         <p class="text-muted xsmall mb-0">
-            تعديل الاسم، البريد الإلكتروني، الدور، وحالة نشاط المستخدم.
+            تعديل الاسم، البريد الإلكتروني، الدور، والمشروع المرتبط بالمستخدم.
         </p>
     </div>
     <div class="text-end xsmall">
@@ -58,6 +58,7 @@
                 <option value="">اختر الدور...</option>
                 {% for r in roles %}
                     <option value="{{ r.id }}"
+                            data-role-name="{{ r.name }}"
                             {% if user.role_id == r.id %}selected{% endif %}>
                         {{ r.name }}
                     </option>
@@ -65,7 +66,26 @@
             </select>
         </div>
 
-        <!-- حالة المستخدم -->
+        <!-- المشروع المرتبط بالمستخدم -->
+        <div class="mb-3 d-none" id="project-group">
+            <label for="project_id" class="form-label">المشروع المرتبط بالمستخدم</label>
+            <select id="project_id"
+                    name="project_id"
+                    class="form-select">
+                <option value="">اختر المشروع...</option>
+                {% for p in projects %}
+                    <option value="{{ p.id }}"
+                            {% if user.project_id == p.id %}selected{% endif %}>
+                        {{ p.project_name }}
+                    </option>
+                {% endfor %}
+            </select>
+            <small class="text-muted xsmall">
+                هذا الحقل مطلوب للمهندس ومدير المشروع، واختياري لباقي الأدوار.
+            </small>
+        </div>
+
+        <!-- حالة المستخدم (لاحقًا يمكن ربطها في الموديل) -->
         <div class="mb-3 form-check">
             <input class="form-check-input"
                    type="checkbox"
@@ -78,18 +98,28 @@
             </label>
         </div>
 
-        {# يمكن لاحقاً إضافة فورم فرعي لتغيير كلمة المرور فقط لو عندك راوت لذلك #}
-        {# مثال (اختياري ولا يؤثر حالياً):
+        <!-- تغيير كلمة المرور -->
         <hr class="my-3">
         <h2 class="h6 mb-2">تغيير كلمة المرور</h2>
         <div class="mb-3">
             <label for="new_password" class="form-label">كلمة مرور جديدة</label>
-            <input type="password" id="new_password" name="new_password" class="form-control">
+            <div class="input-group">
+                <input type="password"
+                       id="new_password"
+                       name="new_password"
+                       class="form-control"
+                       placeholder="اتركها فارغة للإبقاء على كلمة المرور الحالية">
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        onclick="togglePassword('new_password', this)"
+                        aria-label="تبديل إظهار كلمة المرور الجديدة">
+                    <i class="bi bi-eye"></i>
+                </button>
+            </div>
             <small class="text-muted xsmall">
-                اتركها فارغة للإبقاء على كلمة المرور الحالية.
+                اترك الحقل فارغًا للإبقاء على كلمة المرور الحالية.
             </small>
         </div>
-        #}
 
         <div class="d-flex justify-content-end gap-2 mt-2">
             <a href="{{ url_for('users.list_users') }}" class="btn btn-outline-secondary">
@@ -102,4 +132,59 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function togglePassword(fieldId, btn) {
+        const input = document.getElementById(fieldId);
+        const icon = btn.querySelector("i");
+
+        if (!input) return;
+
+        if (input.type === "password") {
+            input.type = "text";
+            icon.classList.remove("bi-eye");
+            icon.classList.add("bi-eye-slash");
+        } else {
+            input.type = "password";
+            icon.classList.remove("bi-eye-slash");
+            icon.classList.add("bi-eye");
+        }
+    }
+
+    function updateProjectVisibility() {
+        const roleSelect = document.getElementById("role_id");
+        const projectGroup = document.getElementById("project-group");
+        const projectSelect = document.getElementById("project_id");
+
+        if (!roleSelect || !projectGroup) return;
+
+        const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+        const roleName = selectedOption ? selectedOption.getAttribute("data-role-name") : "";
+
+        const requiresProject = roleName === "engineer" || roleName === "project_manager";
+
+        if (requiresProject) {
+            projectGroup.classList.remove("d-none");
+            if (projectSelect) {
+                projectSelect.setAttribute("required", "required");
+            }
+        } else {
+            projectGroup.classList.add("d-none");
+            if (projectSelect) {
+                projectSelect.removeAttribute("required");
+                // لا نغير القيمة هنا في التعديل لتفادي فقد الربط لو غير الدور بالخطأ ثم رجعه
+            }
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const roleSelect = document.getElementById("role_id");
+        if (roleSelect) {
+            roleSelect.addEventListener("change", updateProjectVisibility);
+            updateProjectVisibility();
+        }
+    });
+</script>
 {% endblock %}

@@ -46,7 +46,9 @@
                     title="اختر الدور المناسب">
                 <option value="">اختر الدور...</option>
                 {% for r in roles %}
-                    <option value="{{ r.id }}">{{ r.name }}</option>
+                    <option value="{{ r.id }}" data-role-name="{{ r.name }}">
+                        {{ r.name }}
+                    </option>
                 {% endfor %}
             </select>
             <small class="text-muted xsmall">
@@ -54,10 +56,25 @@
             </small>
         </div>
 
+        <!-- المشروع المرتبط بالمستخدم -->
+        <div class="mb-3 d-none" id="project-group">
+            <label for="project_id" class="form-label">المشروع المرتبط بالمستخدم</label>
+            <select id="project_id"
+                    name="project_id"
+                    class="form-select">
+                <option value="">اختر المشروع...</option>
+                {% for p in projects %}
+                    <option value="{{ p.id }}">{{ p.project_name }}</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted xsmall">
+                هذا الحقل مطلوب للمهندس ومدير المشروع، واختياري لباقي الأدوار.
+            </small>
+        </div>
+
         <!-- كلمة المرور -->
         <div class="mb-3">
             <label for="password" class="form-label">كلمة المرور</label>
-            
             <div class="input-group">
                 <input type="password"
                        id="password"
@@ -65,7 +82,6 @@
                        class="form-control"
                        required
                        placeholder="••••••••">
-
                 <button type="button"
                         class="btn btn-outline-secondary"
                         onclick="togglePassword('password', this)"
@@ -78,17 +94,12 @@
         <!-- تأكيد كلمة المرور -->
         <div class="mb-3">
             <label for="password_confirm" class="form-label">تأكيد كلمة المرور</label>
-
             <div class="input-group">
                 <input type="password"
                        id="password_confirm"
                        name="password_confirm"
-                <button type="button"
-                        class="btn btn-outline-secondary"
-                        onclick="togglePassword('password_confirm', this)"
-                        aria-label="تبديل إظهار تأكيد كلمة المرور">
-                    <i class="bi bi-eye"></i>
-                </button>
+                       class="form-control"
+                       placeholder="••••••••">
                 <button type="button"
                         class="btn btn-outline-secondary"
                         onclick="togglePassword('password_confirm', this)"
@@ -96,7 +107,6 @@
                     <i class="bi bi-eye"></i>
                 </button>
             </div>
-
             <small class="text-muted xsmall">
                 يتم التحقق من التطابق في الباك إند عند الحفظ.
             </small>
@@ -135,6 +145,8 @@
         const input = document.getElementById(fieldId);
         const icon = btn.querySelector("i");
 
+        if (!input) return;
+
         if (input.type === "password") {
             input.type = "text";
             icon.classList.remove("bi-eye");
@@ -145,5 +157,39 @@
             icon.classList.add("bi-eye");
         }
     }
+
+    function updateProjectVisibility() {
+        const roleSelect = document.getElementById("role_id");
+        const projectGroup = document.getElementById("project-group");
+        const projectSelect = document.getElementById("project_id");
+
+        if (!roleSelect || !projectGroup) return;
+
+        const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+        const roleName = selectedOption ? selectedOption.getAttribute("data-role-name") : "";
+
+        const requiresProject = roleName === "engineer" || roleName === "project_manager";
+
+        if (requiresProject) {
+            projectGroup.classList.remove("d-none");
+            if (projectSelect) {
+                projectSelect.setAttribute("required", "required");
+            }
+        } else {
+            projectGroup.classList.add("d-none");
+            if (projectSelect) {
+                projectSelect.removeAttribute("required");
+                projectSelect.value = "";
+            }
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const roleSelect = document.getElementById("role_id");
+        if (roleSelect) {
+            roleSelect.addEventListener("change", updateProjectVisibility);
+            updateProjectVisibility();
+        }
+    });
 </script>
 {% endblock %}
