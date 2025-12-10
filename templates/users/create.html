@@ -57,24 +57,48 @@
         <!-- كلمة المرور -->
         <div class="mb-3">
             <label for="password" class="form-label">كلمة المرور</label>
-            <input type="password"
-                   id="password"
-                   name="password"
-                   class="form-control"
-                   required
-                   placeholder="••••••••">
+            
+            <div class="input-group">
+                <input type="password"
+                       id="password"
+                       name="password"
+                       class="form-control"
+                       required
+                       placeholder="••••••••">
+
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        onclick="togglePassword('password', this)"
+                        aria-label="تبديل إظهار كلمة المرور">
+                    <i class="bi bi-eye"></i>
+                </button>
+            </div>
         </div>
 
-        <!-- تأكيد كلمة المرور (اختياري من ناحية الباك إند) -->
+        <!-- تأكيد كلمة المرور -->
         <div class="mb-3">
             <label for="password_confirm" class="form-label">تأكيد كلمة المرور</label>
-            <input type="password"
-                   id="password_confirm"
-                   name="password_confirm"
-                   class="form-control"
-                   placeholder="••••••••">
+
+            <div class="input-group">
+                <input type="password"
+                       id="password_confirm"
+                       name="password_confirm"
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        onclick="togglePassword('password_confirm', this)"
+                        aria-label="تبديل إظهار تأكيد كلمة المرور">
+                    <i class="bi bi-eye"></i>
+                </button>
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        onclick="togglePassword('password_confirm', this)"
+                        aria-label="تبديل إظهار تأكيد كلمة المرور">
+                    <i class="bi bi-eye"></i>
+                </button>
+            </div>
+
             <small class="text-muted xsmall">
-                يتم التحقق من التطابق في الباك إند (إن أحببت تضيف ذلك).
+                يتم التحقق من التطابق في الباك إند عند الحفظ.
             </small>
         </div>
 
@@ -102,4 +126,24 @@
         </div>
     </form>
 </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function togglePassword(fieldId, btn) {
+        const input = document.getElementById(fieldId);
+        const icon = btn.querySelector("i");
+
+        if (input.type === "password") {
+            input.type = "text";
+            icon.classList.remove("bi-eye");
+            icon.classList.add("bi-eye-slash");
+        } else {
+            input.type = "password";
+            icon.classList.remove("bi-eye-slash");
+            icon.classList.add("bi-eye");
+        }
+    }
+</script>
 {% endblock %}
