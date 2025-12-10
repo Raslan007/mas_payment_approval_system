@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}تعديل بيانات المشروع{% endblock %}
+
+{% block content %}
+{% set page_title = "تعديل بيانات المشروع " ~ (project.project_name or '') %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">تعديل بيانات المشروع</h1>
+        <p class="text-muted xsmall mb-0">
+            تعديل اسم المشروع وكود المشروع.
+        </p>
+    </div>
+    <div class="text-end xsmall">
+        <div class="fw-semibold">
+            {{ project.project_name }}
+        </div>
+        {% if project.code %}
+            <div class="text-muted">
+                كود المشروع: {{ project.code }}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm col-lg-6 col-md-8 col-12">
+    <form method="post" novalidate>
+        <div class="mb-3">
+            <label for="project_name" class="form-label">اسم المشروع</label>
+            <input type="text"
+                   id="project_name"
+                   name="project_name"
+                   class="form-control"
+                   value="{{ project.project_name or '' }}"
+                   required
+                   placeholder="أدخل اسم المشروع">
+        </div>
+
+        <div class="mb-3">
+            <label for="code" class="form-label">كود المشروع (اختياري)</label>
+            <input type="text"
+                   id="code"
+                   name="code"
+                   class="form-control"
+                   value="{{ project.code or '' }}"
+                   placeholder="مثال: ADP01">
+            <small class="text-muted xsmall">
+                يجب أن يكون الكود فريدًا، ولا يتكرر بين المشاريع المختلفة.
+            </small>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-2">
+            <a href="{{ url_for('projects.list_projects') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ التعديلات
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -27,6 +27,7 @@
                 <th class="text-center" style="width: 70px;">#</th>
                 <th>اسم المشروع</th>
                 <th class="text-nowrap">كود المشروع</th>
+                <th class="text-nowrap" style="width: 120px;">الإجراءات</th>
             </tr>
             </thead>
             <tbody>
@@ -41,6 +42,13 @@
                         </td>
                         <td>
                             {{ p.code or "-" }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('projects.edit_project', project_id=p.id) }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil-square ms-1"></i>
+                                تعديل
+                            </a>
                         </td>
                     </tr>
                 {% endfor %}
