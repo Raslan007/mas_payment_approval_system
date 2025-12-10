@@ -11,12 +11,15 @@ from flask import (
     abort,
 )
 from flask_login import current_user
+from sqlalchemy.orm import joinedload
+
 from extensions import db
 from permissions import role_required
 from models import PaymentRequest, Project, Supplier, PaymentApproval
 from . import payments_bp
 
 
+# تعريف ثوابت الحالات المستخدمة في النظام
 STATUS_DRAFT = "draft"
 STATUS_PENDING_PM = "pending_pm"
 STATUS_PENDING_ENG = "pending_eng"
@@ -25,6 +28,10 @@ STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
 
+
+# =========================
+#   دوال مساعدة عامة
+# =========================
 
 def _get_role():
     if not current_user.is_authenticated or not current_user.role:
@@ -37,9 +44,11 @@ def _can_view_payment(p: PaymentRequest) -> bool:
     if role_name is None:
         return False
 
+    # admin + المدير الهندسي + رئيس مجلس الإدارة يشوفوا الكل
     if role_name in ("admin", "engineering_manager", "chairman"):
         return True
 
+    # المالية تشوف ما يخصها
     if role_name == "finance":
         return p.status in (
             STATUS_PENDING_FIN,
@@ -47,9 +56,11 @@ def _can_view_payment(p: PaymentRequest) -> bool:
             STATUS_PAID,
         )
 
+    # المهندس / مدير المشروع يشوفوا الدفعات اللي هم أدخلوها فقط
     if role_name in ("engineer", "project_manager"):
         return p.created_by == current_user.id
 
+    # DC حالياً لا يشوف الدفعات
     if role_name == "dc":
         return False
 
@@ -104,10 +115,18 @@ def _require_can_delete(p: PaymentRequest):
         abort(403)
 
 
-def _log_approval(payment: PaymentRequest, step: str, action: str,
-                  old_status: str, new_status: str, comment=None):
+def _add_approval_log(
+    payment: PaymentRequest,
+    step: str,
+    action: str,
+    old_status: str,
+    new_status: str,
+    comment: str | None = None,
+):
     """
     تسجيل حركة اعتماد / رفض في جدول PaymentApproval
+    step: engineer, pm, eng_manager, finance
+    action: submit, approve, reject, mark_paid, ...
     """
     log = PaymentApproval(
         payment_request_id=payment.id,
@@ -115,12 +134,16 @@ def _log_approval(payment: PaymentRequest, step: str, action: str,
         action=action,
         old_status=old_status,
         new_status=new_status,
-        comment=comment,
         decided_by_id=current_user.id if current_user.is_authenticated else None,
         decided_at=datetime.utcnow(),
+        comment=comment,
     )
     db.session.add(log)
 
+
+# =========================
+#   قوائم الدفعات
+# =========================
 
 @payments_bp.route("/")
 @payments_bp.route("/my")
@@ -134,7 +157,11 @@ def _log_approval(payment: PaymentRequest, step: str, action: str,
 )
 def index():
     role_name = _get_role()
-    q = PaymentRequest.query
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    )
 
     if role_name in ("engineer", "project_manager"):
         q = q.filter(PaymentRequest.created_by == current_user.id)
@@ -156,7 +183,15 @@ def index():
 @payments_bp.route("/all")
 @role_required("admin", "engineering_manager", "chairman")
 def list_all():
-    payments = PaymentRequest.query.order_by(PaymentRequest.id.desc()).all()
+    payments = (
+        PaymentRequest.query.options(
+            joinedload(PaymentRequest.project),
+            joinedload(PaymentRequest.supplier),
+            joinedload(PaymentRequest.creator),
+        )
+        .order_by(PaymentRequest.id.desc())
+        .all()
+    )
     return render_template(
         "payments/list.html",
         payments=payments,
@@ -168,9 +203,12 @@ def list_all():
 @role_required("admin", "engineering_manager", "project_manager", "chairman")
 def pm_review():
     payments = (
-        PaymentRequest.query.filter(
-            PaymentRequest.status == STATUS_PENDING_PM
+        PaymentRequest.query.options(
+            joinedload(PaymentRequest.project),
+            joinedload(PaymentRequest.supplier),
+            joinedload(PaymentRequest.creator),
         )
+        .filter(PaymentRequest.status == STATUS_PENDING_PM)
         .order_by(PaymentRequest.id.desc())
         .all()
     )
@@ -185,9 +223,12 @@ def pm_review():
 @role_required("admin", "engineering_manager", "chairman")
 def eng_review():
     payments = (
-        PaymentRequest.query.filter(
-            PaymentRequest.status == STATUS_PENDING_ENG
+        PaymentRequest.query.options(
+            joinedload(PaymentRequest.project),
+            joinedload(PaymentRequest.supplier),
+            joinedload(PaymentRequest.creator),
         )
+        .filter(PaymentRequest.status == STATUS_PENDING_ENG)
         .order_by(PaymentRequest.id.desc())
         .all()
     )
@@ -203,13 +244,18 @@ def eng_review():
 def list_finance_review():
     """
     قائمة الدفعات الخاصة بالإدارة المالية:
-    - تظهر كل الدفعات التي في مرحلة:
+    - كل الدفعات في مرحلة:
         * في انتظار المالية
         * جاهزة للصرف
         * تم الصرف
     """
     payments = (
-        PaymentRequest.query.filter(
+        PaymentRequest.query.options(
+            joinedload(PaymentRequest.project),
+            joinedload(PaymentRequest.supplier),
+            joinedload(PaymentRequest.creator),
+        )
+        .filter(
             PaymentRequest.status.in_(
                 [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
             )
@@ -228,10 +274,11 @@ def list_finance_review():
 @payments_bp.route("/finance_eng_approved")
 @role_required("admin", "engineering_manager", "finance", "chairman")
 def finance_eng_approved():
-    q = PaymentRequest.query.filter(
-        PaymentRequest.status == STATUS_PENDING_FIN
-    )
-    payments = q.order_by(PaymentRequest.id.desc()).all()
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    ).filter(PaymentRequest.status == STATUS_PENDING_FIN)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -244,6 +291,9 @@ def finance_eng_approved():
         "date_to": request.args.get("date_to"),
     }
 
+    # يمكنك لاحقاً تفعيل الفلاتر على q لو حابب
+    payments = q.order_by(PaymentRequest.id.desc()).all()
+
     return render_template(
         "payments/finance_eng_approved.html",
         payments=payments,
@@ -253,6 +303,10 @@ def finance_eng_approved():
         page_title="دفعات معتمدة من الإدارة الهندسية في انتظار المالية",
     )
 
+
+# =========================
+#   إنشاء / تعديل / حذف
+# =========================
 
 @payments_bp.route("/create", methods=["GET", "POST"])
 @role_required("admin", "engineering_manager", "project_manager", "engineer")
@@ -312,23 +366,61 @@ def create_payment():
     "chairman",
 )
 def detail(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
+    """
+    صفحة تفاصيل الدفعة:
+    - تعرض الدفعة + الـ approvals logs اللازمة لعرض
+      اسم وتاريخ من اعتمد أو رفض في كل مرحلة.
+    """
+    payment = (
+        PaymentRequest.query.options(
+            joinedload(PaymentRequest.project),
+            joinedload(PaymentRequest.supplier),
+            joinedload(PaymentRequest.creator),
+            joinedload(PaymentRequest.approvals).joinedload(PaymentApproval.decided_by),
+        )
+        .filter(PaymentRequest.id == payment_id)
+        .first_or_404()
+    )
+
     _require_can_view(payment)
 
-    rejection_log = None
-    if payment.status == STATUS_REJECTED:
-        rejection_log = (
-            PaymentApproval.query
-            .filter_by(payment_request_id=payment.id, action="reject")
+    # آخر رفض (من أي مرحلة)
+    rejection_log = (
+        PaymentApproval.query.filter(
+            PaymentApproval.payment_request_id == payment.id,
+            PaymentApproval.action == "reject",
+        )
+        .order_by(PaymentApproval.decided_at.desc())
+        .first()
+    )
+
+    def _latest_step(step: str, actions: list[str]):
+        return (
+            PaymentApproval.query.filter(
+                PaymentApproval.payment_request_id == payment.id,
+                PaymentApproval.step == step,
+                PaymentApproval.action.in_(actions),
+            )
             .order_by(PaymentApproval.decided_at.desc())
             .first()
         )
 
+    pm_decision = _latest_step("pm", ["approve", "reject"])
+    eng_decision = _latest_step("eng_manager", ["approve", "reject"])
+    fin_decision = _latest_step("finance", ["approve", "reject"])
+    finance_ready_log = _latest_step("finance", ["approve"])
+    paid_log = _latest_step("finance", ["mark_paid"])
+
     return render_template(
         "payments/detail.html",
         payment=payment,
-        rejection_log=rejection_log,
         page_title=f"تفاصيل الدفعة رقم {payment.id}",
+        rejection_log=rejection_log,
+        pm_decision=pm_decision,
+        eng_decision=eng_decision,
+        fin_decision=fin_decision,
+        finance_ready_log=finance_ready_log,
+        paid_log=paid_log,
     )
 
 
@@ -390,10 +482,6 @@ def edit_payment(payment_id):
 @payments_bp.route("/<int:payment_id>/delete", methods=["POST"])
 @role_required("admin", "engineering_manager")
 def delete_payment(payment_id):
-    """
-    حذف الدفعة:
-    - مسموح لـ admin و engineering_manager فقط.
-    """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_delete(payment)
 
@@ -403,6 +491,10 @@ def delete_payment(payment_id):
     flash(f"تم حذف الدفعة رقم {payment.id} بنجاح.", "success")
     return redirect(url_for("payments.index"))
 
+
+# =========================
+#   خطوات الـ Workflow
+# =========================
 
 @payments_bp.route("/<int:payment_id>/submit_to_pm", methods=["POST"])
 @role_required("admin", "engineering_manager", "project_manager", "engineer")
@@ -418,8 +510,13 @@ def submit_to_pm(payment_id):
     payment.status = STATUS_PENDING_PM
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="engineer", action="submit",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="engineer",
+        action="submit",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -441,8 +538,13 @@ def pm_approve(payment_id):
     payment.status = STATUS_PENDING_ENG
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="pm", action="approve",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="pm",
+        action="approve",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -464,8 +566,13 @@ def pm_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="pm", action="reject",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="pm",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -487,8 +594,13 @@ def eng_approve(payment_id):
     payment.status = STATUS_PENDING_FIN
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="engineering_manager", action="approve",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="eng_manager",
+        action="approve",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -510,8 +622,13 @@ def eng_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="engineering_manager", action="reject",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="eng_manager",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -533,8 +650,13 @@ def finance_approve(payment_id):
     payment.status = STATUS_READY_FOR_PAYMENT
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="finance", action="approve",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="finance",
+        action="approve",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -556,8 +678,13 @@ def finance_reject(payment_id):
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="finance", action="reject",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="finance",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 
@@ -579,8 +706,13 @@ def mark_paid(payment_id):
     payment.status = STATUS_PAID
     payment.updated_at = datetime.utcnow()
 
-    _log_approval(payment, step="finance", action="mark_paid",
-                  old_status=old_status, new_status=payment.status)
+    _add_approval_log(
+        payment,
+        step="finance",
+        action="mark_paid",
+        old_status=old_status,
+        new_status=payment.status,
+    )
 
     db.session.commit()
 

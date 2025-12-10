@@ -3,7 +3,6 @@
 
 {% block extra_head %}
 <style>
-    /* تنسيقات خاصة بصفحة تفاصيل الدفعة */
     .xsmall {
         font-size: 0.75rem;
     }
@@ -93,7 +92,7 @@
 {% set page_title = "تفاصيل الدفعة رقم " ~ payment.id %}
 {% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
 
-{# حساب المرحلة الحالية رقمياً لاستخدامها في التايملاين #}
+{# تحديد المرحلة الحالية رقمياً لاستخدامها في التايملاين #}
 {% if payment.status == 'draft' %}
     {% set step = 1 %}
 {% elif payment.status == 'pending_pm' %}
@@ -113,7 +112,7 @@
 {# هل الدفعة مرفوضة؟ #}
 {% set is_rejected = (payment.status == 'rejected') %}
 
-{# صلاحية التعديل (نفس منطق _can_edit_payment تقريباً) #}
+{# صلاحيات #}
 {% set can_edit = False %}
 {% if role_name in ['admin', 'engineering_manager'] %}
     {% set can_edit = True %}
@@ -123,10 +122,8 @@
     {% set can_edit = True %}
 {% endif %}
 
-{# صلاحية الحذف: فقط admin و engineering_manager #}
 {% set can_delete = (role_name in ['admin', 'engineering_manager']) %}
 
-{# صلاحيات الأزرار لكل مرحلة #}
 {% set can_submit_to_pm = (payment.status == 'draft' and role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer']) %}
 {% set can_pm_approve = (payment.status == 'pending_pm' and role_name in ['admin', 'engineering_manager', 'project_manager']) %}
 {% set can_pm_reject = can_pm_approve %}
@@ -136,7 +133,6 @@
 {% set can_fin_reject = can_fin_approve %}
 {% set can_mark_paid = (payment.status == 'ready_for_payment' and role_name in ['admin', 'finance']) %}
 
-{# chairman و dc لا يظهر لهم أي أزرار إجراءات ولا تعديل/حذف #}
 {% if role_name in ['chairman', 'dc'] %}
     {% set can_submit_to_pm = False %}
     {% set can_pm_approve = False %}
@@ -190,7 +186,7 @@
 </div>
 
 <div class="row g-3">
-    <!-- العمود الرئيسي: تفاصيل الدفعة -->
+    <!-- العمود الرئيسي -->
     <div class="col-lg-8">
         <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -220,7 +216,8 @@
                 </div>
             </div>
             <div class="card-body">
-                {# إظهار من رفض الدفعة فقط لمدير الإدارة الهندسية و admin #}
+
+                {# تنبيه يظهر لمن هو admin أو المدير الهندسي في حالة الرفض مع اسم من رفض #}
                 {% if is_rejected and rejection_log and role_name in ['engineering_manager', 'admin'] %}
                     <div class="alert alert-warning xsmall mb-3">
                         تم رفض هذه الدفعة بواسطة:
@@ -229,6 +226,10 @@
                         </span>
                         {% if rejection_log.step %}
                             <span class="text-muted"> ({{ rejection_log.step }})</span>
+                        {% endif %}
+                        {% if rejection_log.decided_at %}
+                            <br>
+                            بتاريخ {{ rejection_log.decided_at.strftime("%Y-%m-%d %H:%M") }}
                         {% endif %}
                         {% if rejection_log.comment %}
                             <br>
@@ -260,18 +261,28 @@
                             </div>
                         {% endif %}
                     </div>
+
                     <div class="col-md-6">
                         <div class="small-label mb-1">قيمة الدفعة</div>
                         <div class="value-strong">
                             {{ "{:,.0f}".format(payment.amount or 0) }} ج.م
                         </div>
                     </div>
+
                     <div class="col-md-6">
                         <div class="small-label mb-1">تاريخ الإنشاء</div>
                         <div class="value-strong">
                             {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else "" }}
                         </div>
                     </div>
+
+                    <div class="col-md-6">
+                        <div class="small-label mb-1">تم إدخال الدفعة بواسطة</div>
+                        <div class="value-strong">
+                            {{ payment.creator.full_name if payment.creator else 'غير محدد' }}
+                        </div>
+                    </div>
+
                     {% if payment.progress_percentage is not none %}
                         <div class="col-md-6">
                             <div class="small-label mb-1">نسبة الإنجاز وقت طلب الدفعة</div>
@@ -293,6 +304,7 @@
                             </div>
                         </div>
                     {% endif %}
+
                     {% if payment.description %}
                         <div class="col-12">
                             <div class="small-label mb-1">وصف مختصر للدفعة</div>
@@ -305,7 +317,7 @@
             </div>
         </div>
 
-        {# مرفقات الدفعة #}
+        {# المرفقات #}
         <div class="card mb-3 shadow-sm">
             <div class="card-header">
                 <span class="fw-semibold">المرفقات</span>
@@ -341,7 +353,7 @@
         </div>
     </div>
 
-    <!-- العمود الجانبي: تايملاين workflow + الإجراءات -->
+    <!-- العمود الجانبي: Workflow + الإجراءات -->
     <div class="col-lg-4">
         <div class="card mb-3 shadow-sm">
             <div class="card-header">
@@ -349,6 +361,8 @@
             </div>
             <div class="card-body">
                 <ol class="workflow-timeline list-unstyled">
+
+                    {# 1) إدخال المهندس #}
                     <li class="timeline-item {% if step >= 1 %}done{% endif %}">
                         <div class="timeline-badge">
                             <i class="bi bi-check"></i>
@@ -358,12 +372,17 @@
                             <div class="timeline-meta">
                                 {% if payment.created_at %}
                                     بتاريخ {{ payment.created_at.strftime("%Y-%m-%d %H:%M") }}
+                                    {% if payment.creator %}
+                                        – بواسطة {{ payment.creator.full_name }}
+                                    {% endif %}
                                 {% else %}
                                     لم يتم تسجيل التاريخ
                                 {% endif %}
                             </div>
                         </div>
                     </li>
+
+                    {# 2) مدير المشروع #}
                     <li class="timeline-item {% if step > 1 %}done{% elif step == 2 %}current{% endif %}">
                         <div class="timeline-badge">
                             <i class="bi bi-person-check"></i>
@@ -371,14 +390,24 @@
                         <div class="timeline-content">
                             <div class="timeline-title">مراجعة مدير المشروع</div>
                             <div class="timeline-meta">
-                                {% if payment.pm_reviewed_at %}
-                                    تمت المراجعة بتاريخ {{ payment.pm_reviewed_at.strftime("%Y-%m-%d %H:%M") }}
+                                {% if pm_decision %}
+                                    {% if pm_decision.action == 'approve' %}
+                                        تمت الموافقة بواسطة
+                                        {{ pm_decision.decided_by.full_name if pm_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ pm_decision.decided_at.strftime("%Y-%m-%d %H:%M") if pm_decision.decided_at else '' }}
+                                    {% elif pm_decision.action == 'reject' %}
+                                        تم الرفض بواسطة
+                                        {{ pm_decision.decided_by.full_name if pm_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ pm_decision.decided_at.strftime("%Y-%m-%d %H:%M") if pm_decision.decided_at else '' }}
+                                    {% endif %}
                                 {% else %}
                                     في انتظار اعتماد مدير المشروع
                                 {% endif %}
                             </div>
                         </div>
                     </li>
+
+                    {# 3) الإدارة الهندسية #}
                     <li class="timeline-item {% if step > 2 %}done{% elif step == 3 %}current{% endif %}">
                         <div class="timeline-badge">
                             <i class="bi bi-diagram-3"></i>
@@ -386,14 +415,24 @@
                         <div class="timeline-content">
                             <div class="timeline-title">مراجعة الإدارة الهندسية</div>
                             <div class="timeline-meta">
-                                {% if payment.eng_reviewed_at %}
-                                    تمت المراجعة بتاريخ {{ payment.eng_reviewed_at.strftime("%Y-%m-%d %H:%M") }}
+                                {% if eng_decision %}
+                                    {% if eng_decision.action == 'approve' %}
+                                        تمت الموافقة بواسطة
+                                        {{ eng_decision.decided_by.full_name if eng_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ eng_decision.decided_at.strftime("%Y-%m-%d %H:%M") if eng_decision.decided_at else '' }}
+                                    {% elif eng_decision.action == 'reject' %}
+                                        تم الرفض بواسطة
+                                        {{ eng_decision.decided_by.full_name if eng_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ eng_decision.decided_at.strftime("%Y-%m-%d %H:%M") if eng_decision.decided_at else '' }}
+                                    {% endif %}
                                 {% else %}
                                     في انتظار اعتماد الإدارة الهندسية
                                 {% endif %}
                             </div>
                         </div>
                     </li>
+
+                    {# 4) الإدارة المالية #}
                     <li class="timeline-item {% if step > 3 %}done{% elif step == 4 %}current{% endif %}">
                         <div class="timeline-badge">
                             <i class="bi bi-cash-coin"></i>
@@ -401,14 +440,24 @@
                         <div class="timeline-content">
                             <div class="timeline-title">مراجعة الإدارة المالية</div>
                             <div class="timeline-meta">
-                                {% if payment.finance_reviewed_at %}
-                                    تمت المراجعة بتاريخ {{ payment.finance_reviewed_at.strftime("%Y-%m-%d %H:%M") }}
+                                {% if fin_decision %}
+                                    {% if fin_decision.action == 'approve' %}
+                                        تمت الموافقة بواسطة
+                                        {{ fin_decision.decided_by.full_name if fin_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ fin_decision.decided_at.strftime("%Y-%m-%d %H:%M") if fin_decision.decided_at else '' }}
+                                    {% elif fin_decision.action == 'reject' %}
+                                        تم الرفض بواسطة
+                                        {{ fin_decision.decided_by.full_name if fin_decision.decided_by else 'غير معروف' }}
+                                        بتاريخ {{ fin_decision.decided_at.strftime("%Y-%m-%d %H:%M") if fin_decision.decided_at else '' }}
+                                    {% endif %}
                                 {% else %}
                                     في انتظار اعتماد المالية
                                 {% endif %}
                             </div>
                         </div>
                     </li>
+
+                    {# 5) جاهزة للصرف #}
                     <li class="timeline-item {% if step > 4 %}done{% elif step == 5 %}current{% endif %}">
                         <div class="timeline-badge">
                             <i class="bi bi-wallet2"></i>
@@ -416,14 +465,18 @@
                         <div class="timeline-content">
                             <div class="timeline-title">جاهزة للصرف</div>
                             <div class="timeline-meta">
-                                {% if payment.ready_for_payment_at %}
-                                    تم تجهيز الدفعة بتاريخ {{ payment.ready_for_payment_at.strftime("%Y-%m-%d %H:%M") }}
+                                {% if finance_ready_log and finance_ready_log.action == 'approve' %}
+                                    تم تجهيز الدفعة للصرف بواسطة
+                                    {{ finance_ready_log.decided_by.full_name if finance_ready_log.decided_by else 'غير معروف' }}
+                                    بتاريخ {{ finance_ready_log.decided_at.strftime("%Y-%m-%d %H:%M") if finance_ready_log.decided_at else '' }}
                                 {% else %}
                                     لم تُجهّز بعد للصرف
                                 {% endif %}
                             </div>
                         </div>
                     </li>
+
+                    {# 6) تم الصرف / مرفوضة #}
                     <li class="timeline-item {% if is_rejected %}rejected{% elif step == 6 %}done{% endif %}">
                         <div class="timeline-badge">
                             {% if is_rejected %}
@@ -441,10 +494,14 @@
                                 {% endif %}
                             </div>
                             <div class="timeline-meta">
-                                {% if payment.paid_at %}
-                                    تم الصرف بتاريخ {{ payment.paid_at.strftime("%Y-%m-%d %H:%M") }}
-                                {% elif is_rejected and payment.rejected_at %}
-                                    تم الرفض بتاريخ {{ payment.rejected_at.strftime("%Y-%m-%d %H:%M") }}
+                                {% if not is_rejected and paid_log %}
+                                    تم الصرف بواسطة
+                                    {{ paid_log.decided_by.full_name if paid_log.decided_by else 'غير معروف' }}
+                                    بتاريخ {{ paid_log.decided_at.strftime("%Y-%m-%d %H:%M") if paid_log.decided_at else '' }}
+                                {% elif is_rejected and rejection_log %}
+                                    تم الرفض بواسطة
+                                    {{ rejection_log.decided_by.full_name if rejection_log.decided_by else 'غير معروف' }}
+                                    بتاريخ {{ rejection_log.decided_at.strftime("%Y-%m-%d %H:%M") if rejection_log.decided_at else '' }}
                                 {% elif is_rejected %}
                                     تم الرفض بدون تاريخ محدد
                                 {% else %}
@@ -453,11 +510,12 @@
                             </div>
                         </div>
                     </li>
+
                 </ol>
             </div>
         </div>
 
-        <!-- إجراءات -->
+        <!-- الإجراءات -->
         <div class="card payment-actions shadow-sm">
             <div class="card-header">
                 <span class="fw-semibold">الإجراءات المتاحة</span>
