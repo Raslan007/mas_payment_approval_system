@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}إضافة دفعة جديدة{% endblock %}
+
+{% block content %}
+{% set page_title = "إضافة دفعة جديدة" %}
+
+<div class="mb-3">
+    <h1 class="h5 mb-1">إضافة دفعة جديدة</h1>
+    <p class="text-muted xsmall mb-0">
+        إدخال بيانات الدفعة وربطها بالمشروع والمورد/المقاول، تمهيدًا لمسار الاعتمادات.
+    </p>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm">
+    <form method="post" novalidate>
+
+        <div class="row g-3">
+            <!-- المشروع -->
+            <div class="col-md-6">
+                <label class="form-label">المشروع</label>
+                <div class="d-flex gap-2">
+                    <select name="project_id" class="form-select" required title="اختر المشروع">
+                        <option value="">اختر المشروع...</option>
+                        {% for project in projects %}
+                            <option value="{{ project.id }}">{{ project.project_name }}</option>
+                        {% endfor %}
+                    </select>
+
+                    {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
+                        <a href="{{ url_for('projects.create_project') }}" target="_blank"
+                           class="btn btn-outline-secondary">
+                            +
+                        </a>
+                    {% endif %}
+                </div>
+                {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
+                    <small class="text-muted xsmall">
+                        لو المشروع غير موجود، اضغط (+) لإضافته في تبويب جديد ثم حدّث الصفحة.
+                    </small>
+                {% endif %}
+            </div>
+
+            <!-- المورد / المقاول -->
+            <div class="col-md-6">
+                <label class="form-label">المورد / المقاول</label>
+                <div class="d-flex gap-2">
+                    <select name="supplier_id" class="form-select" required title="اختر المورد أو المقاول">
+                        <option value="">اختر المورد أو المقاول...</option>
+                        {% for s in suppliers %}
+                            <option value="{{ s.id }}">{{ s.name }} ({{ s.supplier_type }})</option>
+                        {% endfor %}
+                    </select>
+
+                    {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
+                        <a href="{{ url_for('suppliers.create_supplier') }}" target="_blank"
+                           class="btn btn-outline-secondary">
+                            +
+                        </a>
+                    {% endif %}
+                </div>
+                {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
+                    <small class="text-muted xsmall">
+                        لو المورد/المقاول غير موجود، اضغط (+) لإضافته في تبويب جديد ثم حدّث الصفحة.
+                    </small>
+                {% endif %}
+            </div>
+
+            <!-- نوع الدفعة -->
+            <div class="col-md-4">
+                <label class="form-label">نوع الدفعة</label>
+                <select name="request_type" class="form-select" title="اختر نوع الدفعة">
+                    <option value="مقاول">مقاول</option>
+                    <option value="مشتريات">مشتريات</option>
+                    <option value="عهدة">عهدة</option>
+                </select>
+            </div>
+
+            <!-- المبلغ -->
+            <div class="col-md-4">
+                <label class="form-label">المبلغ</label>
+                <input type="number" step="0.01" name="amount" class="form-control"
+                       required title="أدخل المبلغ" placeholder="أدخل المبلغ">
+            </div>
+
+            <!-- نسبة الإنجاز -->
+            <div class="col-md-4">
+                <label class="form-label">نسبة الإنجاز وقت هذه الدفعة (%)</label>
+                <input type="number" step="0.01" min="0" max="100"
+                       name="progress_percentage"
+                       class="form-control"
+                       placeholder="مثال: 25 أو 50.5">
+                <small class="text-muted xsmall">
+                    اختياري – يمثل نسبة إنجاز بند/مرحلة المشروع عند طلب هذه الدفعة.
+                </small>
+            </div>
+
+            <!-- الوصف -->
+            <div class="col-12">
+                <label class="form-label">وصف / ملاحظات</label>
+                <textarea name="description" rows="3" class="form-control"
+                          placeholder="أدخل الوصف أو الملاحظات"></textarea>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-3">
+            <a href="{{ url_for('payments.index') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ الدفعة
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

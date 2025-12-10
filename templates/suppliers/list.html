@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}إدارة الموردين / المقاولين{% endblock %}
+
+{% block content %}
+{% set page_title = "إدارة الموردين / المقاولين" %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">إدارة الموردين / المقاولين</h1>
+        <p class="text-muted xsmall mb-0">
+            عرض جميع الموردين والمقاولين المسجلين لاستخدامهم في طلبات الدفعات.
+        </p>
+    </div>
+    <div>
+        <a href="{{ url_for('suppliers.create_supplier') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle ms-1"></i>
+            إضافة مورد / مقاول جديد
+        </a>
+    </div>
+</div>
+
+<div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0 datatable">
+            <thead>
+            <tr>
+                <th class="text-center" style="width: 70px;">#</th>
+                <th>الاسم</th>
+                <th class="text-nowrap">النوع</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if suppliers %}
+                {% for s in suppliers %}
+                    <tr>
+                        <td class="text-center text-muted">
+                            {{ s.id }}
+                        </td>
+                        <td class="fw-semibold">
+                            {{ s.name }}
+                        </td>
+                        <td>
+                            {{ s.supplier_type }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+    {% if not suppliers %}
+        <p class="text-muted text-center xsmall mt-3 mb-0">
+            لا يوجد موردين/مقاولين مسجلين حتى الآن.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

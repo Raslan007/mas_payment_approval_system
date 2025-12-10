@@ -1,0 +1,209 @@
+/* ===== خطوط وخلفية عامة ===== */
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+}
+
+/* ارتفاع التطبيق بالكامل */
+.app-wrapper {
+    min-height: 100vh;
+}
+
+/* ===== Sidebar ===== */
+.app-sidebar {
+    width: 260px;
+    background: linear-gradient(180deg, #4b2c88 0%, #2f1e57 100%);
+    color: #f8f9fa;
+}
+
+.app-sidebar-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.brand-text .xsmall {
+    font-size: 0.7rem;
+}
+
+.app-sidebar-menu {
+    padding-top: 0.5rem;
+}
+
+.sidebar-section-title {
+    padding: 0.75rem 1rem 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 0.86rem;
+    text-decoration: none;
+    border-radius: 0;
+    border-inline-start: 3px solid transparent;
+}
+
+.sidebar-link i {
+    font-size: 1rem;
+}
+
+.sidebar-link:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.sidebar-link.active {
+    background-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    border-inline-start-color: #ffc107;
+}
+
+.app-sidebar-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    font-size: 0.75rem;
+}
+
+/* نسخة موبايل من الروابط تستخدم نفس الستايل */
+.offcanvas .sidebar-link {
+    color: #212529;
+    border-inline-start-color: transparent;
+}
+.offcanvas .sidebar-link.active {
+    background-color: #f1f3f5;
+    border-inline-start-color: #4b2c88;
+}
+
+/* ===== Topbar ===== */
+.app-topbar {
+    min-height: 52px;
+}
+
+.brand-logo-small {
+    width: 36px;
+    height: 36px;
+    border-radius: 0.75rem;
+    background: #4b2c88;
+    color: #fff;
+}
+
+/* Avatar */
+.avatar-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background-color: #e9ecef;
+    font-size: 0.95rem;
+}
+
+/* Text sizes */
+.xsmall {
+    font-size: 0.7rem;
+}
+
+/* ===== محتوى التطبيق ===== */
+.app-main {
+    background-color: #f3f4f7;
+}
+
+.app-footer {
+    font-size: 0.78rem;
+}
+
+/* ===== جداول وكروت ===== */
+.card-table .table {
+    margin-bottom: 0;
+}
+
+.card-table .table thead th {
+    background-color: #f1f3f5;
+    border-bottom-width: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.table th,
+.table td {
+    vertical-align: middle;
+}
+
+/* بادجات الحالات */
+.badge {
+    border-radius: 999px;
+    padding-inline: 0.7rem;
+}
+
+/* Progress bar رفيعة */
+.progress.progress-thin {
+    height: 0.4rem;
+    background-color: #e5e7f0;
+}
+
+.progress.progress-thin .progress-bar {
+    background-image: linear-gradient(90deg, #4b2c88, #9b59b6);
+}
+
+/* فورمات */
+.form-label {
+    font-weight: 500;
+}
+
+/* كارت شاشة الدخول */
+.auth-card {
+    max-width: 420px;
+    margin-inline: auto;
+}
+
+/* أزرار صغيرة بأيقونة */
+.btn-sm-icon i {
+    pointer-events: none;
+}
+
+/* للتأكد من أن الحقول لا تكون صغيرة جداً */
+input.form-control,
+select.form-select,
+textarea.form-control {
+    font-size: 0.9rem;
+}
+
+/* تصغير ScrollBar في الـ Sidebar قليلاً */
+.app-sidebar-menu::-webkit-scrollbar {
+    width: 6px;
+}
+.app-sidebar-menu::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.35);
+    border-radius: 10px;
+}
+
+/* ===== تنسيقات DataTables RTL ===== */
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter {
+    font-size: 0.78rem;
+}
+
+.dataTables_wrapper .dataTables_filter input {
+    margin-inline-start: 0.5rem;
+}
+
+.dataTables_wrapper .dt-buttons .btn {
+    font-size: 0.78rem;
+    margin: 0 0.15rem;
+}
+
+.dataTables_wrapper .dataTables_info {
+    font-size: 0.7rem;
+}
+
+.dataTables_wrapper .dataTables_paginate .pagination {
+    margin-top: 0.25rem;
+}

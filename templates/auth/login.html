@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}تسجيل الدخول - نظام اعتماد الدفعات{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-5">
+        <div class="auth-card bg-white p-4 p-md-5 rounded-3 shadow-sm mt-4">
+
+            <div class="text-center mb-4">
+                <div class="d-inline-flex align-items-center justify-content-center
+                            rounded-circle bg-primary-subtle p-3 mb-2">
+                    <i class="bi bi-shield-lock-fill fs-3 text-primary"></i>
+                </div>
+                <h1 class="h5 mb-1">تسجيل الدخول للنظام</h1>
+                <p class="text-muted small mb-0">
+                    الرجاء إدخال بريدك الإلكتروني وكلمة المرور المخصصة لك.
+                </p>
+            </div>
+
+            <form method="post" novalidate>
+                <div class="mb-3">
+                    <label class="form-label">البريد الإلكتروني</label>
+                    <input type="email"
+                           name="email"
+                           class="form-control"
+                           placeholder="name@example.com"
+                           required
+                           autofocus>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">كلمة المرور</label>
+                    <div class="input-group">
+                        <input type="password"
+                               name="password"
+                               class="form-control"
+                               id="passwordInput"
+                               placeholder="••••••••"
+                               required>
+                        <button class="btn btn-outline-secondary"
+                                type="button"
+                                id="togglePassword"
+                                tabindex="-1">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 mt-2">
+                    <i class="bi bi-box-arrow-in-right ms-1"></i>
+                    دخول
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    (function () {
+        const input = document.getElementById('passwordInput');
+        const btn = document.getElementById('togglePassword');
+        if (!input || !btn) return;
+
+        btn.addEventListener('click', function () {
+            const isPassword = input.getAttribute('type') === 'password';
+            input.setAttribute('type', isPassword ? 'text' : 'password');
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('bi-eye');
+                icon.classList.toggle('bi-eye-slash');
+            }
+        });
+    })();
+</script>
+{% endblock %}

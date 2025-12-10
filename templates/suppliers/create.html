@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}إضافة مورد / مقاول جديد{% endblock %}
+
+{% block content %}
+{% set page_title = "إضافة مورد / مقاول جديد" %}
+
+<div class="mb-3">
+    <h1 class="h5 mb-1">إضافة مورد / مقاول جديد</h1>
+    <p class="text-muted xsmall mb-0">
+        تسجيل مورد أو مقاول جديد لاستخدامه في ربط الدفعات بالموردين/المقاولين.
+    </p>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm col-lg-6 col-md-8 col-12">
+    <form method="post" novalidate>
+        <!-- الاسم -->
+        <div class="mb-3">
+            <label for="name" class="form-label">الاسم</label>
+            <input type="text"
+                   id="name"
+                   name="name"
+                   class="form-control"
+                   required
+                   placeholder="أدخل اسم المورد أو المقاول">
+        </div>
+
+        <!-- النوع -->
+        <div class="mb-3">
+            <label for="supplier_type" class="form-label">النوع</label>
+            <select id="supplier_type"
+                    name="supplier_type"
+                    class="form-select"
+                    required
+                    title="اختر النوع">
+                <option value="">اختر النوع...</option>
+                <option value="مقاول">مقاول</option>
+                <option value="مورد مواد">مورد مواد</option>
+                <option value="مورد معدات">مورد معدات</option>
+                <option value="أخرى">أخرى</option>
+            </select>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-2">
+            <a href="{{ url_for('suppliers.list_suppliers') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

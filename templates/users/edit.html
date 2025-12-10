@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}تعديل بيانات المستخدم{% endblock %}
+
+{% block content %}
+{% set page_title = "تعديل بيانات المستخدم " ~ (user.full_name or user.email) %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">
+            تعديل بيانات المستخدم
+        </h1>
+        <p class="text-muted xsmall mb-0">
+            تعديل الاسم، البريد الإلكتروني، الدور، وحالة نشاط المستخدم.
+        </p>
+    </div>
+    <div class="text-end xsmall">
+        <div class="fw-semibold">
+            {{ user.full_name or user.username }}
+        </div>
+        <div class="text-muted">
+            {{ user.email }}
+        </div>
+    </div>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm col-lg-6 col-md-8 col-12">
+    <form method="post" novalidate>
+
+        <!-- الاسم الكامل -->
+        <div class="mb-3">
+            <label for="full_name" class="form-label">الاسم الكامل</label>
+            <input type="text"
+                   id="full_name"
+                   name="full_name"
+                   class="form-control"
+                   value="{{ user.full_name or '' }}"
+                   required>
+        </div>
+
+        <!-- البريد الإلكتروني -->
+        <div class="mb-3">
+            <label for="email" class="form-label">البريد الإلكتروني (اسم المستخدم للدخول)</label>
+            <input type="email"
+                   id="email"
+                   name="email"
+                   class="form-control"
+                   value="{{ user.email or '' }}"
+                   required>
+        </div>
+
+        <!-- الدور / الصلاحية -->
+        <div class="mb-3">
+            <label for="role_id" class="form-label">الدور / الصلاحية</label>
+            <select id="role_id"
+                    name="role_id"
+                    class="form-select"
+                    required>
+                <option value="">اختر الدور...</option>
+                {% for r in roles %}
+                    <option value="{{ r.id }}"
+                            {% if user.role_id == r.id %}selected{% endif %}>
+                        {{ r.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- حالة المستخدم -->
+        <div class="mb-3 form-check">
+            <input class="form-check-input"
+                   type="checkbox"
+                   value="1"
+                   id="is_active"
+                   name="is_active"
+                   {% if user.is_active %}checked{% endif %}>
+            <label class="form-check-label" for="is_active">
+                مستخدم نشط
+            </label>
+        </div>
+
+        {# يمكن لاحقاً إضافة فورم فرعي لتغيير كلمة المرور فقط لو عندك راوت لذلك #}
+        {# مثال (اختياري ولا يؤثر حالياً):
+        <hr class="my-3">
+        <h2 class="h6 mb-2">تغيير كلمة المرور</h2>
+        <div class="mb-3">
+            <label for="new_password" class="form-label">كلمة مرور جديدة</label>
+            <input type="password" id="new_password" name="new_password" class="form-control">
+            <small class="text-muted xsmall">
+                اتركها فارغة للإبقاء على كلمة المرور الحالية.
+            </small>
+        </div>
+        #}
+
+        <div class="d-flex justify-content-end gap-2 mt-2">
+            <a href="{{ url_for('users.list_users') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ التعديلات
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

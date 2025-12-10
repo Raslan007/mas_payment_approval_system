@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}لوحة مدير الإدارة الهندسية{% endblock %}
+
+{% block content %}
+{% set page_title = "لوحة مدير الإدارة الهندسية" %}
+
+<div class="mb-3">
+    <h1 class="h5 mb-1">{{ page_title }}</h1>
+    <p class="text-muted mb-0">
+        متابعة حالة الدفعات تحت مراجعة الإدارة الهندسية، ما تم تمريره للمالية، وما تم رفضه.
+    </p>
+</div>
+
+<!-- فلاتر أعلى الصفحة -->
+<div class="bg-white rounded-3 shadow-sm p-3 mb-3">
+    <form class="row g-3 align-items-end" method="get" action="{{ url_for('main.eng_dashboard') }}">
+        <div class="col-md-4">
+            <label class="form-label">المشروع</label>
+            <select name="project_id" class="form-select">
+                <option value="">كل المشاريع</option>
+                {% for p in projects %}
+                    <option value="{{ p.id }}"
+                        {% if filters.project_id and filters.project_id|string == p.id|string %}selected{% endif %}>
+                        {{ p.project_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">من تاريخ</label>
+            <input type="date" name="date_from" class="form-control"
+                   value="{{ filters.date_from or '' }}">
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">إلى تاريخ</label>
+            <input type="date" name="date_to" class="form-control"
+                   value="{{ filters.date_to or '' }}">
+        </div>
+
+        <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-funnel ms-1"></i>
+                تطبيق الفلاتر
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- كروت مؤشرات الأداء -->
+<div class="row g-3 mb-3">
+    <!-- تحت مراجعة الإدارة الهندسية -->
+    <div class="col-sm-6 col-lg-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">دفعات تحت مراجعة الإدارة الهندسية</span>
+                <i class="bi bi-search text-primary"></i>
+            </div>
+            <div class="h4 mb-1">{{ pending_eng_count or 0 }}</div>
+            <div class="text-muted xsmall">
+                إجمالي المبلغ:
+                <span class="fw-semibold">
+                    {{ "%.2f"|format(pending_eng_total or 0) }} ج.م
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- في انتظار المالية -->
+    <div class="col-sm-6 col-lg-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">دفعات في انتظار المالية</span>
+                <i class="bi bi-hourglass-split text-warning"></i>
+            </div>
+            <div class="h4 mb-1">{{ waiting_finance_count or 0 }}</div>
+            <div class="text-muted xsmall">
+                إجمالي المبلغ:
+                <span class="fw-semibold">
+                    {{ "%.2f"|format(waiting_finance_total or 0) }} ج.م
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- إجمالي معتمد هندسياً -->
+    <div class="col-sm-6 col-lg-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">مبالغ معتمدة من الإدارة الهندسية</span>
+                <i class="bi bi-check2-circle text-success"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ "%.2f"|format(approved_after_eng_total or 0) }}
+                <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">
+                تم تمريرها للمالية لاعتماد/صرف الدفعات.
+            </div>
+        </div>
+    </div>
+
+    <!-- مرفوضة من الإدارة الهندسية -->
+    <div class="col-sm-6 col-lg-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">دفعات مرفوضة هندسيًا</span>
+                <i class="bi bi-x-circle text-danger"></i>
+            </div>
+            <div class="h4 mb-1">{{ rejected_by_eng_count or 0 }}</div>
+            <div class="text-muted xsmall">
+                إجمالي المبلغ:
+                <span class="fw-semibold">
+                    {{ "%.2f"|format(rejected_by_eng_total or 0) }} ج.م
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <!-- توزيع تحت المراجعة حسب المشروع -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">
+                        دفعات تحت مراجعة الإدارة الهندسية حسب المشروع
+                    </div>
+                    <div class="text-muted xsmall">
+                        يساعد على تحديد المشاريع التي تحتاج تدخل هندسي أسرع.
+                    </div>
+                </div>
+            </div>
+
+            {% if pending_by_project %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>المشروع</th>
+                            <th class="text-center">عدد الدفعات</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in pending_by_project %}
+                            <tr>
+                                <td class="small">{{ row.project_name }}</td>
+                                <td class="text-center small">{{ row.count or 0 }}</td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(row.total_amount or 0) }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد حاليًا دفعات تحت مراجعة الإدارة الهندسية ضمن نطاق الفلاتر.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- توزيع المنتظر المالية حسب المشروع -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">
+                        دفعات في انتظار المالية حسب المشروع
+                    </div>
+                    <div class="text-muted xsmall">
+                        لعرض المشاريع التي تم تمريرها للمالية ولم تُعتمد بعد ماليًا.
+                    </div>
+                </div>
+            </div>
+
+            {% if waiting_by_project %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>المشروع</th>
+                            <th class="text-center">عدد الدفعات</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in waiting_by_project %}
+                            <tr>
+                                <td class="small">{{ row.project_name }}</td>
+                                <td class="text-center small">{{ row.count or 0 }}</td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(row.total_amount or 0) }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد حالياً دفعات في انتظار المالية ضمن نطاق الفلاتر.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- أحدث حركات الاعتماد الهندسي -->
+<div class="bg-white rounded-3 shadow-sm p-3 card-table">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">أحدث حركات الاعتماد من الإدارة الهندسية</div>
+            <div class="text-muted xsmall">
+                آخر 10 عمليات اعتماد / رفض تمت من قبلك أو من الفريق الهندسي.
+            </div>
+        </div>
+    </div>
+
+    {% if recent_eng_logs %}
+        {% set status_labels = {
+            'draft': 'مسودة',
+            'under_review_pm': 'تحت مراجعة مدير المشروع',
+            'under_review_eng': 'تحت مراجعة الإدارة الهندسية',
+            'waiting_finance': 'في انتظار اعتماد المالية',
+            'approved': 'معتمد نهائيًا',
+            'paid': 'تم الصرف',
+            'rejected': 'مرفوض'
+        } %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th class="text-center">رقم الدفعة</th>
+                    <th>الحركة</th>
+                    <th>من → إلى</th>
+                    <th>بواسطة</th>
+                    <th class="text-nowrap">التاريخ/الوقت</th>
+                    <th>ملاحظة</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for log in recent_eng_logs %}
+                    <tr>
+                        <td class="text-center small">
+                            {{ log.payment_request_id }}
+                        </td>
+                        <td class="small">
+                            {{ log.step }} - {{ log.action }}
+                        </td>
+                        <td class="small">
+                            {% set old_label = status_labels.get(log.old_status, log.old_status or "-") %}
+                            {% set new_label = status_labels.get(log.new_status, log.new_status or "-") %}
+                            <span class="text-muted">{{ old_label }}</span>
+                            <span class="mx-1">→</span>
+                            <span class="fw-semibold">{{ new_label }}</span>
+                        </td>
+                        <td class="small">
+                            {{ log.decided_by.full_name if log.decided_by else "-" }}
+                        </td>
+                        <td class="small text-nowrap">
+                            {{ log.decided_at.strftime("%Y-%m-%d %H:%M") if log.decided_at else "" }}
+                        </td>
+                        <td class="small">
+                            {{ log.comment or "-" }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">
+            لا توجد حركات اعتماد حديثة لعرضها ضمن نطاق الفلاتر الحالية.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

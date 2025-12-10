@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}الإشعارات{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex justify-content-between align-items-center">
+    <div>
+        <h1 class="h5 mb-1">الإشعارات</h1>
+        <p class="text-muted mb-0">
+            جميع الإشعارات المرتبطة بحركة الدفعات وقرارات الاعتماد.
+        </p>
+    </div>
+    <div>
+        <a href="{{ url_for('notifications.mark_all_read') }}" class="btn btn-sm btn-outline-secondary">
+            تعليم الكل كمقروء
+        </a>
+    </div>
+</div>
+
+<div class="bg-white rounded-3 shadow-sm p-3">
+    {% if notifications %}
+        <ul class="list-group list-group-flush">
+            {% for n in notifications %}
+                <li class="list-group-item d-flex justify-content-between align-items-start {% if not n.is_read %}bg-light{% endif %}">
+                    <div class="ms-2 me-auto">
+                        <div class="fw-bold">
+                            {% if not n.is_read %}
+                                <span class="badge bg-primary me-1">جديد</span>
+                            {% endif %}
+                            {{ n.title }}
+                        </div>
+                        {% if n.message %}
+                            <div class="small text-muted mt-1" style="white-space: pre-line;">
+                                {{ n.message }}
+                            </div>
+                        {% endif %}
+                        <div class="small text-muted mt-1">
+                            {{ n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "" }}
+                        </div>
+                    </div>
+                    <div class="d-flex flex-column align-items-end gap-1">
+                        {% if n.url %}
+                            <a href="{{ url_for('notifications.read_notification', notification_id=n.id) }}"
+                               class="btn btn-sm btn-outline-primary">
+                                فتح
+                            </a>
+                        {% else %}
+                            {% if not n.is_read %}
+                                <a href="{{ url_for('notifications.read_notification', notification_id=n.id) }}"
+                                   class="btn btn-sm btn-outline-secondary">
+                                    تعليم كمقروء
+                                </a>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted mb-0">لا توجد إشعارات حتى الآن.</p>
+    {% endif %}
+</div>
+{% endblock %}

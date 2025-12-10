@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}إدارة المستخدمين{% endblock %}
+
+{% block content %}
+{% set page_title = "إدارة المستخدمين" %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">إدارة المستخدمين</h1>
+        <p class="text-muted xsmall mb-0">
+            عرض جميع المستخدمين المسجلين في النظام وأدوارهم وصلاحياتهم.
+        </p>
+    </div>
+    <div>
+        <a href="{{ url_for('users.create_user') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle ms-1"></i>
+            إضافة مستخدم جديد
+        </a>
+    </div>
+</div>
+
+<div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0 datatable">
+            <thead>
+            <tr>
+                <th class="text-center" style="width: 60px;">#</th>
+                <th>الاسم</th>
+                <th>البريد الإلكتروني</th>
+                <th class="text-nowrap">الدور / الصلاحية</th>
+                <th class="text-center text-nowrap">الحالة</th>
+                <th class="text-center" style="width: 160px;">إجراءات</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if users %}
+                {% for u in users %}
+                    <tr>
+                        <td class="text-center text-muted">
+                            {{ u.id }}
+                        </td>
+                        <td class="fw-semibold">
+                            {{ u.full_name or u.username }}
+                        </td>
+                        <td>
+                            {{ u.email }}
+                        </td>
+                        <td>
+                            {{ u.role.name if u.role else "-" }}
+                        </td>
+                        <td class="text-center">
+                            {% if u.is_active %}
+                                <span class="badge bg-success-subtle text-success border-0 xsmall">
+                                    <i class="bi bi-check-circle ms-1"></i> نشط
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border-0 xsmall">
+                                    <i class="bi bi-slash-circle ms-1"></i> غير نشط
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="d-flex justify-content-center gap-1 flex-wrap">
+
+                                <!-- زر تعديل -->
+                                <a href="{{ url_for('users.edit_user', user_id=u.id) }}"
+                                   class="btn btn-sm btn-outline-secondary btn-sm-icon"
+                                   title="تعديل المستخدم">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+
+                                <!-- زر حذف (لا يظهر لنفس المستخدم الحالي) -->
+                                {% if current_user.id != u.id %}
+                                <form method="post"
+                                      action="{{ url_for('users.delete_user', user_id=u.id) }}"
+                                      onsubmit="return confirm('هل أنت متأكد من حذف هذا المستخدم؟');"
+                                      class="d-inline">
+                                    <button type="submit"
+                                            class="btn btn-sm btn-outline-danger btn-sm-icon"
+                                            title="حذف المستخدم">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+    {% if not users %}
+        <p class="text-muted text-center xsmall mt-3 mb-0">
+            لا يوجد مستخدمون مسجلون حتى الآن.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

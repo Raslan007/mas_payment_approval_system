@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+{% block title %}تفاصيل الدفعة رقم {{ payment.id }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .card-header-subtitle {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+    .badge-status {
+        font-size: 0.75rem;
+        padding: 0.35rem 0.6rem;
+        border-radius: 999px;
+    }
+    .workflow-timeline {
+        position: relative;
+        margin: 0;
+        padding: 0;
+    }
+    .workflow-timeline::before {
+        content: "";
+        position: absolute;
+        top: 0.6rem;
+        bottom: 0.6rem;
+        inset-inline-start: 12px;
+        width: 2px;
+        background-color: #e0e0e0;
+    }
+    .workflow-timeline .timeline-item {
+        position: relative;
+        padding-inline-start: 2.5rem;
+        padding-bottom: 0.75rem;
+    }
+    .workflow-timeline .timeline-item:last-child {
+        padding-bottom: 0;
+    }
+    .workflow-timeline .timeline-badge {
+        position: absolute;
+        inset-inline-start: 4px;
+        top: 0.1rem;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background-color: #e0e0e0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        color: #fff;
+    }
+    .workflow-timeline .timeline-item.done .timeline-badge {
+        background-color: #198754;
+    }
+    .workflow-timeline .timeline-item.current .timeline-badge {
+        background-color: #0d6efd;
+    }
+    .workflow-timeline .timeline-item.rejected .timeline-badge {
+        background-color: #dc3545;
+    }
+    .workflow-timeline .timeline-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.1rem;
+    }
+    .workflow-timeline .timeline-meta {
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+    .label-muted {
+        font-size: 0.8rem;
+        color: #6c757d;
+        white-space: nowrap;
+    }
+    .value-strong {
+        font-weight: 600;
+    }
+    .payment-actions .btn {
+        width: 100%;
+    }
+    @media (min-width: 992px) {
+        .payment-actions .btn {
+            width: auto;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set page_title = "تفاصيل الدفعة رقم " ~ payment.id %}
+{% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
+
+{# حساب المرحلة الحالية رقمياً لاستخدامها في التايملاين #}
+{% if payment.status == 'draft' %}
+    {% set step = 1 %}
+{% elif payment.status == 'pending_pm' %}
+    {% set step = 2 %}
+{% elif payment.status == 'pending_eng' %}
+    {% set step = 3 %}
+{% elif payment.status == 'pending_finance' %}
+    {% set step = 4 %}
+{% elif payment.status == 'ready_for_payment' %}
+    {% set step = 5 %}
+{% elif payment.status == 'paid' %}
+    {% set step = 6 %}
+{% else %}
+    {% set step = 0 %}
+{% endif %}
+
+{# هل الدفعة مرفوضة؟ #}
+{% set is_rejected = (payment.status == 'rejected') %}
+
+{# صلاحية التعديل (نفس منطق _can_edit_payment تقريباً) #}
+{% set can_edit = False %}
+{% if role_name in ['admin', 'engineering_manager'] %}
+    {% set can_edit = True %}
+{% elif role_name == 'engineer' and payment.status == 'draft' and payment.created_by == current_user.id %}
+    {% set can_edit = True %}
+{% elif role_name == 'project_manager' and payment.status in ['draft', 'pending_pm'] and payment.created_by == current_user.id %}
+    {% set can_edit = True %}
+{% endif %}
+
+{# صلاحيات الأزرار لكل مرحلة #}
+{% set can_submit_to_pm = (payment.status == 'draft' and role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer']) %}
+{% set can_pm_approve = (payment.status == 'pending_pm' and role_name in ['admin', 'engineering_manager', 'project_manager']) %}
+{% set can_pm_reject = can_pm_approve %}
+{% set can_eng_approve = (payment.status == 'pending_eng' and role_name in ['admin', 'engineering_manager']) %}
+{% set can_eng_reject = can_eng_approve %}
+{% set can_fin_approve = (payment.status == 'pending_finance' and role_name in ['admin', 'finance']) %}
+{% set can_fin_reject = can_fin_approve %}
+{% set can_mark_paid = (payment.status == 'ready_for_payment' and role_name in ['admin', 'finance']) %}
+
+{# chairman و dc لا يظهر لهم أي أزرار إجراءات #}
+{% if role_name in ['chairman', 'dc'] %}
+    {% set can_submit_to_pm = False %}
+    {% set can_pm_approve = False %}
+    {% set can_pm_reject = False %}
+    {% set can_eng_approve = False %}
+    {% set can_eng_reject = False %}
+    {% set can_fin_approve = False %}
+    {% set can_fin_reject = False %}
+    {% set can_mark_paid = False %}
+    {% set can_edit = False %}
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h5 mb-1">
+            تفاصيل الدفعة رقم {{ payment.id }}
+        </h1>
+        <div class="card-header-subtitle">
+            مشروع:
+            <span class="fw-semibold">
+                {{ payment.project.project_name if payment.project else 'غير محدد' }}
+            </span>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="{{ url_for('payments.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-right-circle ms-1"></i>
+            رجوع لقائمة الدفعات
+        </a>
+        {% if can_edit %}
+            <a href="{{ url_for('payments.edit_payment', payment_id=payment.id) }}"
+               class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-pencil-square ms-1"></i>
+                تعديل بيانات الدفعة
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- العمود الرئيسي: تفاصيل الدفعة -->
+    <div class="col-lg-8">
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="label-muted">حالة الدفعة</span>
+                    <div class="mt-1">
+                        <span class="badge badge-status bg-{{ status_badge_class(payment.status) }}">
+                            {{ human_status(payment.status) }}
+                        </span>
+                        {% if is_rejected %}
+                            <span class="badge bg-danger-subtle text-danger border-0 badge-status">
+                                <i class="bi bi-x-circle ms-1"></i> مرفوضة
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="text-end">
+                    <div class="label-muted">تاريخ الإنشاء</div>
+                    <div class="value-strong">
+                        {{ payment.created_at.strftime("%Y-%m-%d") if payment.created_at else "-" }}
+                    </div>
+                    {% if payment.updated_at %}
+                        <div class="text-muted xsmall">
+                            آخر تحديث: {{ payment.updated_at.strftime("%Y-%m-%d %H:%M") }}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+
+                <!-- تفاصيل أساسية -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="mb-1 label-muted">المشروع</div>
+                        <div class="value-strong">
+                            {% if payment.project %}
+                                {{ payment.project.project_name }}
+                                {% if payment.project.code %}
+                                    <span class="text-muted xsmall">(كود: {{ payment.project.code }})</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">غير محدد</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-1 label-muted">المورد / المقاول</div>
+                        <div class="value-strong">
+                            {% if payment.supplier %}
+                                {{ payment.supplier.name }}
+                                {% if payment.supplier.supplier_type %}
+                                    <span class="text-muted xsmall">({{ payment.supplier.supplier_type }})</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">غير محدد</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="mb-1 label-muted">نوع الدفعة</div>
+                        <div>
+                            <span class="badge bg-light text-dark border small">
+                                {{ payment.request_type or 'غير محدد' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-1 label-muted">المبلغ (ج.م)</div>
+                        <div class="value-strong">
+                            {{ "%.2f"|format(payment.amount or 0) }}
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-1 label-muted">نسبة الإنجاز</div>
+                        {% if payment.progress_percentage is not none %}
+                            <div class="d-flex justify-content-between align-items-center xsmall mb-1">
+                                <span class="text-muted">إنجاز</span>
+                                <span class="fw-semibold">
+                                    {{ "%.0f"|format(payment.progress_percentage) }}%
+                                </span>
+                            </div>
+                            <div class="progress progress-thin">
+                                <div class="progress-bar"
+                                     role="progressbar"
+                                     style="width: {{ payment.progress_percentage }}%;"
+                                     aria-valuenow="{{ payment.progress_percentage }}"
+                                     aria-valuemin="0" aria-valuemax="100">
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-muted">غير محددة</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- وصف / تفاصيل البند -->
+                <div class="mb-3">
+                    <div class="mb-1 label-muted">وصف الدفعة / تفاصيل الأعمال</div>
+                    <div class="border rounded-3 p-2 bg-light-subtle" style="min-height: 70px;">
+                        {% if payment.description %}
+                            <div class="small">
+                                {{ (payment.description | replace('\n','<br>')) | safe }}
+                            </div>
+                        {% else %}
+                            <span class="text-muted xsmall">لا يوجد وصف مضاف.</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- العمود الأيمن: Workflow + إجراءات -->
+    <div class="col-lg-4">
+
+        <!-- تايملاين مسار الدفعة -->
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header">
+                <i class="bi bi-diagram-3 me-1"></i>
+                مسار اعتماد الدفعة
+            </div>
+            <div class="card-body">
+                <ul class="workflow-timeline list-unstyled mb-0">
+
+                    {# STEP 1: مسودة #}
+                    <li class="timeline-item
+                               {% if step > 1 and not is_rejected %}done{% elif step == 1 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            1
+                        </div>
+                        <div class="timeline-title">مسودة (إنشاء الطلب)</div>
+                        <div class="timeline-meta">
+                            إنشاء بواسطة المهندس / مدير المشروع
+                        </div>
+                    </li>
+
+                    {# STEP 2: مراجعة PM #}
+                    <li class="timeline-item
+                               {% if step > 2 and not is_rejected %}done{% elif step == 2 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            2
+                        </div>
+                        <div class="timeline-title">مراجعة مدير المشروع</div>
+                        <div class="timeline-meta">
+                            اعتماد أو رفض من مدير المشروع
+                        </div>
+                    </li>
+
+                    {# STEP 3: الإدارة الهندسية #}
+                    <li class="timeline-item
+                               {% if step > 3 and not is_rejected %}done{% elif step == 3 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            3
+                        </div>
+                        <div class="timeline-title">اعتماد الإدارة الهندسية</div>
+                        <div class="timeline-meta">
+                            مراجعة هندسية فنية ومالية
+                        </div>
+                    </li>
+
+                    {# STEP 4: المالية #}
+                    <li class="timeline-item
+                               {% if step > 4 and not is_rejected %}done{% elif step == 4 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            4
+                        </div>
+                        <div class="timeline-title">مراجعة واعتماد المالية</div>
+                        <div class="timeline-meta">
+                            مراجعة التوافر المالي والتحويل للصرف
+                        </div>
+                    </li>
+
+                    {# STEP 5: جاهزة للصرف #}
+                    <li class="timeline-item
+                               {% if step > 5 and not is_rejected %}done{% elif step == 5 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            5
+                        </div>
+                        <div class="timeline-title">جاهزة للصرف</div>
+                        <div class="timeline-meta">
+                            تم اعتماد الدفعة ماليًا وجاهزة للصرف
+                        </div>
+                    </li>
+
+                    {# STEP 6: تم الصرف #}
+                    <li class="timeline-item
+                               {% if step == 6 and not is_rejected %}current{% endif %}">
+                        <div class="timeline-badge">
+                            6
+                        </div>
+                        <div class="timeline-title">تم الصرف</div>
+                        <div class="timeline-meta">
+                            تم صرف الدفعة وإغلاق الطلب
+                        </div>
+                    </li>
+
+                    {# حالة الرفض #}
+                    {% if is_rejected %}
+                    <li class="timeline-item rejected">
+                        <div class="timeline-badge">
+                            <i class="bi bi-x"></i>
+                        </div>
+                        <div class="timeline-title text-danger">مرفوضة</div>
+                        <div class="timeline-meta">
+                            تم رفض الدفعة في إحدى مراحل الاعتماد.
+                        </div>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- كارت إجراءات الاعتماد -->
+        <div class="card payment-actions shadow-sm">
+            <div class="card-header">
+                <i class="bi bi-gear-wide-connected me-1"></i>
+                إجراءات على الدفعة
+            </div>
+            <div class="card-body">
+                {% if not (can_submit_to_pm or can_pm_approve or can_pm_reject or
+                           can_eng_approve or can_eng_reject or
+                           can_fin_approve or can_fin_reject or
+                           can_mark_paid) %}
+                    <p class="text-muted xsmall mb-0">
+                        لا توجد إجراءات متاحة لك على هذه الدفعة في وضعها الحالي،
+                        يمكنك فقط العرض والمتابعة.
+                    </p>
+                {% else %}
+
+                    <div class="d-flex flex-column gap-2">
+
+                        {% if can_submit_to_pm %}
+                            <form method="post"
+                                  action="{{ url_for('payments.submit_to_pm', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('إرسال الدفعة إلى مدير المشروع للمراجعة؟');">
+                                <button type="submit"
+                                        class="btn btn-primary btn-sm w-100">
+                                    <i class="bi bi-send-check ms-1"></i>
+                                    إرسال إلى مدير المشروع
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_pm_approve %}
+                            <form method="post"
+                                  action="{{ url_for('payments.pm_approve', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('اعتماد الدفعة من مدير المشروع وإرسالها للإدارة الهندسية؟');">
+                                <button type="submit"
+                                        class="btn btn-success btn-sm w-100">
+                                    <i class="bi bi-check2-circle ms-1"></i>
+                                    اعتماد مدير المشروع
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_pm_reject %}
+                            <form method="post"
+                                  action="{{ url_for('payments.pm_reject', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('هل أنت متأكد من رفض هذه الدفعة من قبل مدير المشروع؟');">
+                                <button type="submit"
+                                        class="btn btn-outline-danger btn-sm w-100">
+                                    <i class="bi bi-x-circle ms-1"></i>
+                                    رفض من مدير المشروع
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_eng_approve %}
+                            <form method="post"
+                                  action="{{ url_for('payments.eng_approve', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('اعتماد الدفعة من الإدارة الهندسية وإرسالها للمالية؟');">
+                                <button type="submit"
+                                        class="btn btn-success btn-sm w-100">
+                                    <i class="bi bi-check2-square ms-1"></i>
+                                    اعتماد الإدارة الهندسية
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_eng_reject %}
+                            <form method="post"
+                                  action="{{ url_for('payments.eng_reject', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('هل أنت متأكد من رفض هذه الدفعة من قبل الإدارة الهندسية؟');">
+                                <button type="submit"
+                                        class="btn btn-outline-danger btn-sm w-100">
+                                    <i class="bi bi-x-octagon ms-1"></i>
+                                    رفض من الإدارة الهندسية
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_fin_approve %}
+                            <form method="post"
+                                  action="{{ url_for('payments.finance_approve', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('اعتماد الدفعة ماليًا وجعلها جاهزة للصرف؟');">
+                                <button type="submit"
+                                        class="btn btn-success btn-sm w-100">
+                                    <i class="bi bi-cash-coin ms-1"></i>
+                                    اعتماد مالي (جاهزة للصرف)
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_fin_reject %}
+                            <form method="post"
+                                  action="{{ url_for('payments.finance_reject', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('هل أنت متأكد من رفض هذه الدفعة من قبل المالية؟');">
+                                <button type="submit"
+                                        class="btn btn-outline-danger btn-sm w-100">
+                                    <i class="bi bi-x-diamond ms-1"></i>
+                                    رفض من المالية
+                                </button>
+                            </form>
+                        {% endif %}
+
+                        {% if can_mark_paid %}
+                            <form method="post"
+                                  action="{{ url_for('payments.mark_paid', payment_id=payment.id) }}"
+                                  onsubmit="return confirm('تأكيد أن الدفعة تم صرفها فعليًا؟');">
+                                <button type="submit"
+                                        class="btn btn-outline-success btn-sm w-100">
+                                    <i class="bi bi-bank ms-1"></i>
+                                    تسجيل "تم الصرف"
+                                </button>
+                            </form>
+                        {% endif %}
+
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

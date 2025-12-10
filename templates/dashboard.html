@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}لوحة التحكم - نظام اعتماد الدفعات{% endblock %}
+
+{% block content %}
+{% set page_title = "لوحة التحكم العامة للدفعات" %}
+
+<div class="mb-3">
+    <h1 class="h5 mb-1">{{ page_title }}</h1>
+    <p class="text-muted mb-0">
+        نظرة إجمالية على مبالغ وعدد الدفعات حسب الحالة والمشروعات.
+    </p>
+</div>
+
+<!-- كروت إجمالية -->
+<div class="row g-3 mb-3">
+    <!-- إجمالي عدد الدفعات -->
+    <div class="col-sm-6 col-md-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي عدد الدفعات</span>
+                <i class="bi bi-receipt-cutoff text-primary"></i>
+            </div>
+            <div class="h4 mb-1">{{ total_count or 0 }}</div>
+            <div class="text-muted xsmall">
+                يشمل جميع الحالات المسجلة في النظام.
+            </div>
+        </div>
+    </div>
+
+    <!-- إجمالي قيمة الدفعات -->
+    <div class="col-sm-6 col-md-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي قيمة الدفعات</span>
+                <i class="bi bi-cash-stack text-success"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ "%.2f"|format(total_amount or 0) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">
+                إجمالي قيمة كل الدفعات المسجلة.
+            </div>
+        </div>
+    </div>
+
+    <!-- تم الصرف -->
+    <div class="col-sm-6 col-md-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">مبالغ مصروفة</span>
+                <i class="bi bi-check2-circle text-success"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ "%.2f"|format(total_paid or 0) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            {% set paid_ratio = ((total_paid or 0) / (total_amount or 1) * 100) if (total_amount or 0) > 0 else 0 %}
+            <div class="progress progress-thin mt-1">
+                <div class="progress-bar" role="progressbar"
+                     style="width: {{ paid_ratio|round(0) }}%;"
+                     aria-valuenow="{{ paid_ratio|round(0) }}" aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
+            <div class="text-muted xsmall mt-1">
+                {{ paid_ratio|round(0) }}٪ من إجمالي مبالغ الدفعات.
+            </div>
+        </div>
+    </div>
+
+    <!-- معتمد ولم يُصرف / في انتظار المالية -->
+    <div class="col-sm-6 col-md-3">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">مبالغ لم تُصرف بعد</span>
+                <i class="bi bi-hourglass-split text-warning"></i>
+            </div>
+
+            {% set not_paid_total = (total_approved_not_paid or 0) + (total_waiting_finance or 0) %}
+            <div class="h4 mb-1">
+                {{ "%.2f"|format(not_paid_total) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+
+            {% set not_paid_ratio = (not_paid_total / (total_amount or 1) * 100) if (total_amount or 0) > 0 else 0 %}
+            <div class="progress progress-thin mt-1">
+                <div class="progress-bar" role="progressbar"
+                     style="width: {{ not_paid_ratio|round(0) }}%;"
+                     aria-valuenow="{{ not_paid_ratio|round(0) }}"
+                     aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
+            <div class="text-muted xsmall mt-1">
+                يشمل المعتمد نهائيًا + المنتظر اعتماد المالية.
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- توزيع حسب الحالة -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">إجمالي مبالغ الدفعات حسب الحالة</div>
+                    <div class="text-muted xsmall">
+                        يساعد على معرفة حجم الالتزامات في كل مرحلة اعتماد.
+                    </div>
+                </div>
+            </div>
+
+            {% if totals_by_status %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>الحالة</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                            <th class="text-center" style="width: 120px;">نسبة من الإجمالي</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for s in totals_by_status %}
+                            {% set ratio = (s.total_amount / (total_amount or 1) * 100)
+                                           if (total_amount or 0) > 0 else 0 %}
+                            <tr>
+                                <td class="small">
+                                    {{ s.label }}
+                                </td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(s.total_amount or 0) }}
+                                </td>
+                                <td class="text-center">
+                                    <div class="text-muted xsmall mb-1">
+                                        {{ ratio|round(0) }}٪
+                                    </div>
+                                    <div class="progress progress-thin">
+                                        <div class="progress-bar"
+                                             role="progressbar"
+                                             style="width: {{ ratio|round(0) }}%;"
+                                             aria-valuenow="{{ ratio|round(0) }}"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد بيانات كافية لعرض التوزيع حسب الحالة.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- توزيع حسب المشروع -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">إجمالي مبالغ الدفعات حسب المشروع</div>
+                    <div class="text-muted xsmall">
+                        يساعد على تقييم حجم الصرف والالتزامات لكل مشروع.
+                    </div>
+                </div>
+            </div>
+
+            {% if totals_by_project %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>المشروع</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                            <th class="text-center" style="width: 120px;">نسبة من الإجمالي</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for p in totals_by_project %}
+                            {% set ratio = (p.total_amount / (total_amount or 1) * 100)
+                                           if (total_amount or 0) > 0 else 0 %}
+                            <tr>
+                                <td class="small">
+                                    {{ p.project_name }}
+                                </td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(p.total_amount or 0) }}
+                                </td>
+                                <td class="text-center">
+                                    <div class="text-muted xsmall mb-1">
+                                        {{ ratio|round(0) }}٪
+                                    </div>
+                                    <div class="progress progress-thin">
+                                        <div class="progress-bar"
+                                             role="progressbar"
+                                             style="width: {{ ratio|round(0) }}%;"
+                                             aria-valuenow="{{ ratio|round(0) }}"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد مشروعات مرتبطة بالدفعات حتى الآن.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
