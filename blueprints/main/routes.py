@@ -1,10 +1,14 @@
 # blueprints/main/routes.py
 
+from datetime import datetime, timedelta
+
 from flask import redirect, url_for, render_template, request
 from flask_login import login_required, current_user
+from sqlalchemy import func
+
 from permissions import role_required
 from . import main_bp
-from models import PaymentRequest, Project
+from models import PaymentRequest, Project, PaymentApproval
 
 # نعرّف نفس قيم الحالات المستخدمة في payments.routes
 STATUS_DRAFT = "draft"
@@ -57,6 +61,7 @@ def eng_dashboard():
     لوحة الإدارة الهندسية:
     - متاحة فقط لـ admin + مدير الإدارة الهندسية + رئيس مجلس الإدارة.
     - يتم تمرير filters للمساعدة في حقول الفلترة بالقالب.
+    - يتم حساب مؤشرات الأداء بناءً على نفس الفلاتر.
     """
 
     # قراءة الفلاتر من الـ Query String (لو موجودة)
@@ -67,19 +72,144 @@ def eng_dashboard():
         "status": request.args.get("status") or "",
     }
 
+    # تحويل التواريخ إلى datetime (بداية اليوم ونهايته)
+    date_from_dt = None
+    date_to_dt = None
+
+    if filters["date_from"]:
+        try:
+            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
+        except ValueError:
+            date_from_dt = None
+
+    if filters["date_to"]:
+        try:
+            # نضيف يوم كامل حتى يشمل اليوم بالكامل (<= نهاية اليوم)
+            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
+                days=1
+            )
+        except ValueError:
+            date_to_dt = None
+
+    # فلتر المشروع (إن وجد)
+    project_id = None
+    if filters["project_id"]:
+        try:
+            project_id = int(filters["project_id"])
+        except ValueError:
+            project_id = None
+
     # قائمة المشاريع لاستخدامها في قائمة اختيار بالمخطط
     projects = Project.query.order_by(Project.project_name.asc()).all()
 
-    # إحصائيات سريعة عن حالات الدفعات
+    # كويري أساسي يُطبق عليه فلاتر المشروع والتاريخ
+    base_q = PaymentRequest.query
+
+    if project_id:
+        base_q = base_q.filter(PaymentRequest.project_id == project_id)
+
+    if date_from_dt:
+        base_q = base_q.filter(PaymentRequest.created_at >= date_from_dt)
+
+    if date_to_dt:
+        base_q = base_q.filter(PaymentRequest.created_at < date_to_dt)
+
+    # ---- الإحصائيات الرئيسية للكروت العليا ----
+
+    # دفعات تحت مراجعة الإدارة الهندسية
+    pending_eng_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_ENG)
+    pending_eng_count = pending_eng_q.count()
+    pending_eng_total = (
+        pending_eng_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
+        .scalar()
+        or 0.0
+    )
+
+    # دفعات في انتظار المالية (تم اعتمادها هندسياً وتم تمريرها للمالية)
+    waiting_finance_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
+    waiting_finance_count = waiting_finance_q.count()
+    waiting_finance_total = (
+        waiting_finance_q.with_entities(
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+        )
+        .scalar()
+        or 0.0
+    )
+
+    # مبالغ معتمدة من الإدارة الهندسية (أي حالة بعد المرور على الهندسية)
+    approved_after_eng_q = base_q.filter(
+        PaymentRequest.status.in_(
+            [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
+        )
+    )
+    approved_after_eng_total = (
+        approved_after_eng_q.with_entities(
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+        )
+        .scalar()
+        or 0.0
+    )
+
+    # دفعات مرفوضة (نعتبرها مرفوضة هندسياً كإجمالي مبدئي)
+    rejected_q = base_q.filter(PaymentRequest.status == STATUS_REJECTED)
+    rejected_by_eng_count = rejected_q.count()
+    rejected_by_eng_total = (
+        rejected_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
+        .scalar()
+        or 0.0
+    )
+
+    # ---- توزيع حسب المشروع ----
+
+    # تحت مراجعة الإدارة الهندسية حسب المشروع
+    pending_by_project = (
+        pending_eng_q.join(Project, PaymentRequest.project_id == Project.id)
+        .with_entities(
+            Project.project_name.label("project_name"),
+            func.count(PaymentRequest.id).label("count"),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
+        )
+        .group_by(Project.id, Project.project_name)
+        .order_by(Project.project_name.asc())
+        .all()
+    )
+
+    # في انتظار المالية حسب المشروع
+    waiting_by_project = (
+        waiting_finance_q.join(Project, PaymentRequest.project_id == Project.id)
+        .with_entities(
+            Project.project_name.label("project_name"),
+            func.count(PaymentRequest.id).label("count"),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
+        )
+        .group_by(Project.id, Project.project_name)
+        .order_by(Project.project_name.asc())
+        .all()
+    )
+
+    # ---- أحدث حركات الاعتماد من الإدارة الهندسية ----
+    # نفترض أن step = 'eng_manager' في جدول PaymentApproval للقرارات الهندسية
+    recent_eng_logs = (
+        PaymentApproval.query.filter(PaymentApproval.step == "eng_manager")
+        .order_by(PaymentApproval.decided_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    # يمكن الاحتفاظ بإحصائيات إضافية عامة لو أحببت استخدامها لاحقاً
     stats = {
-        "total": PaymentRequest.query.count(),
-        "draft": PaymentRequest.query.filter_by(status=STATUS_DRAFT).count(),
-        "pending_pm": PaymentRequest.query.filter_by(status=STATUS_PENDING_PM).count(),
-        "pending_eng": PaymentRequest.query.filter_by(status=STATUS_PENDING_ENG).count(),
-        "pending_finance": PaymentRequest.query.filter_by(status=STATUS_PENDING_FIN).count(),
-        "ready_for_payment": PaymentRequest.query.filter_by(status=STATUS_READY_FOR_PAYMENT).count(),
-        "paid": PaymentRequest.query.filter_by(status=STATUS_PAID).count(),
-        "rejected": PaymentRequest.query.filter_by(status=STATUS_REJECTED).count(),
+        "total": base_q.count(),
+        "draft": base_q.filter(PaymentRequest.status == STATUS_DRAFT).count(),
+        "pending_pm": base_q.filter(
+            PaymentRequest.status == STATUS_PENDING_PM
+        ).count(),
+        "pending_eng": pending_eng_count,
+        "pending_finance": waiting_finance_count,
+        "ready_for_payment": base_q.filter(
+            PaymentRequest.status == STATUS_READY_FOR_PAYMENT
+        ).count(),
+        "paid": base_q.filter(PaymentRequest.status == STATUS_PAID).count(),
+        "rejected": rejected_by_eng_count,
     }
 
     return render_template(
@@ -88,4 +218,14 @@ def eng_dashboard():
         filters=filters,
         projects=projects,
         stats=stats,
+        pending_eng_count=pending_eng_count,
+        pending_eng_total=pending_eng_total,
+        waiting_finance_count=waiting_finance_count,
+        waiting_finance_total=waiting_finance_total,
+        approved_after_eng_total=approved_after_eng_total,
+        rejected_by_eng_count=rejected_by_eng_count,
+        rejected_by_eng_total=rejected_by_eng_total,
+        pending_by_project=pending_by_project,
+        waiting_by_project=waiting_by_project,
+        recent_eng_logs=recent_eng_logs,
     )

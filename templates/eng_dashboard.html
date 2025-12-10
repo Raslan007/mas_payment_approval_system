@@ -225,12 +225,16 @@
     {% if recent_eng_logs %}
         {% set status_labels = {
             'draft': 'مسودة',
+            'pending_pm': 'تحت مراجعة مدير المشروع',
+            'pending_eng': 'تحت مراجعة الإدارة الهندسية',
+            'pending_finance': 'في انتظار اعتماد المالية',
+            'ready_for_payment': 'جاهزة للصرف',
+            'paid': 'تم الصرف',
+            'rejected': 'مرفوض',
             'under_review_pm': 'تحت مراجعة مدير المشروع',
             'under_review_eng': 'تحت مراجعة الإدارة الهندسية',
             'waiting_finance': 'في انتظار اعتماد المالية',
-            'approved': 'معتمد نهائيًا',
-            'paid': 'تم الصرف',
-            'rejected': 'مرفوض'
+            'approved': 'معتمد نهائيًا'
         } %}
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
