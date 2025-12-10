@@ -123,6 +123,9 @@
     {% set can_edit = True %}
 {% endif %}
 
+{# صلاحية الحذف: فقط admin و engineering_manager #}
+{% set can_delete = (role_name in ['admin', 'engineering_manager']) %}
+
 {# صلاحيات الأزرار لكل مرحلة #}
 {% set can_submit_to_pm = (payment.status == 'draft' and role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer']) %}
 {% set can_pm_approve = (payment.status == 'pending_pm' and role_name in ['admin', 'engineering_manager', 'project_manager']) %}
@@ -133,7 +136,7 @@
 {% set can_fin_reject = can_fin_approve %}
 {% set can_mark_paid = (payment.status == 'ready_for_payment' and role_name in ['admin', 'finance']) %}
 
-{# chairman و dc لا يظهر لهم أي أزرار إجراءات #}
+{# chairman و dc لا يظهر لهم أي أزرار إجراءات ولا تعديل/حذف #}
 {% if role_name in ['chairman', 'dc'] %}
     {% set can_submit_to_pm = False %}
     {% set can_pm_approve = False %}
@@ -144,6 +147,7 @@
     {% set can_fin_reject = False %}
     {% set can_mark_paid = False %}
     {% set can_edit = False %}
+    {% set can_delete = False %}
 {% endif %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -170,6 +174,18 @@
                 تعديل بيانات الدفعة
             </a>
         {% endif %}
+        {% if can_delete %}
+            <form method="post"
+                  action="{{ url_for('payments.delete_payment', payment_id=payment.id) }}"
+                  class="d-inline-block"
+                  onsubmit="return confirm('هل أنت متأكد من حذف هذه الدفعة؟ لا يمكن التراجع عن هذا الإجراء.');">
+                {{ csrf_token() if csrf_token is defined }}
+                <button type="submit" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash ms-1"></i>
+                    حذف الدفعة
+                </button>
+            </form>
+        {% endif %}
     </div>
 </div>
 
@@ -181,7 +197,6 @@
                 <div>
                     <span class="label-muted">حالة الدفعة</span>
                     <div class="mt-1">
-                        {# هنا التعديل المهم: استخدام خصائص الـ model بدلاً من دوال غير معرّفة #}
                         <span class="badge badge-status bg-{{ payment.status_badge_class }}">
                             {{ payment.human_status }}
                         </span>
@@ -440,6 +455,7 @@
                 <div class="d-flex flex-column gap-2">
                     {% if can_submit_to_pm and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.submit_to_pm', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-primary btn-sm">
                                 <i class="bi bi-send ms-1"></i>
                                 إرسال لمراجعة مدير المشروع
@@ -449,12 +465,14 @@
 
                     {% if can_pm_approve and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.pm_approve', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة مدير المشروع
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.pm_reject', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من مدير المشروع
@@ -464,12 +482,14 @@
 
                     {% if can_eng_approve and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.eng_approve', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة الإدارة الهندسية
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.eng_reject', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من الإدارة الهندسية
@@ -478,13 +498,15 @@
                     {% endif %}
 
                     {% if can_fin_approve and not is_rejected %}
-                        <form method="post" action="{{ url_for('payments.fin_approve', payment_id=payment.id) }}">
+                        <form method="post" action="{{ url_for('payments.finance_approve', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة الإدارة المالية
                             </button>
                         </form>
-                        <form method="post" action="{{ url_for('payments.fin_reject', payment_id=payment.id) }}">
+                        <form method="post" action="{{ url_for('payments.finance_reject', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من الإدارة المالية
@@ -494,6 +516,7 @@
 
                     {% if can_mark_paid and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.mark_paid', payment_id=payment.id) }}">
+                            {{ csrf_token() if csrf_token is defined }}
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-cash-coin ms-1"></i>
                                 تأكيد صرف الدفعة

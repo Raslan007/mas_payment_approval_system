@@ -76,6 +76,19 @@ def _can_edit_payment(p: PaymentRequest) -> bool:
     return False
 
 
+def _can_delete_payment(p: PaymentRequest) -> bool:
+    """
+    حذف الدفعة مسموح فقط لـ:
+    - admin
+    - engineering_manager
+    ويمكن الحذف في أي حالة (أنت صاحب القرار).
+    """
+    role_name = _get_role()
+    if role_name is None:
+        return False
+    return role_name in ("admin", "engineering_manager")
+
+
 def _require_can_view(p: PaymentRequest):
     if not _can_view_payment(p):
         abort(403)
@@ -83,6 +96,11 @@ def _require_can_view(p: PaymentRequest):
 
 def _require_can_edit(p: PaymentRequest):
     if not _can_edit_payment(p):
+        abort(403)
+
+
+def _require_can_delete(p: PaymentRequest):
+    if not _can_delete_payment(p):
         abort(403)
 
 
@@ -189,7 +207,6 @@ def list_finance_review():
         payments=payments,
         page_title="جميع دفعات المالية",
     )
-
 
 
 @payments_bp.route("/finance_eng_approved")
@@ -341,6 +358,23 @@ def edit_payment(payment_id):
         suppliers=suppliers,
         page_title=f"تعديل الدفعة رقم {payment.id}",
     )
+
+
+@payments_bp.route("/<int:payment_id>/delete", methods=["POST"])
+@role_required("admin", "engineering_manager")
+def delete_payment(payment_id):
+    """
+    حذف الدفعة:
+    - مسموح لـ admin و engineering_manager فقط.
+    """
+    payment = PaymentRequest.query.get_or_404(payment_id)
+    _require_can_delete(payment)
+
+    db.session.delete(payment)
+    db.session.commit()
+
+    flash(f"تم حذف الدفعة رقم {payment.id} بنجاح.", "success")
+    return redirect(url_for("payments.index"))
 
 
 @payments_bp.route("/<int:payment_id>/submit_to_pm", methods=["POST"])
