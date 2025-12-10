@@ -53,9 +53,9 @@
             <label class="form-label" for="request_type">نوع الدفعة</label>
             <select name="request_type" id="request_type" class="form-select">
                 <option value="">الكل</option>
-                <option value="مقاول" {% if filters.request_type == "مقاول" %}selected{% endif %}>مقاول</option>
+                <option value="مقاول"   {% if filters.request_type == "مقاول" %}selected{% endif %}>مقاول</option>
                 <option value="مشتريات" {% if filters.request_type == "مشتريات" %}selected{% endif %}>مشتريات</option>
-                <option value="عهدة" {% if filters.request_type == "عهدة" %}selected{% endif %}>عهدة</option>
+                <option value="عهدة"    {% if filters.request_type == "عهدة" %}selected{% endif %}>عهدة</option>
             </select>
         </div>
 
@@ -130,7 +130,7 @@
                             </span>
                         </td>
                         <td class="text-end fw-semibold">
-                            {{ "%.2f"|format(p.amount) }}
+                            {{ p.amount | num }}
                         </td>
                         <td>
                             {% if p.progress_percentage is not none %}
@@ -156,7 +156,7 @@
                             {{ p.created_at.strftime("%Y-%m-%d") if p.created_at else "" }}
                         </td>
                         <td class="text-center">
-                            <a href="{{ url_for('payments.view_payment', payment_id=p.id) }}"
+                            <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
                                class="btn btn-sm btn-outline-primary btn-sm-icon">
                                 <i class="bi bi-eye ms-1"></i>
                                 عرض / اعتماد مالي
