@@ -246,7 +246,7 @@
                     <div class="col-md-6">
                         <div class="small-label mb-1">قيمة الدفعة</div>
                         <div class="value-strong">
-                            {{ "%.2f"|format(payment.amount) }} ج.م
+                            {{ payment.amount | num }} ج.م
                         </div>
                     </div>
                     <div class="col-md-6">

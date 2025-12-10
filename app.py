@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask
 
 from config import Config
@@ -24,6 +23,26 @@ def create_app(config_class=Config) -> Flask:
     # تهيئة الـ Extensions
     db.init_app(app)
     login_manager.init_app(app)
+
+    # إضافة فلتر لتنسيق الأرقام مع فواصل الآلاف
+    def format_number(value, decimals=0):
+        """
+        استخدامه في القوالب:
+            {{ some_number | num }}          -> بدون كسور  40,000
+            {{ some_number | num(2) }}       -> مع كسور   40,000.00
+        """
+        try:
+            decimals = int(decimals)
+        except (TypeError, ValueError):
+            decimals = 0
+
+        try:
+            format_str = f"{{:,.{decimals}f}}"
+            return format_str.format(float(value))
+        except (TypeError, ValueError):
+            return value
+
+    app.jinja_env.filters["num"] = format_number
 
     # إعدادات الـ LoginManager
     login_manager.login_view = "auth.login"
