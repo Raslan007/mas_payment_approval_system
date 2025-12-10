@@ -640,7 +640,10 @@ def eng_reject(payment_id):
 @role_required("admin", "finance")
 def finance_approve(payment_id):
     """
-    اعتماد المالية + تسجيل مبلغ المالية الفعلي (amount_finance).
+    موافقة المالية الأولى:
+    - تنقل الدفعة من pending_finance -> ready_for_payment
+    - لا يتم تسجيل مبلغ المالية هنا
+    - إدخال المبلغ الفعلي يكون في خطوة تم الصرف
     """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
@@ -649,22 +652,9 @@ def finance_approve(payment_id):
         flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
-    amount_finance_str = (request.form.get("amount_finance") or "").strip()
-
-    if not amount_finance_str:
-        flash("من فضلك أدخل مبلغ المالية الفعلي قبل الاعتماد.", "danger")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
-
-    try:
-        amount_finance = float(amount_finance_str.replace(",", ""))
-    except ValueError:
-        flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
-
     old_status = payment.status
     payment.status = STATUS_READY_FOR_PAYMENT
     payment.updated_at = datetime.utcnow()
-    payment.amount_finance = amount_finance
 
     _add_approval_log(
         payment,
@@ -676,7 +666,7 @@ def finance_approve(payment_id):
 
     db.session.commit()
 
-    flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف وتسجيل مبلغ المالية الفعلي.", "success")
+    flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف.", "success")
     return redirect(url_for("payments.detail", payment_id=payment.id))
 
 
@@ -711,16 +701,38 @@ def finance_reject(payment_id):
 @payments_bp.route("/<int:payment_id>/mark_paid", methods=["POST"])
 @role_required("admin", "finance")
 def mark_paid(payment_id):
+    """
+    خطوة تسجيل الصرف الفعلي:
+    - الحالة يجب أن تكون ready_for_payment
+    - هنا يتم إدخال amount_finance (المبلغ الفعلي المصروف)
+    - ثم تتحول الحالة إلى paid
+    """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
     if payment.status != STATUS_READY_FOR_PAYMENT:
-        flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا.", "warning")
+        flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد أن تكون جاهزة للصرف.", "warning")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
+    amount_finance_str = (request.form.get("amount_finance") or "").strip()
+    try:
+        amount_finance = float(amount_finance_str.replace(",", ""))
+    except ValueError:
+        flash("برجاء إدخال مبلغ مالي فعلي صحيح للصرف.", "danger")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
+    payment.amount_finance = amount_finance
     payment.status = STATUS_PAID
     payment.updated_at = datetime.utcnow()
+
+    diff = None
+    if payment.amount is not None:
+        diff = amount_finance - payment.amount
+
+    comment = f"Actual finance payment recorded: {amount_finance}"
+    if diff is not None:
+        comment += f" | diff = {diff}"
 
     _add_approval_log(
         payment,
@@ -728,9 +740,10 @@ def mark_paid(payment_id):
         action="mark_paid",
         old_status=old_status,
         new_status=payment.status,
+        comment=comment,
     )
 
     db.session.commit()
 
-    flash("تم تسجيل أن الدفعة تم صرفها.", "success")
+    flash("تم تسجيل أن الدفعة تم صرفها وتسجيل المبلغ المالي الفعلي.", "success")
     return redirect(url_for("payments.detail", payment_id=payment.id))
