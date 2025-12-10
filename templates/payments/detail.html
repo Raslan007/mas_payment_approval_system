@@ -255,6 +255,17 @@
                             {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else "" }}
                         </div>
                     </div>
+                    <!-- مدخل الدفعة -->
+                    <div class="col-md-6">
+                        <div class="small-label mb-1">مدخل الدفعة</div>
+                        <div class="value-strong">
+                            {% if payment.creator %}
+                                {{ payment.creator.full_name or payment.creator.email }}
+                            {% else %}
+                                غير متوفر
+                            {% endif %}
+                        </div>
+                    </div>
                     {% if payment.progress_percentage is not none %}
                         <div class="col-md-6">
                             <div class="small-label mb-1">نسبة الإنجاز وقت طلب الدفعة</div>
