@@ -220,6 +220,23 @@
                 </div>
             </div>
             <div class="card-body">
+                {# إظهار من رفض الدفعة فقط لمدير الإدارة الهندسية و admin #}
+                {% if is_rejected and rejection_log and role_name in ['engineering_manager', 'admin'] %}
+                    <div class="alert alert-warning xsmall mb-3">
+                        تم رفض هذه الدفعة بواسطة:
+                        <span class="fw-semibold">
+                            {{ rejection_log.decided_by.full_name if rejection_log.decided_by else 'غير معروف' }}
+                        </span>
+                        {% if rejection_log.step %}
+                            <span class="text-muted"> ({{ rejection_log.step }})</span>
+                        {% endif %}
+                        {% if rejection_log.comment %}
+                            <br>
+                            ملاحظة الرفض: {{ rejection_log.comment }}
+                        {% endif %}
+                    </div>
+                {% endif %}
+
                 <div class="row g-3">
                     <div class="col-md-6">
                         <div class="small-label mb-1">المشروع</div>
@@ -246,24 +263,13 @@
                     <div class="col-md-6">
                         <div class="small-label mb-1">قيمة الدفعة</div>
                         <div class="value-strong">
-                            {{ payment.amount | num }} ج.م
+                            {{ "%.2f"|format(payment.amount) }} ج.م
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="small-label mb-1">تاريخ الإنشاء</div>
                         <div class="value-strong">
                             {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else "" }}
-                        </div>
-                    </div>
-                    <!-- مدخل الدفعة -->
-                    <div class="col-md-6">
-                        <div class="small-label mb-1">مدخل الدفعة</div>
-                        <div class="value-strong">
-                            {% if payment.creator %}
-                                {{ payment.creator.full_name or payment.creator.email }}
-                            {% else %}
-                                غير متوفر
-                            {% endif %}
                         </div>
                     </div>
                     {% if payment.progress_percentage is not none %}

@@ -13,7 +13,7 @@ from flask import (
 from flask_login import current_user
 from extensions import db
 from permissions import role_required
-from models import PaymentRequest, Project, Supplier
+from models import PaymentRequest, Project, Supplier, PaymentApproval
 from . import payments_bp
 
 
@@ -81,7 +81,7 @@ def _can_delete_payment(p: PaymentRequest) -> bool:
     حذف الدفعة مسموح فقط لـ:
     - admin
     - engineering_manager
-    ويمكن الحذف في أي حالة (أنت صاحب القرار).
+    ويمكن الحذف في أي حالة.
     """
     role_name = _get_role()
     if role_name is None:
@@ -189,8 +189,6 @@ def list_finance_review():
         * في انتظار المالية
         * جاهزة للصرف
         * تم الصرف
-    - مسموح بالدخول للأدوار:
-        admin, engineering_manager, finance, chairman
     """
     payments = (
         PaymentRequest.query.filter(
@@ -298,9 +296,23 @@ def create_payment():
 def detail(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
+
+    # لو الدفعة مرفوضة، نجيب آخر حركة رفض من جدول PaymentApproval
+    rejection_log = None
+    if payment.status == STATUS_REJECTED:
+        rejection_log = (
+            PaymentApproval.query.filter_by(
+                payment_request_id=payment.id,
+                action="reject",
+            )
+            .order_by(PaymentApproval.decided_at.desc())
+            .first()
+        )
+
     return render_template(
         "payments/detail.html",
         payment=payment,
+        rejection_log=rejection_log,
         page_title=f"تفاصيل الدفعة رقم {payment.id}",
     )
 
@@ -423,8 +435,21 @@ def pm_reject(payment_id):
         flash("هذه الدفعة ليست في مرحلة مراجعة مدير المشروع.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
+
+    # تسجيل حركة الرفض في جدول PaymentApproval
+    approval = PaymentApproval(
+        payment_request_id=payment.id,
+        step="pm",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(approval)
+
     db.session.commit()
 
     flash("تم رفض الدفعة من مدير المشروع.", "danger")
@@ -459,8 +484,20 @@ def eng_reject(payment_id):
         flash("هذه الدفعة ليست في مرحلة الإدارة الهندسية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
+
+    approval = PaymentApproval(
+        payment_request_id=payment.id,
+        step="eng_manager",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(approval)
+
     db.session.commit()
 
     flash("تم رفض الدفعة من الإدارة الهندسية.", "danger")
@@ -495,8 +532,20 @@ def finance_reject(payment_id):
         flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    old_status = payment.status
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
+
+    approval = PaymentApproval(
+        payment_request_id=payment.id,
+        step="finance",
+        action="reject",
+        old_status=old_status,
+        new_status=payment.status,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(approval)
+
     db.session.commit()
 
     flash("تم رفض الدفعة من المالية.", "danger")
