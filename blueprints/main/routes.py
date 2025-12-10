@@ -10,7 +10,7 @@ from permissions import role_required
 from . import main_bp
 from models import PaymentRequest, Project, PaymentApproval
 
-# نعرّف نفس قيم الحالات المستخدمة في payments.routes
+# تعريف الحالات مثل ملف payments.routes
 STATUS_DRAFT = "draft"
 STATUS_PENDING_PM = "pending_pm"
 STATUS_PENDING_ENG = "pending_eng"
@@ -26,11 +26,12 @@ def index():
     """
     توجيه المستخدم إلى الصفحة الصحيحة بعد تسجيل الدخول
     بناءً على الدور الخاص به.
+    زر "لوحة التحكم" في القائمة الجانبية عادة يروح على هذا الراوت.
     """
 
     role_name = current_user.role.name if current_user.role else None
 
-    # 1) المالية → دفعات معتمدة هندسياً في انتظار المالية
+    # 1) المالية → لوحة دفعات تم اعتمادها هندسياً وتنتظر المالية
     if role_name == "finance":
         return redirect(url_for("payments.finance_eng_approved"))
 
@@ -46,22 +47,135 @@ def index():
     if role_name == "dc":
         return redirect(url_for("users.list_users"))
 
-    # 5) رئيس مجلس الإدارة → جميع الدفعات (عرض فقط)
-    if role_name == "chairman":
-        return redirect(url_for("payments.list_all"))
+    # 5) admin + مدير الإدارة الهندسية + رئيس مجلس الإدارة → لوحة التحكم العامة
+    if role_name in ("admin", "engineering_manager", "chairman"):
+        return redirect(url_for("main.dashboard"))
 
-    # 6) admin + المدير الهندسي + أي دور آخر → قائمة الدفعات الافتراضية
+    # 6) أي دور آخر غير متوقع → fallback على قائمة الدفعات
     return redirect(url_for("payments.index"))
 
 
+# -------------------------------------------------------------------
+# لوحة التحكم العامة للدفعات
+# -------------------------------------------------------------------
+@main_bp.route("/dashboard")
+@role_required("admin", "engineering_manager", "chairman")
+def dashboard():
+    """
+    لوحة تحكم عامة للدفعات:
+    - إجمالي عدد الدفعات
+    - إجمالي قيمة الدفعات
+    - المبالغ المصروفة
+    - المبالغ المعتمدة/منتظرة ولم تُصرف بعد
+    - توزيع مبالغ الدفعات حسب الحالة
+    - توزيع مبالغ الدفعات حسب المشروع
+    """
+
+    base_q = PaymentRequest.query
+
+    # إجمالي عدد الدفعات
+    total_count = base_q.count()
+
+    # إجمالي قيمة الدفعات
+    total_amount = (
+        base_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
+        .scalar()
+        or 0.0
+    )
+
+    # المبالغ المصروفة (تم الصرف)
+    paid_q = base_q.filter(PaymentRequest.status == STATUS_PAID)
+    total_paid = (
+        paid_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
+        .scalar()
+        or 0.0
+    )
+
+    # في انتظار المالية
+    waiting_fin_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
+    total_waiting_finance = (
+        waiting_fin_q.with_entities(
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+        )
+        .scalar()
+        or 0.0
+    )
+
+    # جاهزة للصرف (معتمدة ماليًا ولم تُسجل كـ تم الصرف)
+    approved_not_paid_q = base_q.filter(
+        PaymentRequest.status == STATUS_READY_FOR_PAYMENT
+    )
+    total_approved_not_paid = (
+        approved_not_paid_q.with_entities(
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+        )
+        .scalar()
+        or 0.0
+    )
+
+    # توزيع حسب الحالة (مبالغ فقط)
+    status_labels = {
+        STATUS_DRAFT: "مسودة (مدخل بواسطة المهندس)",
+        STATUS_PENDING_PM: "تحت مراجعة مدير المشروع",
+        STATUS_PENDING_ENG: "تحت مراجعة الإدارة الهندسية",
+        STATUS_PENDING_FIN: "في انتظار اعتماد المالية",
+        STATUS_READY_FOR_PAYMENT: "جاهزة للصرف",
+        STATUS_PAID: "تم الصرف",
+        STATUS_REJECTED: "مرفوضة",
+    }
+
+    totals_by_status = []
+    for status, label in status_labels.items():
+        s_q = base_q.filter(PaymentRequest.status == status)
+        amount = (
+            s_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
+            .scalar()
+            or 0.0
+        )
+        # نعرض السطر حتى لو صفر علشان يكون شكل الجدول كامل
+        totals_by_status.append(
+            {
+                "status": status,
+                "label": label,
+                "total_amount": amount,
+            }
+        )
+
+    # توزيع حسب المشروع
+    totals_by_project = (
+        base_q.join(Project, PaymentRequest.project_id == Project.id)
+        .with_entities(
+            Project.project_name.label("project_name"),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
+        )
+        .group_by(Project.id, Project.project_name)
+        .order_by(Project.project_name.asc())
+        .all()
+    )
+
+    return render_template(
+        "dashboard.html",
+        page_title="لوحة التحكم العامة للدفعات",
+        total_count=total_count,
+        total_amount=total_amount,
+        total_paid=total_paid,
+        total_waiting_finance=total_waiting_finance,
+        total_approved_not_paid=total_approved_not_paid,
+        totals_by_status=totals_by_status,
+        totals_by_project=totals_by_project,
+    )
+
+
+# -------------------------------------------------------------------
+# لوحة الإدارة الهندسية (كما اتفقنا سابقًا)
+# -------------------------------------------------------------------
 @main_bp.route("/eng-dashboard")
 @role_required("admin", "engineering_manager", "chairman")
 def eng_dashboard():
     """
     لوحة الإدارة الهندسية:
     - متاحة فقط لـ admin + مدير الإدارة الهندسية + رئيس مجلس الإدارة.
-    - يتم تمرير filters للمساعدة في حقول الفلترة بالقالب.
-    - يتم حساب مؤشرات الأداء بناءً على نفس الفلاتر.
+    - تعتمد على حالات الدفعات بعد مرورها على الإدارة الهندسية.
     """
 
     # قراءة الفلاتر من الـ Query String (لو موجودة)
@@ -84,7 +198,7 @@ def eng_dashboard():
 
     if filters["date_to"]:
         try:
-            # نضيف يوم كامل حتى يشمل اليوم بالكامل (<= نهاية اليوم)
+            # نضيف يوم كامل حتى يشمل اليوم بالكامل
             date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
                 days=1
             )
@@ -99,7 +213,7 @@ def eng_dashboard():
         except ValueError:
             project_id = None
 
-    # قائمة المشاريع لاستخدامها في قائمة اختيار بالمخطط
+    # قائمة المشاريع
     projects = Project.query.order_by(Project.project_name.asc()).all()
 
     # كويري أساسي يُطبق عليه فلاتر المشروع والتاريخ
@@ -125,7 +239,7 @@ def eng_dashboard():
         or 0.0
     )
 
-    # دفعات في انتظار المالية (تم اعتمادها هندسياً وتم تمريرها للمالية)
+    # دفعات في انتظار المالية
     waiting_finance_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
     waiting_finance_count = waiting_finance_q.count()
     waiting_finance_total = (
@@ -136,7 +250,7 @@ def eng_dashboard():
         or 0.0
     )
 
-    # مبالغ معتمدة من الإدارة الهندسية (أي حالة بعد المرور على الهندسية)
+    # مبالغ معتمدة من الإدارة الهندسية (تم تمريرها للمالية أو بعد ذلك)
     approved_after_eng_q = base_q.filter(
         PaymentRequest.status.in_(
             [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
@@ -150,7 +264,7 @@ def eng_dashboard():
         or 0.0
     )
 
-    # دفعات مرفوضة (نعتبرها مرفوضة هندسياً كإجمالي مبدئي)
+    # دفعات مرفوضة (ككل)
     rejected_q = base_q.filter(PaymentRequest.status == STATUS_REJECTED)
     rejected_by_eng_count = rejected_q.count()
     rejected_by_eng_total = (
@@ -161,7 +275,6 @@ def eng_dashboard():
 
     # ---- توزيع حسب المشروع ----
 
-    # تحت مراجعة الإدارة الهندسية حسب المشروع
     pending_by_project = (
         pending_eng_q.join(Project, PaymentRequest.project_id == Project.id)
         .with_entities(
@@ -174,7 +287,6 @@ def eng_dashboard():
         .all()
     )
 
-    # في انتظار المالية حسب المشروع
     waiting_by_project = (
         waiting_finance_q.join(Project, PaymentRequest.project_id == Project.id)
         .with_entities(
@@ -188,7 +300,7 @@ def eng_dashboard():
     )
 
     # ---- أحدث حركات الاعتماد من الإدارة الهندسية ----
-    # نفترض أن step = 'eng_manager' في جدول PaymentApproval للقرارات الهندسية
+    # نفترض أن step = 'eng_manager' في جدول PaymentApproval لقرارات الإدارة الهندسية
     recent_eng_logs = (
         PaymentApproval.query.filter(PaymentApproval.step == "eng_manager")
         .order_by(PaymentApproval.decided_at.desc())
@@ -196,7 +308,7 @@ def eng_dashboard():
         .all()
     )
 
-    # يمكن الاحتفاظ بإحصائيات إضافية عامة لو أحببت استخدامها لاحقاً
+    # إحصائيات إضافية عامة (إن احتجتها لاحقاً)
     stats = {
         "total": base_q.count(),
         "draft": base_q.filter(PaymentRequest.status == STATUS_DRAFT).count(),
