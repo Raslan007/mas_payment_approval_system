@@ -93,6 +93,9 @@ class PaymentRequest(db.Model):
     amount = db.Column(db.Float, nullable=False)
     description = db.Column(db.Text, nullable=True)
 
+    # مبلغ المالية الفعلي (المبلغ الذي تم اعتماده للصرف من الإدارة المالية)
+    amount_finance = db.Column(db.Float, nullable=True)
+
     # نسبة الإنجاز وقت الدفعة (0–100)
     progress_percentage = db.Column(db.Float, nullable=True)
 
@@ -146,6 +149,18 @@ class PaymentRequest(db.Model):
             "approved": "success",
         }
         return mapping.get(self.status, "secondary")
+
+    @property
+    def finance_diff(self) -> float | None:
+        """
+        الفرق = مبلغ المالية - مبلغ المهندس
+        موجب  => المالية صرفت أكثر من المطلوب
+        سالب  => المالية صرفت أقل من المطلوب
+        صفر   => مطابق للمطلوب
+        """
+        if self.amount_finance is None or self.amount is None:
+            return None
+        return float(self.amount_finance) - float(self.amount)
 
 
 class PaymentApproval(db.Model):
@@ -222,5 +237,5 @@ class Notification(db.Model):
 
     user = db.relationship("User", backref=db.backref("notifications", lazy="dynamic"))
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # type: ignore
         return f"<Notification {self.id} to user {self.user_id}>"

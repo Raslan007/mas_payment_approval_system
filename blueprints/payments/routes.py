@@ -639,6 +639,9 @@ def eng_reject(payment_id):
 @payments_bp.route("/<int:payment_id>/finance_approve", methods=["POST"])
 @role_required("admin", "finance")
 def finance_approve(payment_id):
+    """
+    اعتماد المالية + تسجيل مبلغ المالية الفعلي (amount_finance).
+    """
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
@@ -646,9 +649,22 @@ def finance_approve(payment_id):
         flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
+    amount_finance_str = (request.form.get("amount_finance") or "").strip()
+
+    if not amount_finance_str:
+        flash("من فضلك أدخل مبلغ المالية الفعلي قبل الاعتماد.", "danger")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
+    try:
+        amount_finance = float(amount_finance_str.replace(",", ""))
+    except ValueError:
+        flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
     old_status = payment.status
     payment.status = STATUS_READY_FOR_PAYMENT
     payment.updated_at = datetime.utcnow()
+    payment.amount_finance = amount_finance
 
     _add_approval_log(
         payment,
@@ -660,7 +676,7 @@ def finance_approve(payment_id):
 
     db.session.commit()
 
-    flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف.", "success")
+    flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف وتسجيل مبلغ المالية الفعلي.", "success")
     return redirect(url_for("payments.detail", payment_id=payment.id))
 
 

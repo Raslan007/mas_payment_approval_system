@@ -250,6 +250,7 @@
                             </div>
                         {% endif %}
                     </div>
+
                     <div class="col-md-6">
                         <div class="small-label mb-1">المورد / المقاول</div>
                         <div class="value-strong">
@@ -262,11 +263,57 @@
                         {% endif %}
                     </div>
 
-                    <div class="col-md-6">
-                        <div class="small-label mb-1">قيمة الدفعة</div>
+                    {# مبلغ المهندس #}
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">مبلغ المهندس (المطلوب)</div>
                         <div class="value-strong">
                             {{ "{:,.0f}".format(payment.amount or 0) }} ج.م
                         </div>
+                    </div>
+
+                    {# مبلغ المالية الفعلي #}
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">مبلغ المالية الفعلي</div>
+                        <div class="value-strong">
+                            {% if payment.amount_finance is not none %}
+                                {{ "{:,.0f}".format(payment.amount_finance or 0) }} ج.م
+                            {% else %}
+                                <span class="text-muted xsmall">لم يتم تسجيله بعد</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {# الفرق #}
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">
+                            الفرق (مبلغ المالية - مبلغ المهندس)
+                        </div>
+                        {% if payment.amount_finance is not none %}
+                            {% set diff = (payment.amount_finance or 0) - (payment.amount or 0) %}
+                            {% if diff > 0 %}
+                                {% set diff_class = "text-danger" %}
+                            {% elif diff < 0 %}
+                                {% set diff_class = "text-success" %}
+                            {% else %}
+                                {% set diff_class = "text-muted" %}
+                            {% endif %}
+                            <div class="value-strong {{ diff_class }}">
+                                {{ "{:,.0f}".format(diff) }} ج.م
+                            </div>
+                            <div class="xsmall text-muted">
+                                {% if diff > 0 %}
+                                    تم صرف مبلغ أعلى من المطلوب.
+                                {% elif diff < 0 %}
+                                    تم صرف مبلغ أقل من المطلوب (توفير).
+                                {% else %}
+                                    المبلغ المصروف مطابق للمطلوب.
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="value-strong text-muted">
+                                لم يتم تسجيل مبلغ المالية بعد
+                            </div>
+                        {% endif %}
                     </div>
 
                     <div class="col-md-6">
@@ -573,11 +620,26 @@
                     {% endif %}
 
                     {% if can_fin_approve and not is_rejected %}
-                        <form method="post" action="{{ url_for('payments.finance_approve', payment_id=payment.id) }}">
+                        <form method="post"
+                              action="{{ url_for('payments.finance_approve', payment_id=payment.id) }}"
+                              class="border rounded-3 p-2 xsmall">
                             {{ csrf_token() if csrf_token is defined }}
-                            <button type="submit" class="btn btn-success btn-sm">
+                            <div class="mb-2">
+                                <label class="small-label mb-1">مبلغ المالية الفعلي (ج.م)</label>
+                                <input type="number"
+                                       step="0.01"
+                                       min="0"
+                                       name="amount_finance"
+                                       class="form-control form-control-sm"
+                                       required
+                                       value="{% if payment.amount_finance is not none %}{{ payment.amount_finance }}{% else %}{{ payment.amount }}{% endif %}">
+                                <div class="form-text xsmall">
+                                    أدخل المبلغ الذي سيتم اعتماده للصرف من المالية.
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-success btn-sm w-100">
                                 <i class="bi bi-check-circle ms-1"></i>
-                                موافقة الإدارة المالية
+                                موافقة الإدارة المالية وتسجيل مبلغ المالية
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.finance_reject', payment_id=payment.id) }}">
