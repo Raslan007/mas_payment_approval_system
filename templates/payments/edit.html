@@ -1,122 +1,172 @@
 {% extends "base.html" %}
-{% block title %}تعديل الدفعة رقم {{ payment.id }}{% endblock %}
+{% block title %}{{ page_title or "تعديل الدفعة" }}{% endblock %}
 
 {% block content %}
-{% set page_title = "تعديل الدفعة رقم " ~ payment.id %}
+{% set page_title = page_title or ("تعديل الدفعة رقم " ~ payment.id) %}
 
-<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h1 class="h5 mb-1">تعديل الدفعة رقم {{ payment.id }}</h1>
-        <p class="text-muted xsmall mb-0">
-            يمكنك تعديل بيانات الدفعة طالما أنها ما زالت في مرحلة المسودة أو طبقًا لصلاحياتك.
-        </p>
+        <h1 class="h5 mb-1">{{ page_title }}</h1>
+        <div class="card-header-subtitle">
+            قم بتعديل بيانات الدفعة ثم اضغط حفظ.
+        </div>
     </div>
-    <div>
-        <span class="badge bg-{{ payment.status_badge_class }}">
-            {{ payment.human_status }}
-        </span>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-right-circle ms-1"></i>
+            رجوع لتفاصيل الدفعة
+        </a>
+        <a href="{{ url_for('payments.index') }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-list-task ms-1"></i>
+            قائمة الدفعات
+        </a>
     </div>
 </div>
 
-<div class="bg-white p-4 rounded-3 shadow-sm">
-    <form method="post" novalidate>
+<div class="card shadow-sm">
+    <div class="card-body">
 
-        <div class="row g-3">
-            <!-- المشروع -->
-            <div class="col-md-6">
-                <label class="form-label">المشروع</label>
-                <div class="d-flex gap-2">
-                    <select name="project_id" class="form-select" title="المشروع" required>
+        <form method="post"
+              action="{{ url_for('payments.edit_payment', payment_id=payment.id) }}"
+              enctype="multipart/form-data">
+
+            {{ csrf_token() if csrf_token is defined }}
+
+            <div class="row g-3">
+
+                <!-- المشروع -->
+                <div class="col-md-6">
+                    <label for="project_id" class="form-label small mb-1">المشروع</label>
+                    <select class="form-select form-select-sm" id="project_id" name="project_id" required>
                         <option value="">اختر المشروع...</option>
-                        {% for project in projects %}
-                            <option value="{{ project.id }}"
-                                    {% if payment.project_id == project.id %}selected{% endif %}>
-                                {{ project.project_name }}
+                        {% for proj in projects %}
+                            <option value="{{ proj.id }}"
+                                {% if payment.project_id == proj.id %}selected{% endif %}>
+                                {{ proj.project_name }}
+                                {% if proj.code %}- ({{ proj.code }}){% endif %}
                             </option>
                         {% endfor %}
                     </select>
-
-                    {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
-                        <a href="{{ url_for('projects.create_project') }}" target="_blank"
-                           class="btn btn-outline-secondary">
-                            +
-                        </a>
-                    {% endif %}
                 </div>
-            </div>
 
-            <!-- المورد / المقاول -->
-            <div class="col-md-6">
-                <label class="form-label">المورد / المقاول</label>
-                <div class="d-flex gap-2">
-                    <select name="supplier_id" class="form-select" title="المورد / المقاول" required>
-                        <option value="">اختر المورد أو المقاول...</option>
+                <!-- المورد / المقاول -->
+                <div class="col-md-6">
+                    <label for="supplier_id" class="form-label small mb-1">المورد / المقاول</label>
+                    <select class="form-select form-select-sm" id="supplier_id" name="supplier_id" required>
+                        <option value="">اختر المورد / المقاول...</option>
                         {% for s in suppliers %}
                             <option value="{{ s.id }}"
-                                    {% if payment.supplier_id == s.id %}selected{% endif %}>
-                                {{ s.name }} ({{ s.supplier_type }})
+                                {% if payment.supplier_id == s.id %}selected{% endif %}>
+                                {{ s.name }}
+                                {% if s.supplier_type %}- ({{ s.supplier_type }}){% endif %}
                             </option>
                         {% endfor %}
                     </select>
+                </div>
 
-                    {% if current_user.role and current_user.role.name in ['admin', 'engineering_manager'] %}
-                        <a href="{{ url_for('suppliers.create_supplier') }}" target="_blank"
-                           class="btn btn-outline-secondary">
-                            +
-                        </a>
+                <!-- نوع الدفعة -->
+                <div class="col-md-6">
+                    <label for="request_type" class="form-label small mb-1">نوع الدفعة</label>
+                    <select class="form-select form-select-sm" id="request_type" name="request_type" required>
+                        <option value="">اختر نوع الدفعة...</option>
+                        {% for rt in request_types %}
+                            <option value="{{ rt }}"
+                                {% if payment.request_type == rt %}selected{% endif %}>
+                                {{ rt }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- قيمة الدفعة -->
+                <div class="col-md-6">
+                    <label for="amount" class="form-label small mb-1">قيمة الدفعة (ج.م)</label>
+                    <input type="number" step="0.01" min="0"
+                           class="form-control form-control-sm"
+                           id="amount" name="amount"
+                           value="{{ payment.amount }}"
+                           required>
+                </div>
+
+                <!-- نسبة الإنجاز -->
+                <div class="col-md-6">
+                    <label for="progress_percentage" class="form-label small mb-1">
+                        نسبة الإنجاز وقت طلب الدفعة (%)
+                    </label>
+                    <input type="number" step="1" min="0" max="100"
+                           class="form-control form-control-sm"
+                           id="progress_percentage" name="progress_percentage"
+                           value="{{ payment.progress_percentage if payment.progress_percentage is not none }}">
+                    <div class="form-text xsmall">
+                        أدخل نسبة الإنجاز التقريبية وقت طلب هذه الدفعة.
+                    </div>
+                </div>
+
+                <!-- وصف الدفعة -->
+                <div class="col-12">
+                    <label for="description" class="form-label small mb-1">وصف مختصر للدفعة</label>
+                    <textarea class="form-control form-control-sm"
+                              id="description" name="description"
+                              rows="3"
+                              placeholder="مثال: دفعة مستخلص رقم 3 للمقاول ...">{{ payment.description or "" }}</textarea>
+                </div>
+
+                <!-- المرفقات (اختياري) -->
+                <div class="col-12">
+                    <label for="attachment" class="form-label small mb-1">
+                        مرفقات إضافية (اختياري)
+                    </label>
+                    <input type="file"
+                           class="form-control form-control-sm"
+                           id="attachment" name="attachment">
+                    <div class="form-text xsmall">
+                        يمكنك إرفاق مستند داعم (PDF / صورة / Excel).
+                    </div>
+                    {% if payment.attachments %}
+                        <div class="mt-2 xsmall">
+                            المرفقات الحالية:
+                            <ul class="mb-0">
+                                {% for att in payment.attachments %}
+                                    <li>
+                                        <a href="{{ url_for('payments.download_attachment', attachment_id=att.id) }}">
+                                            {{ att.original_filename }}
+                                        </a>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
                     {% endif %}
+                </div>
+
+            </div>
+
+            <hr class="my-4">
+
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="text-muted xsmall">
+                    آخر تحديث:
+                    {% if payment.updated_at %}
+                        {{ payment.updated_at.strftime("%Y-%m-%d %H:%M") }}
+                    {% else %}
+                        لم يتم التحديث بعد
+                    {% endif %}
+                </div>
+
+                <div class="d-flex gap-2">
+                    <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
+                       class="btn btn-outline-secondary btn-sm">
+                        إلغاء
+                    </a>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-save ms-1"></i>
+                        حفظ التعديلات
+                    </button>
                 </div>
             </div>
 
-            <!-- نوع الدفعة -->
-            <div class="col-md-4">
-                <label class="form-label">نوع الدفعة</label>
-                <select name="request_type" class="form-select" title="نوع الدفعة">
-                    <option value="مقاول" {% if payment.request_type == "مقاول" %}selected{% endif %}>مقاول</option>
-                    <option value="مشتريات" {% if payment.request_type == "مشتريات" %}selected{% endif %}>مشتريات</option>
-                    <option value="عهدة" {% if payment.request_type == "عهدة" %}selected{% endif %}>عهدة</option>
-                </select>
-            </div>
-
-            <!-- المبلغ -->
-            <div class="col-md-4">
-                <label class="form-label">المبلغ</label>
-                <input type="number" step="0.01" name="amount" class="form-control"
-                       title="المبلغ"
-                       value="{{ '%.2f'|format(payment.amount) }}" required>
-            </div>
-
-            <!-- نسبة الإنجاز -->
-            <div class="col-md-4">
-                <label class="form-label">نسبة الإنجاز وقت هذه الدفعة (%)</label>
-                <input type="number" step="0.01" min="0" max="100"
-                       name="progress_percentage"
-                       class="form-control"
-                       value="{{ payment.progress_percentage if payment.progress_percentage is not none else '' }}"
-                       placeholder="مثال: 25 أو 50.5">
-                <small class="text-muted xsmall">
-                    اختياري – يمثل نسبة إنجاز بند/مرحلة المشروع عند طلب هذه الدفعة.
-                </small>
-            </div>
-
-            <!-- الوصف -->
-            <div class="col-12">
-                <label class="form-label">وصف / ملاحظات</label>
-                <textarea name="description" rows="3" class="form-control"
-                          placeholder="أدخل الوصف أو الملاحظات">{{ payment.description or "" }}</textarea>
-            </div>
-        </div>
-
-        <div class="d-flex justify-content-end gap-2 mt-3">
-            <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
-               class="btn btn-outline-secondary">
-                رجوع
-            </a>
-            <button type="submit" class="btn btn-success">
-                <i class="bi bi-check2-circle ms-1"></i>
-                حفظ التعديلات
-            </button>
-        </div>
-    </form>
+        </form>
+    </div>
 </div>
 {% endblock %}
