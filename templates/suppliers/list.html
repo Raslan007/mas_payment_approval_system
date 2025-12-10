@@ -27,6 +27,7 @@
                 <th class="text-center" style="width: 70px;">#</th>
                 <th>الاسم</th>
                 <th class="text-nowrap">النوع</th>
+                <th class="text-nowrap" style="width: 120px;">الإجراءات</th>
             </tr>
             </thead>
             <tbody>
@@ -41,6 +42,13 @@
                         </td>
                         <td>
                             {{ s.supplier_type }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('suppliers.edit_supplier', supplier_id=s.id) }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil-square ms-1"></i>
+                                تعديل
+                            </a>
                         </td>
                     </tr>
                 {% endfor %}

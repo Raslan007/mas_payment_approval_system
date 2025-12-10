@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}تعديل بيانات المورد / المقاول{% endblock %}
+
+{% block content %}
+{% set page_title = "تعديل بيانات المورد / المقاول " ~ (supplier.name or '') %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">تعديل بيانات المورد / المقاول</h1>
+        <p class="text-muted xsmall mb-0">
+            تعديل اسم المورد/المقاول وتحديد نوعه (مقاول، مورد مواد، ...).
+        </p>
+    </div>
+    <div class="text-end xsmall">
+        <div class="fw-semibold">
+            {{ supplier.name }}
+        </div>
+        <div class="text-muted">
+            النوع الحالي: {{ supplier.supplier_type }}
+        </div>
+    </div>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm col-lg-6 col-md-8 col-12">
+    <form method="post" novalidate>
+        <div class="mb-3">
+            <label for="name" class="form-label">اسم المورد / المقاول</label>
+            <input type="text"
+                   id="name"
+                   name="name"
+                   class="form-control"
+                   value="{{ supplier.name or '' }}"
+                   required
+                   placeholder="اكتب اسم المورد أو المقاول">
+        </div>
+
+        <div class="mb-3">
+            <label for="supplier_type" class="form-label">نوع المورد / المقاول</label>
+            <input type="text"
+                   id="supplier_type"
+                   name="supplier_type"
+                   class="form-control"
+                   value="{{ supplier.supplier_type or '' }}"
+                   required
+                   placeholder="مثال: مقاول، مورد مواد، ...">
+            <small class="text-muted xsmall">
+                يمكنك استخدام نوع ثابت (مثل: "مقاول" أو "مورد مواد") أو أي تصنيف يناسب نظامك.
+            </small>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-2">
+            <a href="{{ url_for('suppliers.list_suppliers') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ التعديلات
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
