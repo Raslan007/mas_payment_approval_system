@@ -12,7 +12,8 @@
         </div>
     </div>
     <div>
-        <a href="{{ url_for('payments.create') }}" class="btn btn-primary btn-sm">
+        {# التعديل المهم هنا: endpoint الصحيح هو payments.create_payment #}
+        <a href="{{ url_for('payments.create_payment') }}" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-circle ms-1"></i>
             إضافة دفعة جديدة
         </a>
@@ -120,7 +121,7 @@
                             <!-- الإجراءات -->
                             <td class="text-center">
                                 <div class="d-flex justify-content-center flex-wrap gap-1">
-                                    {# هنا التعديل: استخدام endpoint الصحيح payments.detail #}
+                                    {# التعديل السابق هنا: استخدام endpoint الصحيح لعرض التفاصيل #}
                                     <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
                                        class="btn btn-sm btn-outline-primary btn-sm-icon">
                                         <i class="bi bi-eye ms-1"></i>
