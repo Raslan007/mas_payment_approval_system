@@ -4,145 +4,149 @@
 {% block content %}
 {% set page_title = page_title or "قائمة الدفعات" %}
 
-<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h1 class="h5 mb-1">{{ page_title }}</h1>
-        <p class="text-muted mb-0 xsmall">
-            عرض طلبات الدفعات حسب المشروع والمورد والحالة، مع إمكانية الدخول للتفاصيل والاعتمادات.
-        </p>
+        <div class="card-header-subtitle">
+            يمكنك استعراض الدفعات حسب صلاحياتك الحالية.
+        </div>
     </div>
     <div>
-        <a href="{{ url_for('payments.create_payment') }}" class="btn btn-primary">
+        <a href="{{ url_for('payments.create') }}" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-circle ms-1"></i>
             إضافة دفعة جديدة
         </a>
     </div>
 </div>
 
-<div class="bg-white p-3 rounded-3 shadow-sm card-table">
-    <div class="table-responsive">
-        <table class="table table-striped align-middle mb-0 datatable">
-            <thead>
-            <tr>
-                <th class="text-center" style="width: 60px;">#</th>
-                <th>المشروع</th>
-                <th>المورد / المقاول</th>
-                <th class="text-nowrap">نوع الدفعة</th>
-                <th class="text-end text-nowrap">المبلغ (ج.م)</th>
-                <th class="text-nowrap">نسبة الإنجاز</th>
-                <th class="text-center">الحالة</th>
-                <th class="text-center text-nowrap">تاريخ الإنشاء</th>
-                <th class="text-center" style="width: 210px;">إجراءات</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% if payments %}
-                {% for p in payments %}
-                    {% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
-                    {% set can_edit = (role_name in ['engineering_manager', 'admin']) or
-                        (current_user.is_authenticated and p.status == 'draft' and p.created_by == current_user.id) %}
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                <tr>
+                    <th class="text-center text-muted small">#</th>
+                    <th>المشروع</th>
+                    <th>المورد / المقاول</th>
+                    <th class="text-nowrap">نوع الدفعة</th>
+                    <th class="text-end text-nowrap">المبلغ (ج.م)</th>
+                    <th class="text-nowrap">نسبة الإنجاز</th>
+                    <th class="text-center">الحالة</th>
+                    <th class="text-center text-nowrap">تاريخ الإنشاء</th>
+                    <th class="text-center" style="width: 210px;">إجراءات</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% if payments %}
+                    {% for p in payments %}
+                        {% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
+                        {% set can_edit = (role_name in ['engineering_manager', 'admin']) or
+                            (current_user.is_authenticated and p.status == 'draft' and p.created_by == current_user.id) %}
 
-                    <tr>
-                        <!-- رقم الدفعة -->
-                        <td class="text-center text-muted">
-                            {{ p.id }}
-                        </td>
+                        <tr>
+                            <!-- رقم الدفعة -->
+                            <td class="text-center text-muted">
+                                {{ p.id }}
+                            </td>
 
-                        <!-- المشروع -->
-                        <td>
-                            {% if p.project %}
-                                <div class="fw-semibold">{{ p.project.project_name }}</div>
-                                {% if p.project.code %}
-                                    <div class="text-muted xsmall">كود: {{ p.project.code }}</div>
+                            <!-- المشروع -->
+                            <td>
+                                {% if p.project %}
+                                    <div class="fw-semibold">{{ p.project.project_name }}</div>
+                                    {% if p.project.code %}
+                                        <div class="text-muted xsmall">كود: {{ p.project.code }}</div>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted xsmall">غير محدد</span>
                                 {% endif %}
-                            {% else %}
-                                <span class="text-muted xsmall">غير محدد</span>
-                            {% endif %}
-                        </td>
+                            </td>
 
-                        <!-- المورد / المقاول -->
-                        <td>
-                            {% if p.supplier %}
-                                <div class="fw-semibold">{{ p.supplier.name }}</div>
-                                <div class="text-muted xsmall">{{ p.supplier.supplier_type }}</div>
-                            {% else %}
-                                <span class="text-muted xsmall">غير محدد</span>
-                            {% endif %}
-                        </td>
+                            <!-- المورد / المقاول -->
+                            <td>
+                                {% if p.supplier %}
+                                    <div class="fw-semibold">{{ p.supplier.name }}</div>
+                                    <div class="text-muted xsmall">{{ p.supplier.supplier_type }}</div>
+                                {% else %}
+                                    <span class="text-muted xsmall">غير محدد</span>
+                                {% endif %}
+                            </td>
 
-                        <!-- نوع الدفعة -->
-                        <td>
-                            <span class="badge bg-light text-dark border small">
-                                {{ p.request_type }}
-                            </span>
-                        </td>
+                            <!-- نوع الدفعة -->
+                            <td>
+                                <span class="badge bg-light text-dark border small">
+                                    {{ p.request_type }}
+                                </span>
+                            </td>
 
-                        <!-- المبلغ -->
-                        <td class="text-end fw-semibold">
-                            {{ "%.2f"|format(p.amount) }}
-                        </td>
+                            <!-- المبلغ -->
+                            <td class="text-end fw-semibold">
+                                {{ "%.2f"|format(p.amount) }}
+                            </td>
 
-                        <!-- نسبة الإنجاز -->
-                        <td style="min-width: 140px;">
-                            {% if p.progress_percentage is not none %}
-                                <div class="d-flex justify-content-between align-items-center xsmall mb-1">
-                                    <span class="text-muted">إنجاز</span>
-                                    <span class="fw-semibold">
-                                        {{ "%.0f"|format(p.progress_percentage) }}%
-                                    </span>
-                                </div>
-                                <div class="progress progress-thin">
-                                    <div class="progress-bar"
-                                         role="progressbar"
-                                         style="width: {{ p.progress_percentage }}%;"
-                                         aria-valuenow="{{ p.progress_percentage }}"
-                                         aria-valuemin="0" aria-valuemax="100">
+                            <!-- نسبة الإنجاز -->
+                            <td style="min-width: 140px;">
+                                {% if p.progress_percentage is not none %}
+                                    <div class="d-flex justify-content-between align-items-center xsmall mb-1">
+                                        <span class="text-muted">إنجاز</span>
+                                        <span class="fw-semibold">
+                                            {{ "%.0f"|format(p.progress_percentage) }}%
+                                        </span>
                                     </div>
-                                </div>
-                            {% else %}
-                                <span class="text-muted xsmall">غير محددة</span>
-                            {% endif %}
-                        </td>
-
-                        <!-- الحالة -->
-                        <td class="text-center">
-                            <span class="badge bg-{{ p.status_badge_class }}">
-                                {{ p.human_status }}
-                            </span>
-                        </td>
-
-                        <!-- تاريخ الإنشاء -->
-                        <td class="text-center xsmall">
-                            {{ p.created_at.strftime("%Y-%m-%d") if p.created_at else "" }}
-                        </td>
-
-                        <!-- الإجراءات -->
-                        <td class="text-center">
-                            <div class="d-flex justify-content-center flex-wrap gap-1">
-                                <a href="{{ url_for('payments.view_payment', payment_id=p.id) }}"
-                                   class="btn btn-sm btn-outline-primary btn-sm-icon">
-                                    <i class="bi bi-eye ms-1"></i>
-                                    عرض / اعتماد
-                                </a>
-                                {% if can_edit %}
-                                    <a href="{{ url_for('payments.edit_payment', payment_id=p.id) }}"
-                                       class="btn btn-sm btn-outline-secondary btn-sm-icon">
-                                        <i class="bi bi-pencil ms-1"></i>
-                                        تعديل
-                                    </a>
+                                    <div class="progress progress-thin">
+                                        <div class="progress-bar"
+                                             role="progressbar"
+                                             style="width: {{ p.progress_percentage }}%;"
+                                             aria-valuenow="{{ p.progress_percentage }}"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted xsmall">غير محددة</span>
                                 {% endif %}
-                            </div>
+                            </td>
+
+                            <!-- الحالة -->
+                            <td class="text-center">
+                                <span class="badge bg-{{ p.status_badge_class }}">
+                                    {{ p.human_status }}
+                                </span>
+                            </td>
+
+                            <!-- تاريخ الإنشاء -->
+                            <td class="text-center xsmall">
+                                {{ p.created_at.strftime("%Y-%m-%d") if p.created_at else "" }}
+                            </td>
+
+                            <!-- الإجراءات -->
+                            <td class="text-center">
+                                <div class="d-flex justify-content-center flex-wrap gap-1">
+                                    {# هنا التعديل: استخدام endpoint الصحيح payments.detail #}
+                                    <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
+                                       class="btn btn-sm btn-outline-primary btn-sm-icon">
+                                        <i class="bi bi-eye ms-1"></i>
+                                        عرض / اعتماد
+                                    </a>
+                                    {% if can_edit %}
+                                        <a href="{{ url_for('payments.edit_payment', payment_id=p.id) }}"
+                                           class="btn btn-sm btn-outline-secondary btn-sm-icon">
+                                            <i class="bi bi-pencil ms-1"></i>
+                                            تعديل
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted xsmall py-4">
+                            لا توجد دفعات مسجلة حتى الآن.
                         </td>
                     </tr>
-                {% endfor %}
-            {% endif %}
-            </tbody>
-        </table>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
     </div>
-    {% if not payments %}
-        <p class="text-muted text-center xsmall mt-3 mb-0">
-            لا توجد دفعات في هذه القائمة حاليًا.
-        </p>
-    {% endif %}
 </div>
 {% endblock %}
