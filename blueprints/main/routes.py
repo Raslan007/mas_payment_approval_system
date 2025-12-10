@@ -64,8 +64,8 @@ def dashboard():
     """
     لوحة تحكم عامة للدفعات:
     - إجمالي عدد الدفعات
-    - إجمالي قيمة الدفعات
-    - المبالغ المصروفة
+    - إجمالي قيمة الدفعات (طلب المهندس)
+    - المبالغ المصروفة فعلياً (amount_finance)
     - المبالغ المعتمدة/منتظرة ولم تُصرف بعد
     - توزيع مبالغ الدفعات حسب الحالة
     - توزيع مبالغ الدفعات حسب المشروع
@@ -73,25 +73,40 @@ def dashboard():
 
     base_q = PaymentRequest.query
 
-    # إجمالي عدد الدفعات
+    # إجمالي عدد الدفعات (أي حالة)
     total_count = base_q.count()
 
-    # إجمالي قيمة الدفعات
+    # إجمالي قيمة الدفعات المطلوبة (مبلغ المهندس)
     total_amount = (
         base_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
         .scalar()
         or 0.0
     )
 
-    # المبالغ المصروفة (تم الصرف)
+    # -----------------------------
+    # المبالغ المصروفة فعلياً
+    # -----------------------------
     paid_q = base_q.filter(PaymentRequest.status == STATUS_PAID)
+    # نستخدم amount_finance، ولو فاضي نرجع لـ amount احتياطيًا
     total_paid = (
-        paid_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
-        .scalar()
+        paid_q.with_entities(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        PaymentRequest.amount_finance,
+                        PaymentRequest.amount,
+                        0.0,
+                    )
+                ),
+                0.0,
+            )
+        ).scalar()
         or 0.0
     )
 
-    # في انتظار المالية
+    # -----------------------------
+    # في انتظار المالية (ما قبل إدخال المبلغ الفعلي)
+    # -----------------------------
     waiting_fin_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
     total_waiting_finance = (
         waiting_fin_q.with_entities(
@@ -101,19 +116,32 @@ def dashboard():
         or 0.0
     )
 
+    # -----------------------------
     # جاهزة للصرف (معتمدة ماليًا ولم تُسجل كـ تم الصرف)
+    # هنا نستخدم المبلغ المالي الفعلي amount_finance
+    # -----------------------------
     approved_not_paid_q = base_q.filter(
         PaymentRequest.status == STATUS_READY_FOR_PAYMENT
     )
     total_approved_not_paid = (
         approved_not_paid_q.with_entities(
-            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
-        )
-        .scalar()
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        PaymentRequest.amount_finance,
+                        PaymentRequest.amount,
+                        0.0,
+                    )
+                ),
+                0.0,
+            )
+        ).scalar()
         or 0.0
     )
 
-    # توزيع حسب الحالة (مبالغ فقط)
+    # -------------------------------------------------
+    # توزيع حسب الحالة (نستخدم amount أو amount_finance)
+    # -------------------------------------------------
     status_labels = {
         STATUS_DRAFT: "مسودة (مدخل بواسطة المهندس)",
         STATUS_PENDING_PM: "تحت مراجعة مدير المشروع",
@@ -127,12 +155,24 @@ def dashboard():
     totals_by_status = []
     for status, label in status_labels.items():
         s_q = base_q.filter(PaymentRequest.status == status)
-        amount = (
-            s_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
-            .scalar()
-            or 0.0
-        )
-        # نعرض السطر حتى لو صفر علشان يكون شكل الجدول كامل
+
+        # للحالات بعد المالية نستخدم المبلغ المالي الفعلي
+        if status in (STATUS_READY_FOR_PAYMENT, STATUS_PAID):
+            sum_expr = func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        PaymentRequest.amount_finance,
+                        PaymentRequest.amount,
+                        0.0,
+                    )
+                ),
+                0.0,
+            )
+        else:
+            sum_expr = func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+
+        amount = s_q.with_entities(sum_expr).scalar() or 0.0
+
         totals_by_status.append(
             {
                 "status": status,
@@ -141,7 +181,9 @@ def dashboard():
             }
         )
 
-    # توزيع حسب المشروع
+    # -------------------------------------------------
+    # توزيع حسب المشروع (حالياً على أساس المبلغ المطلوب من المهندس)
+    # -------------------------------------------------
     totals_by_project = (
         base_q.join(Project, PaymentRequest.project_id == Project.id)
         .with_entities(
