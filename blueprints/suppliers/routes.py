@@ -29,7 +29,7 @@ def create_supplier():
         # يمكن لاحقًا إضافة تحقق من التكرار (نفس الاسم + النوع)
         existing = Supplier.query.filter(
             Supplier.name == name,
-            Supplier.supplier_type == supplier_type
+            Supplier.supplier_type == supplier_type,
         ).first()
         if existing:
             flash("يوجد مورد/مقاول مسجل بنفس الاسم والنوع.", "danger")
@@ -62,7 +62,7 @@ def edit_supplier(supplier_id):
         existing = Supplier.query.filter(
             Supplier.name == name,
             Supplier.supplier_type == supplier_type,
-            Supplier.id != supplier.id
+            Supplier.id != supplier.id,
         ).first()
         if existing:
             flash("يوجد مورد/مقاول آخر مسجل بنفس الاسم والنوع.", "danger")
@@ -76,3 +76,22 @@ def edit_supplier(supplier_id):
         return redirect(url_for("suppliers.list_suppliers"))
 
     return render_template("suppliers/edit.html", supplier=supplier)
+
+
+@suppliers_bp.route("/<int:supplier_id>/delete", methods=["POST"])
+@role_required("admin", "engineering_manager")
+def delete_supplier(supplier_id):
+    """حذف مورد / مقاول (مسموح فقط للأدمن ومدير الإدارة الهندسية)."""
+    supplier = Supplier.query.get_or_404(supplier_id)
+
+    # منع الحذف إذا لديه دفعات مرتبطة
+    if getattr(supplier, "payments", None):
+        if supplier.payments:
+            flash("لا يمكن حذف هذا المورد/المقاول لأنه مرتبط بدفعات.", "danger")
+            return redirect(url_for("suppliers.list_suppliers"))
+
+    db.session.delete(supplier)
+    db.session.commit()
+
+    flash("تم حذف المورد/المقاول بنجاح.", "success")
+    return redirect(url_for("suppliers.list_suppliers"))

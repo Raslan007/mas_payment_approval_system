@@ -27,7 +27,7 @@
                 <th class="text-center" style="width: 70px;">#</th>
                 <th>الاسم</th>
                 <th class="text-nowrap">النوع</th>
-                <th class="text-nowrap" style="width: 120px;">الإجراءات</th>
+                <th class="text-nowrap text-center" style="width: 190px;">الإجراءات</th>
             </tr>
             </thead>
             <tbody>
@@ -43,12 +43,26 @@
                         <td>
                             {{ s.supplier_type }}
                         </td>
-                        <td>
+                        <td class="text-center">
+                            <!-- زر تعديل -->
                             <a href="{{ url_for('suppliers.edit_supplier', supplier_id=s.id) }}"
-                               class="btn btn-sm btn-outline-primary">
+                               class="btn btn-sm btn-outline-primary me-1">
                                 <i class="bi bi-pencil-square ms-1"></i>
                                 تعديل
                             </a>
+
+                            <!-- زر حذف (يظهر فقط للأدمن ومدير الإدارة الهندسية إن حبيت تتحكم بالصلاحيات) -->
+                            {% if role_name in ['admin', 'engineering_manager'] %}
+                            <form action="{{ url_for('suppliers.delete_supplier', supplier_id=s.id) }}"
+                                  method="POST"
+                                  class="d-inline"
+                                  onsubmit="return confirm('هل أنت متأكد أنك تريد حذف هذا المورد/المقاول؟');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash ms-1"></i>
+                                    حذف
+                                </button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}
