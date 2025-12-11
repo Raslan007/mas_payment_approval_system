@@ -8,11 +8,10 @@
     <div>
         <h1 class="h5 mb-1">{{ page_title }}</h1>
         <div class="card-header-subtitle">
-            يمكنك استعراض الدفعات حسب صلاحياتك الحالية.
+            يمكنك استعراض الدفعات حسب صلاحياتك الحالية مع إمكانية تصفية النتائج.
         </div>
     </div>
     <div>
-        {# التعديل المهم هنا: endpoint الصحيح هو payments.create_payment #}
         <a href="{{ url_for('payments.create_payment') }}" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-circle ms-1"></i>
             إضافة دفعة جديدة
@@ -20,6 +19,73 @@
     </div>
 </div>
 
+{# --------------------  فلاتر البحث  -------------------- #}
+<div class="card mb-3 shadow-sm">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <!-- المشروع -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">المشروع</label>
+                <select name="project_id" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for p in projects %}
+                        <option value="{{ p.id }}" {% if filters.project_id == p.id|string %}selected{% endif %}>
+                            {{ p.project_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- نوع الدفعة -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">نوع الدفعة</label>
+                <select name="request_type" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for rt in request_types %}
+                        <option value="{{ rt }}" {% if filters.request_type == rt %}selected{% endif %}>
+                            {{ rt }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- الحالة -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">الحالة</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for val, label in status_list %}
+                        <option value="{{ val }}" {% if filters.status == val %}selected{% endif %}>
+                            {{ label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- رقم الأسبوع -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">رقم الأسبوع (من 1 إلى 53)</label>
+                <input type="number"
+                       name="week_number"
+                       min="1" max="53"
+                       class="form-control form-control-sm"
+                       value="{{ filters.week_number }}">
+            </div>
+
+            <div class="col-12 text-end mt-2">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel ms-1"></i>
+                    تطبيق الفلتر
+                </button>
+                <a href="{{ url_for('payments.index') }}" class="btn btn-outline-secondary btn-sm">
+                    مسح الفلاتر
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# --------------------  جدول الدفعات  -------------------- #}
 <div class="card shadow-sm">
     <div class="card-body">
         <div class="table-responsive">
@@ -121,7 +187,6 @@
                             <!-- الإجراءات -->
                             <td class="text-center">
                                 <div class="d-flex justify-content-center flex-wrap gap-1">
-                                    {# التعديل السابق هنا: استخدام endpoint الصحيح لعرض التفاصيل #}
                                     <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
                                        class="btn btn-sm btn-outline-primary btn-sm-icon">
                                         <i class="bi bi-eye ms-1"></i>
@@ -141,7 +206,7 @@
                 {% else %}
                     <tr>
                         <td colspan="9" class="text-center text-muted xsmall py-4">
-                            لا توجد دفعات مسجلة حتى الآن.
+                            لا توجد دفعات مسجلة وفقًا لخيارات الفلتر الحالية.
                         </td>
                     </tr>
                 {% endif %}

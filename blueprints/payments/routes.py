@@ -163,12 +163,22 @@ def _add_approval_log(
 )
 def index():
     role_name = _get_role()
+
+    # جلب الفلاتر من الواجهة
+    filters = {
+        "project_id": request.args.get("project_id") or "",
+        "status": request.args.get("status") or "",
+        "request_type": request.args.get("request_type") or "",
+        "week_number": request.args.get("week_number") or "",
+    }
+
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
         joinedload(PaymentRequest.supplier),
         joinedload(PaymentRequest.creator),
     )
 
+    # تصفية حسب الصلاحيات
     if role_name in ("engineer", "project_manager"):
         q = q.filter(PaymentRequest.created_by == current_user.id)
     elif role_name == "finance":
@@ -178,10 +188,58 @@ def index():
             )
         )
 
+    # --------------------------
+    #     تطبيق الفلاتر
+    # --------------------------
+
+    # فلتر المشروع
+    if filters["project_id"]:
+        try:
+            q = q.filter(PaymentRequest.project_id == int(filters["project_id"]))
+        except:
+            pass
+
+    # فلتر نوع الدفعة
+    if filters["request_type"]:
+        q = q.filter(PaymentRequest.request_type == filters["request_type"])
+
+    # فلتر الحالة
+    if filters["status"]:
+        q = q.filter(PaymentRequest.status == filters["status"])
+
+    # فلتر رقم الأسبوع (حسب created_at)
+    if filters["week_number"]:
+        try:
+            week_no = int(filters["week_number"])
+            q = q.filter(db.extract("week", PaymentRequest.created_at) == week_no)
+        except:
+            pass
+
     payments = q.order_by(PaymentRequest.id.desc()).all()
+
+    # تحميل قائمة المشاريع للفلتر
+    projects = Project.query.order_by(Project.project_name.asc()).all()
+
+    # الحالات المتاحة
+    status_list = [
+        (STATUS_DRAFT, "مسودة"),
+        (STATUS_PENDING_PM, "مراجعة مدير المشروع"),
+        (STATUS_PENDING_ENG, "مراجعة الإدارة الهندسية"),
+        (STATUS_PENDING_FIN, "في انتظار اعتماد المالية"),
+        (STATUS_READY_FOR_PAYMENT, "جاهزة للصرف"),
+        (STATUS_PAID, "تم الصرف"),
+        (STATUS_REJECTED, "مرفوضة"),
+    ]
+
+    request_types = ["مقاول", "عهدة", "أخرى"]
+
     return render_template(
         "payments/list.html",
         payments=payments,
+        projects=projects,
+        filters=filters,
+        status_list=status_list,
+        request_types=request_types,
         page_title="دفعات حسب صلاحياتي",
     )
 
