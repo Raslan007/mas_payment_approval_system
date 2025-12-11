@@ -2,6 +2,24 @@
 {% block title %}لوحة التحكم - نظام اعتماد الدفعات{% endblock %}
 
 {% block content %}
+
+{# -----------------------------------------
+   تحكم في من له صلاحية رؤية لوحة التحكم
+   الأدوار المسموح لها: admin, engineering_manager, finance, chairman
+   عدّل القائمة حسب ما تريده بالضبط
+------------------------------------------ #}
+{% set allowed_roles = ["admin", "engineering_manager", "finance", "chairman"] %}
+
+{% if (not current_user.is_authenticated)
+      or (not current_user.role)
+      or (current_user.role.name not in allowed_roles) %}
+
+    <div class="alert alert-warning small">
+        لا تملك صلاحية عرض لوحة التحكم العامة للدفعات.
+    </div>
+
+{% else %}
+
 {% set page_title = "لوحة التحكم العامة للدفعات" %}
 
 <div class="mb-3">
@@ -46,7 +64,7 @@
     <!-- تم الصرف -->
     <div class="col-sm-6 col-md-3">
         <div class="bg-white rounded-3 shadow-sm h-100 p-3">
-            <div class="d-flex justify-content_between align-items-center mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
                 <span class="text-muted small">مبالغ مصروفة</span>
                 <i class="bi bi-check2-circle text-success"></i>
             </div>
@@ -157,7 +175,7 @@
     <!-- توزيع حسب المشروع -->
     <div class="col-lg-6">
         <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
-            <div class="d-flex justify_content-between align-items-center mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
                 <div>
                     <div class="fw-semibold small">إجمالي مبالغ الدفعات حسب المشروع</div>
                     <div class="text-muted xsmall">
@@ -213,4 +231,7 @@
         </div>
     </div>
 </div>
+
+{% endif %} {# نهاية شرط الصلاحيات #}
+
 {% endblock %}
