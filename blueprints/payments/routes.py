@@ -12,7 +12,7 @@ from flask import (
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
-from sqlalchemy import extract  # لاستخدام فلتر رقم الأسبوع
+from sqlalchemy import extract
 
 from extensions import db
 from permissions import role_required
@@ -148,6 +148,38 @@ def _add_approval_log(
     db.session.add(log)
 
 
+def _get_filter_lists():
+    """
+    ترجع القوائم المستخدمة في فلاتر قائمة الدفعات:
+    - projects: كل المشاريع
+    - request_types: أنواع الدفعات المميزة
+    - status_choices: قائمة الحالات (value, label)
+    """
+    projects = Project.query.order_by(Project.project_name.asc()).all()
+
+    # أنواع الدفعات المميزة من جدول الدفعات
+    rt_rows = (
+        db.session.query(PaymentRequest.request_type)
+        .distinct()
+        .order_by(PaymentRequest.request_type.asc())
+        .all()
+    )
+    request_types = [r[0] for r in rt_rows if r[0]]
+
+    status_choices = [
+        ("", "الكل"),
+        (STATUS_DRAFT, "مسودة (مدخل بواسطة المهندس)"),
+        (STATUS_PENDING_PM, "تحت مراجعة مدير المشروع"),
+        (STATUS_PENDING_ENG, "تحت مراجعة الإدارة الهندسية"),
+        (STATUS_PENDING_FIN, "في انتظار اعتماد المالية"),
+        (STATUS_READY_FOR_PAYMENT, "جاهزة للصرف"),
+        (STATUS_PAID, "تم الصرف"),
+        (STATUS_REJECTED, "مرفوضة"),
+    ]
+
+    return projects, request_types, status_choices
+
+
 # =========================
 #   قوائم الدفعات
 # =========================
@@ -166,7 +198,6 @@ def index():
     """
     قائمة "دفعات حسب صلاحياتي" مع فلاتر:
     - المشروع
-    - المورد/المقاول
     - نوع الدفعة
     - الحالة
     - رقم الأسبوع (من created_at)
@@ -194,7 +225,6 @@ def index():
     # قراءة الفلاتر من الـ Query String
     filters = {
         "project_id": request.args.get("project_id") or "",
-        "supplier_id": request.args.get("supplier_id") or "",
         "request_type": request.args.get("request_type") or "",
         "status": request.args.get("status") or "",
         "week_number": request.args.get("week_number") or "",
@@ -207,14 +237,6 @@ def index():
         try:
             project_id = int(filters["project_id"])
             q = q.filter(PaymentRequest.project_id == project_id)
-        except ValueError:
-            pass
-
-    # فلتر المورد / المقاول
-    if filters["supplier_id"]:
-        try:
-            supplier_id = int(filters["supplier_id"])
-            q = q.filter(PaymentRequest.supplier_id == supplier_id)
         except ValueError:
             pass
 
@@ -254,11 +276,16 @@ def index():
 
     payments = q.order_by(PaymentRequest.id.desc()).all()
 
+    projects, request_types, status_choices = _get_filter_lists()
+
     return render_template(
         "payments/list.html",
         payments=payments,
         page_title="دفعات حسب صلاحياتي",
-        filters=filters,  # مهم علشان التمبلت ما يهنّجش
+        filters=filters,
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
     )
 
 
@@ -274,11 +301,17 @@ def list_all():
         .order_by(PaymentRequest.id.desc())
         .all()
     )
+
+    projects, request_types, status_choices = _get_filter_lists()
+
     return render_template(
         "payments/list.html",
         payments=payments,
         page_title="جميع الدفعات",
-        filters={},  # نمرّر filters فاضي لتفادي الخطأ
+        filters={},
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
     )
 
 
@@ -295,11 +328,17 @@ def pm_review():
         .order_by(PaymentRequest.id.desc())
         .all()
     )
+
+    projects, request_types, status_choices = _get_filter_lists()
+
     return render_template(
         "payments/list.html",
         payments=payments,
         page_title="دفعات في انتظار مراجعة مدير المشروع",
         filters={},
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
     )
 
 
@@ -316,11 +355,17 @@ def eng_review():
         .order_by(PaymentRequest.id.desc())
         .all()
     )
+
+    projects, request_types, status_choices = _get_filter_lists()
+
     return render_template(
         "payments/list.html",
         payments=payments,
         page_title="دفعات في انتظار الإدارة الهندسية",
         filters={},
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
     )
 
 
@@ -349,11 +394,16 @@ def list_finance_review():
         .all()
     )
 
+    projects, request_types, status_choices = _get_filter_lists()
+
     return render_template(
         "payments/list.html",
         payments=payments,
         page_title="جميع دفعات المالية",
         filters={},
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
     )
 
 
