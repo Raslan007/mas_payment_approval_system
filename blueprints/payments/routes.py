@@ -281,7 +281,8 @@ def list_finance_review():
 @role_required("admin", "engineering_manager", "finance", "chairman")
 def finance_eng_approved():
     """
-    قائمة الدفعات المعتمدة من الإدارة الهندسية وفي انتظار المالية
+    قائمة الدفعات الجاهزة للصرف:
+    - الدفعات التي تم اعتمادها ماليًا وحالتها READY_FOR_PAYMENT
     مع فلاتر على:
     - المشروع
     - المورد/المقاول
@@ -289,12 +290,12 @@ def finance_eng_approved():
     - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
     """
 
-    # كويري أساسي: دفعات حالتها في انتظار المالية
+    # كويري أساسي: دفعات حالتها جاهزة للصرف
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
         joinedload(PaymentRequest.supplier),
         joinedload(PaymentRequest.creator),
-    ).filter(PaymentRequest.status == STATUS_PENDING_FIN)
+    ).filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -354,7 +355,7 @@ def finance_eng_approved():
         projects=projects,
         suppliers=suppliers,
         filters=filters,
-        page_title="دفعات معتمدة من الإدارة الهندسية في انتظار المالية",
+        page_title="دفعات جاهزة للصرف",
     )
 
 
@@ -782,7 +783,10 @@ def mark_paid(payment_id):
     _require_can_view(payment)
 
     if payment.status != STATUS_READY_FOR_PAYMENT:
-        flash("لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا وجعلها جاهزة للصرف.", "warning")
+        flash(
+            "لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا وجعلها جاهزة للصرف.",
+            "warning",
+        )
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     amount_finance_str = (request.form.get("amount_finance") or "").strip()
