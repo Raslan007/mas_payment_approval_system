@@ -497,6 +497,8 @@ def finance_eng_approved():
 def create_payment():
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    # يمكن استخدام نفس قائمة أنواع الدفعات إن احتجناها في القالب
+    _, request_types, _ = _get_filter_lists()
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -536,6 +538,7 @@ def create_payment():
         "payments/create.html",
         projects=projects,
         suppliers=suppliers,
+        request_types=request_types,
         page_title="إضافة دفعة جديدة",
     )
 
@@ -621,6 +624,8 @@ def edit_payment(payment_id):
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    # هنا نجيب قائمة أنواع الدفعات ونرسلها للقالب
+    _, request_types, _ = _get_filter_lists()
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -659,6 +664,7 @@ def edit_payment(payment_id):
         payment=payment,
         projects=projects,
         suppliers=suppliers,
+        request_types=request_types,
         page_title=f"تعديل الدفعة رقم {payment.id}",
     )
 
