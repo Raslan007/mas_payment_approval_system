@@ -59,7 +59,7 @@ def index():
 # لوحة التحكم العامة للدفعات
 # -------------------------------------------------------------------
 @main_bp.route("/dashboard")
-@role_required("admin", "engineering_manager", "chairman")
+@role_required("admin", "engineering_manager", "chairman", "finance")
 def dashboard():
     """
     لوحة تحكم عامة للدفعات:
