@@ -24,34 +24,28 @@ STATUS_REJECTED = "rejected"
 @login_required
 def index():
     """
-    توجيه المستخدم إلى الصفحة الصحيحة بعد تسجيل الدخول
-    بناءً على الدور الخاص به.
-    زر "لوحة التحكم" في القائمة الجانبية عادة يروح على هذا الراوت.
+    توجيه المستخدم إلى الصفحة الصحيحة بعد تسجيل الدخول.
     """
 
     role_name = current_user.role.name if current_user.role else None
 
-    # 1) المالية → لوحة دفعات تم اعتمادها هندسياً وتنتظر المالية
-    if role_name == "finance":
-        return redirect(url_for("payments.finance_eng_approved"))
-
-    # 2) مدير مشروع → دفعاته حسب صلاحياته
+    # مدير مشروع → دفعاته
     if role_name == "project_manager":
         return redirect(url_for("payments.index"))
 
-    # 3) مهندس → دفعاته حسب صلاحياته
+    # مهندس → دفعاته
     if role_name == "engineer":
         return redirect(url_for("payments.index"))
 
-    # 4) Data Entry (DC) → إدارة المستخدمين
+    # Data Entry (DC) → إدارة المستخدمين
     if role_name == "dc":
         return redirect(url_for("users.list_users"))
 
-    # 5) admin + مدير الإدارة الهندسية + رئيس مجلس الإدارة → لوحة التحكم العامة
-    if role_name in ("admin", "engineering_manager", "chairman"):
+    # admin + engineering_manager + chairman + finance → لوحة التحكم العامة
+    if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         return redirect(url_for("main.dashboard"))
 
-    # 6) أي دور آخر غير متوقع → fallback على قائمة الدفعات
+    # fallback
     return redirect(url_for("payments.index"))
 
 
