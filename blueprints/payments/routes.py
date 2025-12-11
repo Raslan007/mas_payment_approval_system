@@ -12,6 +12,7 @@ from flask import (
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
+from sqlalchemy import extract  # لاستخدام فلتر رقم الأسبوع
 
 from extensions import db
 from permissions import role_required
@@ -162,15 +163,17 @@ def _add_approval_log(
     "chairman",
 )
 def index():
-    role_name = _get_role()
+    """
+    قائمة "دفعات حسب صلاحياتي" مع فلاتر:
+    - المشروع
+    - المورد/المقاول
+    - نوع الدفعة
+    - الحالة
+    - رقم الأسبوع (من created_at)
+    - من تاريخ / إلى تاريخ
+    """
 
-    # جلب الفلاتر من الواجهة
-    filters = {
-        "project_id": request.args.get("project_id") or "",
-        "status": request.args.get("status") or "",
-        "request_type": request.args.get("request_type") or "",
-        "week_number": request.args.get("week_number") or "",
-    }
+    role_name = _get_role()
 
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
@@ -178,7 +181,7 @@ def index():
         joinedload(PaymentRequest.creator),
     )
 
-    # تصفية حسب الصلاحيات
+    # صلاحيات العرض الأساسية
     if role_name in ("engineer", "project_manager"):
         q = q.filter(PaymentRequest.created_by == current_user.id)
     elif role_name == "finance":
@@ -188,15 +191,31 @@ def index():
             )
         )
 
-    # --------------------------
-    #     تطبيق الفلاتر
-    # --------------------------
+    # قراءة الفلاتر من الـ Query String
+    filters = {
+        "project_id": request.args.get("project_id") or "",
+        "supplier_id": request.args.get("supplier_id") or "",
+        "request_type": request.args.get("request_type") or "",
+        "status": request.args.get("status") or "",
+        "week_number": request.args.get("week_number") or "",
+        "date_from": request.args.get("date_from") or "",
+        "date_to": request.args.get("date_to") or "",
+    }
 
     # فلتر المشروع
     if filters["project_id"]:
         try:
-            q = q.filter(PaymentRequest.project_id == int(filters["project_id"]))
-        except:
+            project_id = int(filters["project_id"])
+            q = q.filter(PaymentRequest.project_id == project_id)
+        except ValueError:
+            pass
+
+    # فلتر المورد / المقاول
+    if filters["supplier_id"]:
+        try:
+            supplier_id = int(filters["supplier_id"])
+            q = q.filter(PaymentRequest.supplier_id == supplier_id)
+        except ValueError:
             pass
 
     # فلتر نوع الدفعة
@@ -207,40 +226,39 @@ def index():
     if filters["status"]:
         q = q.filter(PaymentRequest.status == filters["status"])
 
-    # فلتر رقم الأسبوع (حسب created_at)
+    # فلتر رقم الأسبوع (من created_at)
     if filters["week_number"]:
         try:
-            week_no = int(filters["week_number"])
-            q = q.filter(db.extract("week", PaymentRequest.created_at) == week_no)
-        except:
+            week_number = int(filters["week_number"])
+            q = q.filter(extract("week", PaymentRequest.created_at) == week_number)
+        except ValueError:
+            pass
+
+    # فلتر من تاريخ
+    if filters["date_from"]:
+        try:
+            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
+            q = q.filter(PaymentRequest.created_at >= date_from_dt)
+        except ValueError:
+            pass
+
+    # فلتر إلى تاريخ (نضيف يوم كامل)
+    if filters["date_to"]:
+        try:
+            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
+                days=1
+            )
+            q = q.filter(PaymentRequest.created_at < date_to_dt)
+        except ValueError:
             pass
 
     payments = q.order_by(PaymentRequest.id.desc()).all()
 
-    # تحميل قائمة المشاريع للفلتر
-    projects = Project.query.order_by(Project.project_name.asc()).all()
-
-    # الحالات المتاحة
-    status_list = [
-        (STATUS_DRAFT, "مسودة"),
-        (STATUS_PENDING_PM, "مراجعة مدير المشروع"),
-        (STATUS_PENDING_ENG, "مراجعة الإدارة الهندسية"),
-        (STATUS_PENDING_FIN, "في انتظار اعتماد المالية"),
-        (STATUS_READY_FOR_PAYMENT, "جاهزة للصرف"),
-        (STATUS_PAID, "تم الصرف"),
-        (STATUS_REJECTED, "مرفوضة"),
-    ]
-
-    request_types = ["مقاول", "عهدة", "أخرى"]
-
     return render_template(
         "payments/list.html",
         payments=payments,
-        projects=projects,
-        filters=filters,
-        status_list=status_list,
-        request_types=request_types,
         page_title="دفعات حسب صلاحياتي",
+        filters=filters,  # مهم علشان التمبلت ما يهنّجش
     )
 
 
@@ -260,6 +278,7 @@ def list_all():
         "payments/list.html",
         payments=payments,
         page_title="جميع الدفعات",
+        filters={},  # نمرّر filters فاضي لتفادي الخطأ
     )
 
 
@@ -280,6 +299,7 @@ def pm_review():
         "payments/list.html",
         payments=payments,
         page_title="دفعات في انتظار مراجعة مدير المشروع",
+        filters={},
     )
 
 
@@ -300,6 +320,7 @@ def eng_review():
         "payments/list.html",
         payments=payments,
         page_title="دفعات في انتظار الإدارة الهندسية",
+        filters={},
     )
 
 
@@ -332,6 +353,7 @@ def list_finance_review():
         "payments/list.html",
         payments=payments,
         page_title="جميع دفعات المالية",
+        filters={},
     )
 
 
@@ -339,8 +361,7 @@ def list_finance_review():
 @role_required("admin", "engineering_manager", "finance", "chairman")
 def finance_eng_approved():
     """
-    قائمة الدفعات الجاهزة للصرف:
-    - الدفعات التي تم اعتمادها ماليًا وحالتها READY_FOR_PAYMENT
+    قائمة الدفعات المعتمدة من الإدارة الهندسية وفي انتظار المالية
     مع فلاتر على:
     - المشروع
     - المورد/المقاول
@@ -348,12 +369,12 @@ def finance_eng_approved():
     - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
     """
 
-    # كويري أساسي: دفعات حالتها جاهزة للصرف
+    # كويري أساسي: دفعات حالتها في انتظار المالية
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
         joinedload(PaymentRequest.supplier),
         joinedload(PaymentRequest.creator),
-    ).filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
+    ).filter(PaymentRequest.status == STATUS_PENDING_FIN)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -413,7 +434,7 @@ def finance_eng_approved():
         projects=projects,
         suppliers=suppliers,
         filters=filters,
-        page_title="دفعات جاهزة للصرف",
+        page_title="دفعات معتمدة من الإدارة الهندسية في انتظار المالية",
     )
 
 
