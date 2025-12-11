@@ -1,6 +1,6 @@
 # blueprints/payments/routes.py
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (
     render_template,
@@ -280,6 +280,16 @@ def list_finance_review():
 @payments_bp.route("/finance_eng_approved")
 @role_required("admin", "engineering_manager", "finance", "chairman")
 def finance_eng_approved():
+    """
+    قائمة الدفعات المعتمدة من الإدارة الهندسية وفي انتظار المالية
+    مع فلاتر على:
+    - المشروع
+    - المورد/المقاول
+    - نوع الدفعة
+    - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
+    """
+
+    # كويري أساسي: دفعات حالتها في انتظار المالية
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
         joinedload(PaymentRequest.supplier),
@@ -289,15 +299,53 @@ def finance_eng_approved():
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
+    # قراءة الفلاتر من الـ Query String
     filters = {
-        "project_id": request.args.get("project_id"),
-        "supplier_id": request.args.get("supplier_id"),
-        "request_type": request.args.get("request_type"),
-        "date_from": request.args.get("date_from"),
-        "date_to": request.args.get("date_to"),
+        "project_id": request.args.get("project_id") or "",
+        "supplier_id": request.args.get("supplier_id") or "",
+        "request_type": request.args.get("request_type") or "",
+        "date_from": request.args.get("date_from") or "",
+        "date_to": request.args.get("date_to") or "",
     }
 
-    # يمكنك لاحقاً تفعيل الفلاتر على q لو حابب
+    # فلتر المشروع
+    if filters["project_id"]:
+        try:
+            project_id = int(filters["project_id"])
+            q = q.filter(PaymentRequest.project_id == project_id)
+        except ValueError:
+            pass
+
+    # فلتر المورد / المقاول
+    if filters["supplier_id"]:
+        try:
+            supplier_id = int(filters["supplier_id"])
+            q = q.filter(PaymentRequest.supplier_id == supplier_id)
+        except ValueError:
+            pass
+
+    # فلتر نوع الدفعة
+    if filters["request_type"]:
+        q = q.filter(PaymentRequest.request_type == filters["request_type"])
+
+    # فلتر من تاريخ
+    if filters["date_from"]:
+        try:
+            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
+            q = q.filter(PaymentRequest.created_at >= date_from_dt)
+        except ValueError:
+            pass
+
+    # فلتر إلى تاريخ (نضيف يوم كامل ليشمل اليوم بالكامل)
+    if filters["date_to"]:
+        try:
+            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
+                days=1
+            )
+            q = q.filter(PaymentRequest.created_at < date_to_dt)
+        except ValueError:
+            pass
+
     payments = q.order_by(PaymentRequest.id.desc()).all()
 
     return render_template(
