@@ -1,3 +1,6 @@
+import logging
+import os
+
 from flask import Flask
 
 from config import Config
@@ -13,12 +16,35 @@ from blueprints.suppliers import suppliers_bp
 from blueprints.payments import payments_bp
 
 
+def _warn_insecure_defaults(app: Flask) -> None:
+    """Emit warnings when sensitive defaults are still in use."""
+
+    secret_key = app.config.get("SECRET_KEY")
+    if secret_key == "secret-key-change-me":
+        app.logger.warning(
+            "SECRET_KEY is using the placeholder value; please set SECRET_KEY "
+            "in the environment for production deployments."
+        )
+
+    db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if db_uri.startswith("sqlite:///") and "DATABASE_URL" not in os.environ:
+        app.logger.warning(
+            "DATABASE_URL is not set; application is falling back to the local "
+            "SQLite database. Configure a production database via DATABASE_URL."
+        )
+
+
 def create_app(config_class=Config) -> Flask:
     """إنشاء وتهيئة تطبيق Flask الرئيسي."""
     app = Flask(__name__)
 
     # تحميل الإعدادات من Config (ملف config.py)
     app.config.from_object(config_class)
+
+    # ضبط مستوى تسجيلات التطبيق ليظهر التحذيرات المتعلقة بالإعدادات
+    app.logger.setLevel(logging.INFO)
+
+    _warn_insecure_defaults(app)
 
     # تهيئة الـ Extensions
     db.init_app(app)
@@ -82,7 +108,9 @@ def create_app(config_class=Config) -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
-    # في حالة النشر على سيرفر داخلي وتريد الوصول من أجهزة أخرى:
-    # يمكنك تغيير السطر إلى:
-    # app.run(host="0.0.0.0", debug=True)
-    app.run(debug=True)
+    # في حالة النشر على سيرفر داخلي وتريد الوصول من أجهزة أخرى، يمكنك تغيير
+    # متغير البيئة FLASK_RUN_HOST إلى "0.0.0.0".
+    app.run(
+        host=os.environ.get("FLASK_RUN_HOST", "127.0.0.1"),
+        debug=app.config.get("DEBUG", False),
+    )
