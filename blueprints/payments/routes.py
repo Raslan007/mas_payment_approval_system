@@ -9,10 +9,13 @@ from flask import (
     url_for,
     flash,
     abort,
+    current_app,
+    send_from_directory,
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
 from sqlalchemy import extract
+import os
 
 from extensions import db
 from permissions import role_required
@@ -180,6 +183,10 @@ def _can_delete_payment(p: PaymentRequest) -> bool:
 def _require_can_view(p: PaymentRequest):
     if not _can_view_payment(p):
         abort(403)
+
+
+def _attachments_base_path() -> str:
+    return os.path.join(current_app.instance_path, "attachments")
 
 
 def _require_can_edit(p: PaymentRequest):
@@ -679,6 +686,43 @@ def detail(payment_id):
         fin_decision=fin_decision,
         finance_ready_log=finance_ready_log,
         paid_log=paid_log,
+    )
+
+
+@payments_bp.route("/attachments/<int:attachment_id>/download")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+)
+def download_attachment(attachment_id: int):
+    attachment = PaymentAttachment.query.get_or_404(attachment_id)
+    payment = PaymentRequest.query.get_or_404(attachment.payment_request_id)
+
+    _require_can_view(payment)
+
+    stored = (attachment.stored_filename or "").strip()
+    if not stored or os.path.basename(stored) != stored:
+        abort(404)
+
+    base_path = _attachments_base_path()
+    file_path = os.path.join(base_path, stored)
+
+    if not os.path.isfile(file_path):
+        flash(
+            "الملف المطلوب غير موجود على الخادم، برجاء إعادة رفعه أو التواصل مع الدعم.",
+            "warning",
+        )
+        abort(404)
+
+    return send_from_directory(
+        base_path,
+        stored,
+        as_attachment=True,
+        download_name=attachment.original_filename,
     )
 
 
