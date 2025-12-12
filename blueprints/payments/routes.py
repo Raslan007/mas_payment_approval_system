@@ -36,6 +36,54 @@ STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
 
 
+# خريطة الانتقالات المسموح بها بين الحالات
+# المفتاح: (الحالة_الحالية, الحالة_المطلوبة)
+# القيمة: الأدوار التي يمكنها تنفيذ الانتقال
+WORKFLOW_TRANSITIONS: dict[tuple[str, str], set[str]] = {
+    (STATUS_DRAFT, STATUS_PENDING_PM): {
+        "admin",
+        "engineering_manager",
+        "project_manager",
+        "engineer",
+    },
+    (STATUS_PENDING_PM, STATUS_PENDING_ENG): {
+        "admin",
+        "engineering_manager",
+        "project_manager",
+    },
+    (STATUS_PENDING_PM, STATUS_REJECTED): {
+        "admin",
+        "engineering_manager",
+        "project_manager",
+    },
+    (STATUS_PENDING_ENG, STATUS_PENDING_FIN): {
+        "admin",
+        "engineering_manager",
+    },
+    (STATUS_PENDING_ENG, STATUS_REJECTED): {
+        "admin",
+        "engineering_manager",
+    },
+    (STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT): {
+        "admin",
+        "finance",
+    },
+    (STATUS_PENDING_FIN, STATUS_REJECTED): {
+        "admin",
+        "finance",
+    },
+    (STATUS_READY_FOR_PAYMENT, STATUS_PAID): {
+        "admin",
+        "finance",
+    },
+}
+
+
+def _status_label(status: str) -> str:
+    """إرجاع اسم الحالة باللغة الطبيعية لاستخدامه في الرسائل."""
+    return PaymentRequest(status=status).human_status
+
+
 # =========================
 #   دوال مساعدة عامة
 # =========================
@@ -72,6 +120,28 @@ def _can_view_payment(p: PaymentRequest) -> bool:
         return False
 
     return False
+
+
+def _require_transition(payment: PaymentRequest, target_status: str) -> bool:
+    """
+    حارس موحد لانتقالات حالة الدفعات:
+    - يتحقق من دور المستخدم الحالي
+    - يتحقق من أن الانتقال (الحالة الحالية -> المطلوبة) مسموح به
+    يعيد True إذا مسموح، False مع رسالة تحذير وإيقاف العملية إذا غير مسموح.
+    """
+    role_name = _get_role()
+    allowed_roles = WORKFLOW_TRANSITIONS.get((payment.status, target_status))
+
+    if role_name is None or allowed_roles is None or role_name not in allowed_roles:
+        flash(
+            "غير مسموح بتغيير حالة الدفعة من "
+            f"({payment.human_status}) إلى ({_status_label(target_status)}) "
+            "للدور الحالي.",
+            "danger",
+        )
+        return False
+
+    return True
 
 
 def _can_edit_payment(p: PaymentRequest) -> bool:
@@ -711,8 +781,7 @@ def submit_to_pm(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_DRAFT:
-        flash("لا يمكن إرسال دفعة ليست في حالة مسودة.", "warning")
+    if not _require_transition(payment, STATUS_PENDING_PM):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -739,8 +808,7 @@ def pm_approve(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_PM:
-        flash("هذه الدفعة ليست في مرحلة مراجعة مدير المشروع.", "warning")
+    if not _require_transition(payment, STATUS_PENDING_ENG):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -767,8 +835,7 @@ def pm_reject(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_PM:
-        flash("هذه الدفعة ليست في مرحلة مراجعة مدير المشروع.", "warning")
+    if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -795,8 +862,7 @@ def eng_approve(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_ENG:
-        flash("هذه الدفعة ليست في مرحلة الإدارة الهندسية.", "warning")
+    if not _require_transition(payment, STATUS_PENDING_FIN):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -823,8 +889,7 @@ def eng_reject(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_ENG:
-        flash("هذه الدفعة ليست في مرحلة الإدارة الهندسية.", "warning")
+    if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -856,8 +921,7 @@ def finance_approve(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_FIN:
-        flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
+    if not _require_transition(payment, STATUS_READY_FOR_PAYMENT):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -884,8 +948,7 @@ def finance_reject(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_PENDING_FIN:
-        flash("هذه الدفعة ليست في مرحلة المالية.", "warning")
+    if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status
@@ -918,11 +981,7 @@ def mark_paid(payment_id):
     payment = PaymentRequest.query.get_or_404(payment_id)
     _require_can_view(payment)
 
-    if payment.status != STATUS_READY_FOR_PAYMENT:
-        flash(
-            "لا يمكن تحديد الدفعة كـ (تم الصرف) إلا بعد اعتمادها ماليًا وجعلها جاهزة للصرف.",
-            "warning",
-        )
+    if not _require_transition(payment, STATUS_PAID):
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     amount_finance_str = (request.form.get("amount_finance") or "").strip()

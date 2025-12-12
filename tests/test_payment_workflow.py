@@ -1,0 +1,173 @@
+import unittest
+
+from app import create_app
+from config import Config
+from extensions import db
+from models import PaymentRequest, Project, Supplier, Role, User
+from blueprints.payments import routes as payment_routes
+
+
+class TestConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SECRET_KEY = "test-secret"
+    WTF_CSRF_ENABLED = False
+
+
+class PaymentWorkflowTestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = create_app(TestConfig)
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        db.create_all()
+        self.client = self.app.test_client()
+
+        # seed minimal reference data
+        self.roles = {
+            name: Role(name=name)
+            for name in [
+                "admin",
+                "engineering_manager",
+                "project_manager",
+                "engineer",
+                "finance",
+                "chairman",
+            ]
+        }
+        db.session.add_all(self.roles.values())
+
+        self.project = Project(project_name="Test Project")
+        self.supplier = Supplier(name="Supplier", supplier_type="contractor")
+        db.session.add_all([self.project, self.supplier])
+        db.session.commit()
+
+        # cache users per role
+        self.users = {
+            name: self._create_user(f"{name}@example.com", self.roles[name])
+            for name in self.roles
+        }
+
+    def tearDown(self):
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
+
+    def _create_user(self, email: str, role: Role) -> User:
+        user = User(full_name=email.split("@")[0], email=email, role=role)
+        user.set_password("password")
+        db.session.add(user)
+        db.session.commit()
+        return user
+
+    def _login(self, user: User):
+        with self.client.session_transaction() as sess:
+            sess["_user_id"] = str(user.id)
+            sess["_fresh"] = True
+
+    def _make_payment(self, status: str, created_by: int | None = None) -> PaymentRequest:
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=1000.0,
+            description="desc",
+            status=status,
+            created_by=created_by,
+        )
+        db.session.add(payment)
+        db.session.commit()
+        return payment
+
+    def test_submit_to_pm_allows_engineer(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
+        self._login(self.users["engineer"])
+
+        response = self.client.post(f"/payments/{payment.id}/submit_to_pm")
+        self.assertEqual(response.status_code, 302)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.status, payment_routes.STATUS_PENDING_PM)
+
+    def test_pm_approve_requires_pending_pm_state(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["project_manager"].id)
+        self._login(self.users["project_manager"])
+
+        response = self.client.post(f"/payments/{payment.id}/pm_approve")
+        self.assertEqual(response.status_code, 302)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.status, payment_routes.STATUS_DRAFT)
+
+    def test_pm_approve_advances_to_engineering(self):
+        payment = self._make_payment(
+            payment_routes.STATUS_PENDING_PM, self.users["project_manager"].id
+        )
+        self._login(self.users["project_manager"])
+
+        response = self.client.post(f"/payments/{payment.id}/pm_approve")
+        self.assertEqual(response.status_code, 302)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.status, payment_routes.STATUS_PENDING_ENG)
+
+    def test_finance_approve_reject_and_paid_flow(self):
+        # move through finance steps and ensure guards keep status order
+        payment = self._make_payment(payment_routes.STATUS_PENDING_FIN)
+
+        # finance approve: pending_fin -> ready_for_payment
+        self._login(self.users["finance"])
+        resp = self.client.post(f"/payments/{payment.id}/finance_approve")
+        self.assertEqual(resp.status_code, 302)
+        db.session.refresh(payment)
+        self.assertEqual(payment.status, payment_routes.STATUS_READY_FOR_PAYMENT)
+
+        # finance reject should now be blocked because status changed
+        resp_reject = self.client.post(f"/payments/{payment.id}/finance_reject")
+        self.assertEqual(resp_reject.status_code, 302)
+        db.session.refresh(payment)
+        self.assertEqual(payment.status, payment_routes.STATUS_READY_FOR_PAYMENT)
+
+        # mark paid with valid amount
+        resp_paid = self.client.post(
+            f"/payments/{payment.id}/mark_paid",
+            data={"amount_finance": "1200"},
+        )
+        self.assertEqual(resp_paid.status_code, 302)
+        db.session.refresh(payment)
+        self.assertEqual(payment.status, payment_routes.STATUS_PAID)
+        self.assertEqual(payment.amount_finance, 1200.0)
+
+    def test_engineer_cannot_access_finance_endpoint(self):
+        payment = self._make_payment(payment_routes.STATUS_PENDING_FIN)
+        self._login(self.users["engineer"])
+
+        response = self.client.post(f"/payments/{payment.id}/finance_approve")
+        self.assertEqual(response.status_code, 403)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.status, payment_routes.STATUS_PENDING_FIN)
+
+    def test_full_positive_workflow(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
+
+        # Admin can drive the whole flow when acting as a superuser
+        self._login(self.users["admin"])
+        self.client.post(f"/payments/{payment.id}/submit_to_pm")
+        self.client.post(f"/payments/{payment.id}/pm_approve")
+        self.client.post(f"/payments/{payment.id}/eng_approve")
+
+        # Finance approves to ready_for_payment and marks paid
+        self._login(self.users["finance"])
+        self.client.post(f"/payments/{payment.id}/finance_approve")
+        self.client.post(
+            f"/payments/{payment.id}/mark_paid",
+            data={"amount_finance": "1000"},
+        )
+
+        final = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(final.status, payment_routes.STATUS_PAID)
+        self.assertEqual(final.amount_finance, 1000.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
