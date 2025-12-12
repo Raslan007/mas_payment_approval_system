@@ -19,9 +19,10 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "secret-key-change-me")
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL",
-        "sqlite:///" + os.path.join(BASE_DIR, "payments.db")
-    )
+    _raw_database_url = os.environ.get("DATABASE_URL")
+    if _raw_database_url and _raw_database_url.startswith("postgres://"):
+        _raw_database_url = _raw_database_url.replace("postgres://", "postgresql://", 1)
+
+    SQLALCHEMY_DATABASE_URI = _raw_database_url or "sqlite:///" + os.path.join(BASE_DIR, "payments.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     DEBUG = _get_bool_env("FLASK_DEBUG", default=False)
