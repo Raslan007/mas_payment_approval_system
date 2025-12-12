@@ -1,5 +1,3 @@
-# config.py
-
 import os
 
 
@@ -13,6 +11,7 @@ def _get_bool_env(var_name: str, default: bool = False) -> bool:
         return default
 
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
