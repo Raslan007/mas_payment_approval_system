@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}بانتظار تحديد الصلاحيات{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6 col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body text-center py-5">
+                <div class="mb-3">
+                    <i class="bi bi-shield-exclamation display-5 text-warning"></i>
+                </div>
+                <h4 class="fw-bold mb-3">حسابك ينتظر تحديد الصلاحيات</h4>
+                <p class="text-muted mb-4">
+                    تم تسجيل دخولك بنجاح، لكن لم يتم ربط حسابك بأي دور داخل النظام بعد.
+                    يرجى التواصل مع مسؤول النظام أو موظف إدخال البيانات (DC) لتعيين الصلاحيات المناسبة.
+                </p>
+                <div class="d-flex gap-2 justify-content-center">
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-box-arrow-right ms-1"></i>
+                        تسجيل خروج
+                    </a>
+                    <a href="mailto:support@example.com" class="btn btn-primary">
+                        <i class="bi bi-envelope ms-1"></i>
+                        مراسلة الدعم
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

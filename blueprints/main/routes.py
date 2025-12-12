@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from flask import redirect, url_for, render_template, request
+from flask import redirect, url_for, render_template, request, flash
 from flask_login import login_required, current_user
 from sqlalchemy import func
 
@@ -19,7 +19,6 @@ STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
 
-
 @main_bp.route("/")
 @login_required
 def index():
@@ -28,6 +27,14 @@ def index():
     """
 
     role_name = current_user.role.name if current_user.role else None
+
+    # في حال لم يتم تعيين دور للمستخدم بعد
+    if role_name is None:
+        flash(
+            "حسابك غير مرتبط بدور حتى الآن. يرجى التواصل مع مسؤول النظام أو موظف البيانات لتحديد الصلاحيات.",
+            "warning",
+        )
+        return redirect(url_for("main.no_role"))
 
     # مدير مشروع → دفعاته
     if role_name == "project_manager":
@@ -45,8 +52,23 @@ def index():
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         return redirect(url_for("main.dashboard"))
 
-    # fallback
-    return redirect(url_for("payments.index"))
+    # fallback لأدوار غير معروفة
+    flash(
+        "تعذر تحديد وجهة الحساب. يرجى التواصل مع مسؤول النظام لتحديد الصلاحيات المناسبة.",
+        "warning",
+    )
+    return redirect(url_for("main.no_role"))
+
+
+@main_bp.route("/no-role")
+@login_required
+def no_role():
+    """صفحة توضيحية للمستخدمين الذين لم يتم تعيين دور لهم بعد."""
+
+    return render_template(
+        "main/no_role.html",
+        page_title="بانتظار تحديد الصلاحيات",
+    )
 
 
 # -------------------------------------------------------------------
