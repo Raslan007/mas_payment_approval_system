@@ -1,6 +1,6 @@
 # blueprints/users/routes.py
 
-from flask import render_template, request, redirect, url_for, flash
+from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from extensions import db
 from models import User, Role, Project
@@ -17,7 +17,7 @@ def list_users():
 
 
 @users_bp.route("/create", methods=["GET", "POST"])
-@role_required("admin", "dc")
+@role_required("admin")
 def create_user():
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
@@ -73,7 +73,7 @@ def create_user():
 
 
 @users_bp.route("/<int:user_id>/edit", methods=["GET", "POST"])
-@role_required("admin", "dc")
+@role_required("admin")
 def edit_user(user_id):
     user = User.query.get_or_404(user_id)
     roles = Role.query.order_by(Role.name.asc()).all()
@@ -133,7 +133,7 @@ def edit_user(user_id):
 
 
 @users_bp.route("/<int:user_id>/delete", methods=["POST"])
-@role_required("admin", "dc")
+@role_required("admin")
 def delete_user(user_id):
     user = User.query.get_or_404(user_id)
 
