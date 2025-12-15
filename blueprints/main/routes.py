@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from flask import redirect, url_for, render_template, request, flash
 from flask_login import login_required, current_user
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from permissions import role_required
 from . import main_bp
@@ -89,8 +90,37 @@ def dashboard():
 
     base_q = PaymentRequest.query
 
+    # إعداد التصفح (Pagination) لتحميل عدد محدود من الدفعات في كل صفحة
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+
+    try:
+        per_page = int(request.args.get("per_page", 20))
+    except (TypeError, ValueError):
+        per_page = 20
+
+    page = max(page, 1)
+    per_page = min(max(per_page, 1), 100)
+
     # إجمالي عدد الدفعات (أي حالة)
-    total_count = base_q.count()
+    total_count = (
+        base_q.order_by(None)
+        .with_entities(func.count(PaymentRequest.id))
+        .scalar()
+        or 0
+    )
+
+    ordered_q = base_q.options(selectinload(PaymentRequest.project)).order_by(
+        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
+    )
+
+    pagination = ordered_q.paginate(
+        page=page, per_page=per_page, error_out=False, count=False
+    )
+    pagination.total = total_count
+    payments_page = pagination.items
 
     # إجمالي قيمة الدفعات المطلوبة (مبلغ المهندس)
     total_amount = (
@@ -155,6 +185,11 @@ def dashboard():
         or 0.0
     )
 
+    # بارامترات الفلترة الحالية (مع حذف أرقام الصفحات) للاستخدام في روابط التصفح
+    query_params = request.args.to_dict()
+    query_params.pop("page", None)
+    query_params.pop("per_page", None)
+
     # -------------------------------------------------
     # توزيع حسب الحالة (نستخدم amount أو amount_finance)
     # -------------------------------------------------
@@ -214,6 +249,11 @@ def dashboard():
     return render_template(
         "dashboard.html",
         page_title="لوحة التحكم العامة للدفعات",
+        payments=payments_page,
+        pagination=pagination,
+        page=page,
+        per_page=per_page,
+        query_params=query_params,
         total_count=total_count,
         total_amount=total_amount,
         total_paid=total_paid,
