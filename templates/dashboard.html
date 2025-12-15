@@ -232,6 +232,103 @@
     </div>
 </div>
 
+<!-- قائمة الدفعات مع التصفح -->
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mt-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <div>
+            <div class="fw-semibold small">أحدث الدفعات</div>
+            <div class="text-muted xsmall">يتم تحميل الصفحات تدريجيًا لتحسين الأداء.</div>
+        </div>
+        {% if pagination.total %}
+            {% set start_item = ((pagination.page - 1) * pagination.per_page) + 1 %}
+            {% set end_item = (pagination.page * pagination.per_page) if (pagination.page * pagination.per_page) < pagination.total else pagination.total %}
+            <div class="text-muted xsmall">
+                عرض {{ start_item }}–{{ end_item }} من {{ pagination.total }}
+            </div>
+        {% endif %}
+    </div>
+
+    {% if payments %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th class="text-center" style="width: 80px;">رقم</th>
+                    <th>المشروع</th>
+                    <th class="text-end" style="width: 150px;">المبلغ (ج.م)</th>
+                    <th class="text-center" style="width: 160px;">الحالة</th>
+                    <th class="text-nowrap" style="width: 160px;">تاريخ الإنشاء</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for payment in payments %}
+                    <tr>
+                        <td class="text-center small">{{ payment.id }}</td>
+                        <td class="small">{{ payment.project.project_name if payment.project else '-' }}</td>
+                        <td class="text-end fw-semibold">{{ "%.2f"|format(payment.amount or 0) }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-{{ payment.status_badge_class }}">{{ payment.human_status }}</span>
+                        </td>
+                        <td class="small text-nowrap">
+                            {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else '' }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد دفعات لعرضها حالياً.</p>
+    {% endif %}
+
+    {% if pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الدفعات">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    {% set prev_params = query_params.copy() %}
+                    {% set _ = prev_params.update({'page': pagination.prev_num if pagination.has_prev else 1, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for('main.dashboard', **prev_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        {% set page_params = query_params.copy() %}
+                        {% set _ = page_params.update({'page': p, 'per_page': pagination.per_page}) %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('main.dashboard', **page_params) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    {% set next_params = query_params.copy() %}
+                    {% set _ = next_params.update({'page': pagination.next_num if pagination.has_next else pagination.page, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for('main.dashboard', **next_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for('main.dashboard') }}" class="d-flex align-items-center gap-2 mb-0">
+                    {% set per_page_params = query_params.copy() %}
+                    {% set _ = per_page_params.pop('per_page', None) %}
+                    {% set _ = per_page_params.pop('page', None) %}
+                    {% for key, value in per_page_params.items() %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for option in [10, 20, 50, 100] %}
+                            <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
+</div>
+
 {% endif %} {# نهاية شرط الصلاحيات #}
 
 {% endblock %}
