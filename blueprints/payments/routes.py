@@ -1,6 +1,6 @@
 # blueprints/payments/routes.py
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from flask import (
     render_template,
@@ -160,6 +160,21 @@ def _safe_date_arg(name: str) -> datetime | None:
         return datetime.strptime(raw, "%Y-%m-%d")
     except (TypeError, ValueError):
         return None
+
+
+def _iso_week_bounds(week_number: int, *, reference_year: int | None = None) -> tuple[datetime, datetime]:
+    """Return start/end datetimes (UTC naive) for the ISO week in the given year."""
+
+    if reference_year is None:
+        reference_year = datetime.utcnow().isocalendar().year
+
+    start_date = date.fromisocalendar(reference_year, week_number, 1)
+    end_date = start_date + timedelta(days=7)
+
+    return (
+        datetime.combine(start_date, datetime.min.time()),
+        datetime.combine(end_date, datetime.min.time()),
+    )
 
 
 def _can_view_payment(p: PaymentRequest) -> bool:
@@ -359,7 +374,7 @@ def index():
     - المشروع
     - نوع الدفعة
     - الحالة
-    - رقم الأسبوع (من created_at)
+    - رقم الأسبوع (أسبوع الإرسال لمدير المشروع)
     - من تاريخ / إلى تاريخ
     """
 
@@ -415,10 +430,34 @@ def index():
         filters["status"] = status_filter
         q = q.filter(PaymentRequest.status == status_filter)
 
-    week_number = _safe_int_arg("week_number", None, min_value=1, max_value=53)
+    raw_week = request.args.get("week_number")
+    week_number: int | None = None
+    if raw_week:
+        try:
+            parsed_week = int(raw_week)
+            if 1 <= parsed_week <= 53:
+                week_number = parsed_week
+        except (TypeError, ValueError):
+            pass
+
     if week_number:
         filters["week_number"] = str(week_number)
-        q = q.filter(extract("week", PaymentRequest.created_at) == week_number)
+
+        if db.session.get_bind().dialect.name == "sqlite":
+            try:
+                week_start, week_end = _iso_week_bounds(week_number)
+            except ValueError:
+                week_start = week_end = None
+
+            if week_start and week_end:
+                q = q.filter(
+                    PaymentRequest.submitted_to_pm_at >= week_start,
+                    PaymentRequest.submitted_to_pm_at < week_end,
+                )
+        else:
+            q = q.filter(
+                extract("week", PaymentRequest.submitted_to_pm_at) == week_number
+            )
 
     date_from_dt = _safe_date_arg("date_from")
     if date_from_dt:
@@ -909,6 +948,7 @@ def submit_to_pm(payment_id):
     old_status = payment.status
     payment.status = STATUS_PENDING_PM
     payment.updated_at = datetime.utcnow()
+    payment.submitted_to_pm_at = datetime.utcnow()
 
     _add_approval_log(
         payment,

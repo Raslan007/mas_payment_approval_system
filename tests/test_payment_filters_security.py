@@ -1,10 +1,11 @@
 import re
 import unittest
+from datetime import datetime
 
 from config import Config
 from app import create_app
 from extensions import db
-from models import PaymentRequest, Project, Role, Supplier, User
+from models import PaymentApproval, PaymentRequest, Project, Role, Supplier, User
 
 
 class TestConfig(Config):
@@ -158,6 +159,167 @@ class PaymentFiltersSecurityTestCase(unittest.TestCase):
         rendered_ids = list(map(int, rendered_payments))
         self.assertEqual(rendered_ids[0], payments[-1].id)
         self.assertTrue(all(earlier >= later for earlier, later in zip(rendered_ids, rendered_ids[1:])))
+
+    def test_week_number_filter_uses_submission_iso_week(self):
+        reference_year = datetime.utcnow().isocalendar().year
+        target_week = 10
+        other_week = 12
+
+        submission_date = datetime.fromisocalendar(reference_year, target_week, 3)
+        other_submission = datetime.fromisocalendar(reference_year, other_week, 3)
+
+        week_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=150,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submission_date,
+            submitted_to_pm_at=submission_date,
+        )
+        null_submission_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=200,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submission_date,
+            submitted_to_pm_at=None,
+        )
+        another_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=250,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submission_date,
+            submitted_to_pm_at=other_submission,
+        )
+        db.session.add_all([week_payment, null_submission_payment, another_payment])
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                PaymentApproval(
+                    payment_request_id=week_payment.id,
+                    step="engineer",
+                    action="submit",
+                    decided_at=submission_date,
+                ),
+                PaymentApproval(
+                    payment_request_id=another_payment.id,
+                    step="engineer",
+                    action="submit",
+                    decided_at=other_submission,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get(f"/payments/?week_number={target_week}")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, rf'data-payment-id="{week_payment.id}"')
+        self.assertNotRegex(body, rf'data-payment-id="{null_submission_payment.id}"')
+        self.assertNotRegex(body, rf'data-payment-id="{another_payment.id}"')
+
+    def test_week_number_filter_applies_in_my_route_and_keeps_pagination_params(self):
+        reference_year = datetime.utcnow().isocalendar().year
+        target_week = 8
+
+        submit_day_one = datetime.fromisocalendar(reference_year, target_week, 2)
+        submit_day_two = datetime.fromisocalendar(reference_year, target_week, 4)
+        other_week_submit = datetime.fromisocalendar(reference_year, target_week + 1, 3)
+
+        first_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=110,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submit_day_one,
+            submitted_to_pm_at=submit_day_one,
+        )
+        second_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=120,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submit_day_two,
+            submitted_to_pm_at=submit_day_two,
+        )
+        other_week_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=130,
+            status="draft",
+            created_by=self.admin.id,
+            created_at=submit_day_one,
+            submitted_to_pm_at=other_week_submit,
+        )
+
+        db.session.add_all([first_payment, second_payment, other_week_payment])
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                PaymentApproval(
+                    payment_request_id=first_payment.id,
+                    step="engineer",
+                    action="submit",
+                    decided_at=submit_day_one,
+                ),
+                PaymentApproval(
+                    payment_request_id=second_payment.id,
+                    step="engineer",
+                    action="submit",
+                    decided_at=submit_day_two,
+                ),
+                PaymentApproval(
+                    payment_request_id=other_week_payment.id,
+                    step="engineer",
+                    action="submit",
+                    decided_at=other_week_submit,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get(
+            f"/payments/my?week_number={target_week}&per_page=1"
+        )
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            body,
+            rf'data-payment-id="({first_payment.id}|{second_payment.id})"',
+        )
+        self.assertNotRegex(body, rf'data-payment-id="{other_week_payment.id}"')
+        self.assertRegex(body, rf"week_number={target_week}")
+
+        page_two_response = self.client.get(
+            f"/payments/my?week_number={target_week}&per_page=1&page=2"
+        )
+        page_two_body = page_two_response.get_data(as_text=True)
+
+        self.assertEqual(page_two_response.status_code, 200)
+        self.assertRegex(
+            page_two_body,
+            rf'data-payment-id="({first_payment.id}|{second_payment.id})"',
+        )
+        self.assertNotRegex(page_two_body, rf'data-payment-id="{other_week_payment.id}"')
+        self.assertRegex(page_two_body, rf"week_number={target_week}")
 
 
 if __name__ == "__main__":
