@@ -123,7 +123,7 @@
                         {% set can_edit = (role_name in ['engineering_manager', 'admin']) or
                             (current_user.is_authenticated and p.status == 'draft' and p.created_by == current_user.id) %}
 
-                        <tr>
+                        <tr data-payment-id="{{ p.id }}">
                             <!-- رقم الدفعة -->
                             <td class="text-center text-muted">
                                 {{ p.id }}
