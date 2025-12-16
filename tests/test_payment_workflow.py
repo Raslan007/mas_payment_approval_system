@@ -52,8 +52,17 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    def _create_user(self, email: str, role: Role) -> User:
-        user = User(full_name=email.split("@")[0], email=email, role=role)
+    def _create_user(self, email: str, role: Role, project: Project | None = None) -> User:
+        project_id = project.id if project else None
+        if project_id is None and role.name in ("engineer", "project_manager"):
+            project_id = self.project.id
+
+        user = User(
+            full_name=email.split("@")[0],
+            email=email,
+            role=role,
+            project_id=project_id,
+        )
         user.set_password("password")
         db.session.add(user)
         db.session.commit()
@@ -146,6 +155,32 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         updated = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(updated.status, payment_routes.STATUS_PENDING_FIN)
+
+    def test_project_manager_cannot_view_other_project_payment(self):
+        other_project = Project(project_name="Other Project")
+        db.session.add(other_project)
+        db.session.commit()
+
+        outsider_pm = self._create_user(
+            "outsider_pm@example.com", self.roles["project_manager"], other_project
+        )
+
+        payment = PaymentRequest(
+            project=other_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=500,
+            description="desc",
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=outsider_pm.id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        # logged in PM belongs to default project, should not access other project's payment
+        self._login(self.users["project_manager"])
+        resp = self.client.get(f"/payments/{payment.id}")
+        self.assertEqual(resp.status_code, 404)
 
     def test_full_positive_workflow(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
