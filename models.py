@@ -6,6 +6,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import db
 
 
+user_projects = db.Table(
+    "user_projects",
+    db.Column("user_id", db.Integer, db.ForeignKey("users.id"), primary_key=True),
+    db.Column("project_id", db.Integer, db.ForeignKey("projects.id"), primary_key=True),
+)
+
+
 class Role(db.Model):
     __tablename__ = "roles"
 
@@ -30,7 +37,12 @@ class User(UserMixin, db.Model):
 
     # المشروع الرئيسي المرتبط بالمستخدم (مهندس / مدير مشروع)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=True)
-    project = db.relationship("Project", backref="users")
+    project = db.relationship("Project", backref="primary_users")
+    projects = db.relationship(
+        "Project",
+        secondary=user_projects,
+        backref=db.backref("users", lazy="dynamic"),
+    )
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)

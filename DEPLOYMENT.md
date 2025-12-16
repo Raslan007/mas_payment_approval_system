@@ -1,10 +1,12 @@
 # Deployment Notes
 
 ## Render start command
-To ensure the `payment_requests.updated_at` column exists before the app starts, configure Render's **Start Command** to run the migration script before launching the server:
+To ensure the schema is up to date before the app starts, configure Render's **Start Command** to run the idempotent migration scripts before launching the server:
 
 ```bash
-python scripts/migrate_add_payment_updated_at.py && gunicorn app:app
+python scripts/migrate_add_user_projects.py \
+  && python scripts/migrate_add_payment_updated_at.py \
+  && gunicorn app:app
 ```
 
-This command reads `DATABASE_URL`, applies the idempotent migration to Postgres if needed, and then starts the Flask application via Gunicorn.
+These scripts read `DATABASE_URL`, create/patch missing tables or columns safely (Postgres or SQLite), backfill data where necessary, and then start the Flask application via Gunicorn.

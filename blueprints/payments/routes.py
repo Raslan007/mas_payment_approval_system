@@ -14,7 +14,7 @@ from flask import (
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import extract, false
+from sqlalchemy import extract, false, exists
 import os
 
 from extensions import db
@@ -25,6 +25,7 @@ from models import (
     Supplier,
     PaymentApproval,
     PaymentAttachment,
+    user_projects,
 )
 from . import payments_bp
 
@@ -110,12 +111,13 @@ def _can_view_payment(p: PaymentRequest) -> bool:
     if role_name == "finance":
         return True
 
-    # مدير المشروع يشوف فقط دفعات مشروعه
+    # مدير المشروع يشوف فقط دفعات مشاريعه المرتبطة
     if role_name == "project_manager":
-        return (
-            current_user.project_id is not None
-            and p.project_id == current_user.project_id
-        )
+        return db.session.query(
+            exists()
+            .where(user_projects.c.user_id == current_user.id)
+            .where(user_projects.c.project_id == p.project_id)
+        ).scalar()
 
     # المهندس يشوف فقط الدفعات التي أنشأها (لا نقوم بتوسيع الصلاحيات هنا)
     if role_name == "engineer":
@@ -310,7 +312,10 @@ def index():
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         pass
     elif role_name == "project_manager":
-        q = q.filter(PaymentRequest.project_id == current_user.project_id)
+        pm_project_ids = db.session.query(user_projects.c.project_id).filter(
+            user_projects.c.user_id == current_user.id
+        )
+        q = q.filter(PaymentRequest.project_id.in_(pm_project_ids))
     elif role_name == "engineer":
         q = q.filter(PaymentRequest.created_by == current_user.id)
     elif role_name == "dc":

@@ -39,7 +39,8 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         self.project = Project(project_name="Test Project")
         self.supplier = Supplier(name="Supplier", supplier_type="contractor")
-        db.session.add_all([self.project, self.supplier])
+        self.alt_project = Project(project_name="Alt Project")
+        db.session.add_all([self.project, self.alt_project, self.supplier])
         db.session.commit()
 
         # cache users per role
@@ -53,10 +54,18 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    def _create_user(self, email: str, role: Role, project: Project | None = None) -> User:
-        project_id = project.id if project else None
-        if project_id is None and role.name in ("engineer", "project_manager"):
-            project_id = self.project.id
+    def _create_user(
+        self,
+        email: str,
+        role: Role,
+        project: Project | None = None,
+        projects: list[Project] | None = None,
+    ) -> User:
+        project_list = projects or ([] if project is None else [project])
+        if not project_list and role.name in ("engineer", "project_manager"):
+            project_list = [self.project]
+
+        project_id = project_list[0].id if project_list else None
 
         user = User(
             full_name=email.split("@")[0],
@@ -66,6 +75,8 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         )
         user.set_password("password")
         db.session.add(user)
+        if role.name == "project_manager":
+            user.projects = project_list
         db.session.commit()
         return user
 
@@ -214,6 +225,57 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         row_ids = re.findall(r"<td class=\"text-center text-muted\">\s*(\d+)", body)
         self.assertIn(str(own_payment.id), row_ids)
         self.assertNotIn(str(other_payment.id), row_ids)
+
+    def test_project_manager_with_multiple_projects_sees_all_assigned(self):
+        third_project = Project(project_name="Third Project")
+        db.session.add(third_project)
+        db.session.commit()
+
+        pm_multi = self._create_user(
+            "multi_pm@example.com",
+            self.roles["project_manager"],
+            projects=[self.project, self.alt_project],
+        )
+
+        payment_a = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=900,
+            description="proj a",
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=pm_multi.id,
+        )
+        payment_b = PaymentRequest(
+            project=self.alt_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=800,
+            description="proj b",
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=pm_multi.id,
+        )
+        payment_c = PaymentRequest(
+            project=third_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=700,
+            description="proj c",
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=pm_multi.id,
+        )
+        db.session.add_all([payment_a, payment_b, payment_c])
+        db.session.commit()
+
+        self._login(pm_multi)
+
+        resp_a = self.client.get(f"/payments/{payment_a.id}")
+        resp_b = self.client.get(f"/payments/{payment_b.id}")
+        resp_c = self.client.get(f"/payments/{payment_c.id}")
+
+        self.assertEqual(resp_a.status_code, 200)
+        self.assertEqual(resp_b.status_code, 200)
+        self.assertEqual(resp_c.status_code, 404)
 
     def test_full_positive_workflow(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
