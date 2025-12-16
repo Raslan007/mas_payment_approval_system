@@ -14,7 +14,7 @@ from flask import (
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import extract, false, exists, inspect
+from sqlalchemy import extract, false, exists, inspect, func
 import os
 
 from extensions import db
@@ -38,6 +38,16 @@ STATUS_PENDING_FIN = "pending_finance"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
+
+ALLOWED_STATUSES: set[str] = {
+    STATUS_DRAFT,
+    STATUS_PENDING_PM,
+    STATUS_PENDING_ENG,
+    STATUS_PENDING_FIN,
+    STATUS_READY_FOR_PAYMENT,
+    STATUS_PAID,
+    STATUS_REJECTED,
+}
 
 
 # خريطة الانتقالات المسموح بها بين الحالات
@@ -99,8 +109,12 @@ def _get_role():
 
 
 def _user_projects_table_exists() -> bool:
-    inspector = inspect(db.engine)
-    return inspector.has_table("user_projects")
+    try:
+        inspector = inspect(db.engine)
+        return inspector.has_table("user_projects")
+    except Exception:
+        # على بيئات الإنتاج القديمة قد لا يكون الجدول موجودًا أو تكون قاعدة البيانات غير مُهيأة بعد
+        return False
 
 
 def _project_manager_project_ids() -> list[int] | None:
@@ -120,6 +134,32 @@ def _project_manager_project_ids() -> list[int] | None:
         return [current_user.project_id]
 
     return []
+
+
+def _safe_int_arg(name: str, default: int | None, *, min_value: int | None = None, max_value: int | None = None) -> int | None:
+    """Safely parse integer query params with bounds and fallback."""
+
+    raw_value = request.args.get(name, default)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+    if min_value is not None:
+        value = max(value, min_value)
+    if max_value is not None:
+        value = min(value, max_value)
+    return value
+
+
+def _safe_date_arg(name: str) -> datetime | None:
+    raw = request.args.get(name)
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
 
 
 def _can_view_payment(p: PaymentRequest) -> bool:
@@ -324,12 +364,16 @@ def index():
     """
 
     role_name = _get_role()
+    pm_project_ids: list[int] | None = None
 
     q = PaymentRequest.query.options(
         selectinload(PaymentRequest.project),
         selectinload(PaymentRequest.supplier),
         selectinload(PaymentRequest.creator),
     )
+
+    projects, request_types, status_choices = _get_filter_lists()
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
 
     # صلاحيات العرض الأساسية
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
@@ -347,71 +391,67 @@ def index():
     else:
         q = q.filter(false())
 
-    # قراءة الفلاتر من الـ Query String
-    filters = {
-        "project_id": request.args.get("project_id") or "",
-        "request_type": request.args.get("request_type") or "",
-        "status": request.args.get("status") or "",
-        "week_number": request.args.get("week_number") or "",
-        "date_from": request.args.get("date_from") or "",
-        "date_to": request.args.get("date_to") or "",
-    }
+    filters = {"project_id": "", "request_type": "", "status": "", "week_number": "", "date_from": "", "date_to": ""}
 
-    # فلتر المشروع
-    if filters["project_id"]:
-        try:
-            project_id = int(filters["project_id"])
+    project_id = _safe_int_arg("project_id", None, min_value=1)
+    if project_id:
+        filters["project_id"] = str(project_id)
+        if role_name == "project_manager":
+            allowed_pm_projects = set(pm_project_ids or [])
+            if project_id not in allowed_pm_projects:
+                q = q.filter(false())
+            else:
+                q = q.filter(PaymentRequest.project_id == project_id)
+        else:
             q = q.filter(PaymentRequest.project_id == project_id)
-        except ValueError:
-            pass
 
-    # فلتر نوع الدفعة
-    if filters["request_type"]:
-        q = q.filter(PaymentRequest.request_type == filters["request_type"])
+    raw_request_type = (request.args.get("request_type") or "").strip()
+    if raw_request_type and raw_request_type in allowed_request_types:
+        filters["request_type"] = raw_request_type
+        q = q.filter(PaymentRequest.request_type == raw_request_type)
 
-    # فلتر الحالة
-    if filters["status"]:
-        q = q.filter(PaymentRequest.status == filters["status"])
+    status_filter = (request.args.get("status") or "").strip()
+    if status_filter in ALLOWED_STATUSES:
+        filters["status"] = status_filter
+        q = q.filter(PaymentRequest.status == status_filter)
 
-    # فلتر رقم الأسبوع (من created_at)
-    if filters["week_number"]:
-        try:
-            week_number = int(filters["week_number"])
-            q = q.filter(extract("week", PaymentRequest.created_at) == week_number)
-        except ValueError:
-            pass
+    week_number = _safe_int_arg("week_number", None, min_value=1, max_value=53)
+    if week_number:
+        filters["week_number"] = str(week_number)
+        q = q.filter(extract("week", PaymentRequest.created_at) == week_number)
 
-    # فلتر من تاريخ
-    if filters["date_from"]:
-        try:
-            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
-            q = q.filter(PaymentRequest.created_at >= date_from_dt)
-        except ValueError:
-            pass
+    date_from_dt = _safe_date_arg("date_from")
+    if date_from_dt:
+        filters["date_from"] = date_from_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at >= date_from_dt)
 
-    # فلتر إلى تاريخ (نضيف يوم كامل)
-    if filters["date_to"]:
-        try:
-            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
-                days=1
-            )
-            q = q.filter(PaymentRequest.created_at < date_to_dt)
-        except ValueError:
-            pass
+    date_to_dt = _safe_date_arg("date_to")
+    if date_to_dt:
+        filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
 
-    page = request.args.get("page", default=1, type=int)
-    per_page = request.args.get("per_page", default=20, type=int)
-    per_page = max(1, min(per_page or 20, 100))
+    page = _safe_int_arg("page", 1, min_value=1) or 1
+    per_page = _safe_int_arg("per_page", 20, min_value=1, max_value=100) or 20
+
+    total_count = (
+        q.order_by(None)
+        .with_entities(func.count(PaymentRequest.id))
+        .scalar()
+        or 0
+    )
 
     payments_query = q.order_by(
         PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
     )
-    pagination = payments_query.paginate(page=page, per_page=per_page, error_out=False)
+    pagination = payments_query.paginate(
+        page=page, per_page=per_page, error_out=False, count=False
+    )
+    pagination.total = total_count
     payments = pagination.items
 
-    query_params = request.args.to_dict(flat=True)
-
-    projects, request_types, status_choices = _get_filter_lists()
+    query_params = {k: v for k, v in filters.items() if v}
+    query_params["page"] = page
+    query_params["per_page"] = per_page
 
     return render_template(
         "payments/list.html",
@@ -435,7 +475,7 @@ def list_all():
             joinedload(PaymentRequest.supplier),
             joinedload(PaymentRequest.creator),
         )
-        .order_by(PaymentRequest.id.desc())
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
         .all()
     )
 
@@ -462,7 +502,7 @@ def pm_review():
             joinedload(PaymentRequest.creator),
         )
         .filter(PaymentRequest.status == STATUS_PENDING_PM)
-        .order_by(PaymentRequest.id.desc())
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
         .all()
     )
 
@@ -489,7 +529,7 @@ def eng_review():
             joinedload(PaymentRequest.creator),
         )
         .filter(PaymentRequest.status == STATUS_PENDING_ENG)
-        .order_by(PaymentRequest.id.desc())
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
         .all()
     )
 
@@ -527,7 +567,7 @@ def list_finance_review():
                 [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
             )
         )
-        .order_by(PaymentRequest.id.desc())
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
         .all()
     )
 
@@ -566,55 +606,39 @@ def finance_eng_approved():
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    _, request_types, _ = _get_filter_lists()
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
 
-    # قراءة الفلاتر من الـ Query String
-    filters = {
-        "project_id": request.args.get("project_id") or "",
-        "supplier_id": request.args.get("supplier_id") or "",
-        "request_type": request.args.get("request_type") or "",
-        "date_from": request.args.get("date_from") or "",
-        "date_to": request.args.get("date_to") or "",
-    }
+    filters = {"project_id": "", "supplier_id": "", "request_type": "", "date_from": "", "date_to": ""}
 
-    # فلتر المشروع
-    if filters["project_id"]:
-        try:
-            project_id = int(filters["project_id"])
-            q = q.filter(PaymentRequest.project_id == project_id)
-        except ValueError:
-            pass
+    project_id = _safe_int_arg("project_id", None, min_value=1)
+    if project_id:
+        filters["project_id"] = str(project_id)
+        q = q.filter(PaymentRequest.project_id == project_id)
 
-    # فلتر المورد / المقاول
-    if filters["supplier_id"]:
-        try:
-            supplier_id = int(filters["supplier_id"])
-            q = q.filter(PaymentRequest.supplier_id == supplier_id)
-        except ValueError:
-            pass
+    supplier_id = _safe_int_arg("supplier_id", None, min_value=1)
+    if supplier_id:
+        filters["supplier_id"] = str(supplier_id)
+        q = q.filter(PaymentRequest.supplier_id == supplier_id)
 
-    # فلتر نوع الدفعة
-    if filters["request_type"]:
-        q = q.filter(PaymentRequest.request_type == filters["request_type"])
+    raw_request_type = (request.args.get("request_type") or "").strip()
+    if raw_request_type and raw_request_type in allowed_request_types:
+        filters["request_type"] = raw_request_type
+        q = q.filter(PaymentRequest.request_type == raw_request_type)
 
-    # فلتر من تاريخ
-    if filters["date_from"]:
-        try:
-            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
-            q = q.filter(PaymentRequest.created_at >= date_from_dt)
-        except ValueError:
-            pass
+    date_from_dt = _safe_date_arg("date_from")
+    if date_from_dt:
+        filters["date_from"] = date_from_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at >= date_from_dt)
 
-    # فلتر إلى تاريخ (نضيف يوم كامل ليشمل اليوم بالكامل)
-    if filters["date_to"]:
-        try:
-            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
-                days=1
-            )
-            q = q.filter(PaymentRequest.created_at < date_to_dt)
-        except ValueError:
-            pass
+    date_to_dt = _safe_date_arg("date_to")
+    if date_to_dt:
+        filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
 
-    payments = q.order_by(PaymentRequest.id.desc()).all()
+    payments = q.order_by(
+        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
+    ).all()
 
     return render_template(
         "payments/finance_eng_approved.html",

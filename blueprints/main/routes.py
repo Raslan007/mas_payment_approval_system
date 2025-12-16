@@ -19,6 +19,15 @@ STATUS_PENDING_FIN = "pending_finance"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
+ALLOWED_STATUSES = {
+    STATUS_DRAFT,
+    STATUS_PENDING_PM,
+    STATUS_PENDING_ENG,
+    STATUS_PENDING_FIN,
+    STATUS_READY_FOR_PAYMENT,
+    STATUS_PAID,
+    STATUS_REJECTED,
+}
 
 @main_bp.route("/")
 @login_required
@@ -276,40 +285,36 @@ def eng_dashboard():
     - تعتمد على حالات الدفعات بعد مرورها على الإدارة الهندسية.
     """
 
-    # قراءة الفلاتر من الـ Query String (لو موجودة)
-    filters = {
-        "date_from": request.args.get("date_from") or "",
-        "date_to": request.args.get("date_to") or "",
-        "project_id": request.args.get("project_id") or "",
-        "status": request.args.get("status") or "",
-    }
+    # قراءة الفلاتر من الـ Query String (لو موجودة) مع تنقية القيم
+    filters = {"date_from": "", "date_to": "", "project_id": "", "status": ""}
 
-    # تحويل التواريخ إلى datetime (بداية اليوم ونهايته)
-    date_from_dt = None
-    date_to_dt = None
-
-    if filters["date_from"]:
-        try:
-            date_from_dt = datetime.strptime(filters["date_from"], "%Y-%m-%d")
-        except ValueError:
-            date_from_dt = None
-
-    if filters["date_to"]:
-        try:
-            # نضيف يوم كامل حتى يشمل اليوم بالكامل
-            date_to_dt = datetime.strptime(filters["date_to"], "%Y-%m-%d") + timedelta(
-                days=1
-            )
-        except ValueError:
-            date_to_dt = None
-
-    # فلتر المشروع (إن وجد)
-    project_id = None
-    if filters["project_id"]:
-        try:
-            project_id = int(filters["project_id"])
-        except ValueError:
+    try:
+        project_id = int(request.args.get("project_id", ""))
+        if project_id < 1:
             project_id = None
+        else:
+            filters["project_id"] = str(project_id)
+    except (TypeError, ValueError):
+        project_id = None
+
+    def _safe_date_arg(param: str) -> datetime | None:
+        raw = request.args.get(param)
+        if not raw:
+            return None
+        try:
+            parsed = datetime.strptime(raw, "%Y-%m-%d")
+            filters[param] = parsed.strftime("%Y-%m-%d")
+            return parsed
+        except (TypeError, ValueError):
+            return None
+
+    date_from_dt = _safe_date_arg("date_from")
+    date_to_input = _safe_date_arg("date_to")
+    date_to_dt = date_to_input + timedelta(days=1) if date_to_input else None
+
+    status_filter = (request.args.get("status") or "").strip()
+    if status_filter in ALLOWED_STATUSES:
+        filters["status"] = status_filter
 
     # قائمة المشاريع
     projects = Project.query.order_by(Project.project_name.asc()).all()
@@ -319,6 +324,8 @@ def eng_dashboard():
 
     if project_id:
         base_q = base_q.filter(PaymentRequest.project_id == project_id)
+    if status_filter in ALLOWED_STATUSES:
+        base_q = base_q.filter(PaymentRequest.status == status_filter)
 
     if date_from_dt:
         base_q = base_q.filter(PaymentRequest.created_at >= date_from_dt)
