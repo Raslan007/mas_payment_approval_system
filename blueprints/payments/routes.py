@@ -14,7 +14,7 @@ from flask import (
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import extract, false, exists
+from sqlalchemy import extract, false, exists, inspect
 import os
 
 from extensions import db
@@ -98,6 +98,30 @@ def _get_role():
     return current_user.role.name
 
 
+def _user_projects_table_exists() -> bool:
+    inspector = inspect(db.engine)
+    return inspector.has_table("user_projects")
+
+
+def _project_manager_project_ids() -> list[int] | None:
+    """Return project IDs for current project manager based on available schema."""
+    if not current_user.is_authenticated:
+        return None
+
+    if _user_projects_table_exists():
+        return [
+            row.project_id
+            for row in db.session.query(user_projects.c.project_id)
+            .filter(user_projects.c.user_id == current_user.id)
+            .all()
+        ]
+
+    if current_user.project_id:
+        return [current_user.project_id]
+
+    return []
+
+
 def _can_view_payment(p: PaymentRequest) -> bool:
     role_name = _get_role()
     if role_name is None:
@@ -113,11 +137,10 @@ def _can_view_payment(p: PaymentRequest) -> bool:
 
     # مدير المشروع يشوف فقط دفعات مشاريعه المرتبطة
     if role_name == "project_manager":
-        return db.session.query(
-            exists()
-            .where(user_projects.c.user_id == current_user.id)
-            .where(user_projects.c.project_id == p.project_id)
-        ).scalar()
+        pm_project_ids = _project_manager_project_ids()
+        if pm_project_ids is None:
+            return False
+        return p.project_id in pm_project_ids
 
     # المهندس يشوف فقط الدفعات التي أنشأها (لا نقوم بتوسيع الصلاحيات هنا)
     if role_name == "engineer":
@@ -312,10 +335,11 @@ def index():
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         pass
     elif role_name == "project_manager":
-        pm_project_ids = db.session.query(user_projects.c.project_id).filter(
-            user_projects.c.user_id == current_user.id
-        )
-        q = q.filter(PaymentRequest.project_id.in_(pm_project_ids))
+        pm_project_ids = _project_manager_project_ids()
+        if pm_project_ids:
+            q = q.filter(PaymentRequest.project_id.in_(pm_project_ids))
+        else:
+            q = q.filter(false())
     elif role_name == "engineer":
         q = q.filter(PaymentRequest.created_by == current_user.id)
     elif role_name == "dc":

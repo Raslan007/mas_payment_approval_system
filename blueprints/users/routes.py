@@ -23,6 +23,7 @@ def list_users():
 def create_user():
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
+    has_user_projects_table = _user_projects_table_exists()
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
@@ -73,7 +74,11 @@ def create_user():
         if project_ids_int:
             user.project_id = project_ids_int[0]
 
-        if selected_role and selected_role.name == "project_manager":
+        if (
+            selected_role
+            and selected_role.name == "project_manager"
+            and has_user_projects_table
+        ):
             user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
 
         db.session.add(user)
@@ -90,6 +95,18 @@ def edit_user(user_id):
     user = User.query.get_or_404(user_id)
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
+    has_user_projects_table = _user_projects_table_exists()
+
+    selected_project_ids: list[int] = []
+    if has_user_projects_table:
+        selected_project_ids = [
+            row.project_id
+            for row in db.session.query(user_projects.c.project_id)
+            .filter(user_projects.c.user_id == user.id)
+            .all()
+        ]
+    elif user.project_id:
+        selected_project_ids = [user.project_id]
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
@@ -139,10 +156,8 @@ def edit_user(user_id):
         else:
             user.project_id = None
 
-        if selected_role and selected_role.name == "project_manager":
+        if selected_role and selected_role.name == "project_manager" and has_user_projects_table:
             user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
-        else:
-            user.projects = []
 
         # تحديث كلمة المرور لو تم إدخال واحدة جديدة
         if new_password:
@@ -152,7 +167,13 @@ def edit_user(user_id):
         flash("تم تحديث بيانات المستخدم بنجاح.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/edit.html", user=user, roles=roles, projects=projects)
+    return render_template(
+        "users/edit.html",
+        user=user,
+        roles=roles,
+        projects=projects,
+        selected_project_ids=selected_project_ids,
+    )
 
 
 @users_bp.route("/<int:user_id>/delete", methods=["POST"])
