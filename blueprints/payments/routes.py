@@ -106,16 +106,19 @@ def _can_view_payment(p: PaymentRequest) -> bool:
     if role_name in ("admin", "engineering_manager", "chairman"):
         return True
 
-    # المالية تشوف ما يخصها
+    # المالية تشوف كل الدفعات
     if role_name == "finance":
-        return p.status in (
-            STATUS_PENDING_FIN,
-            STATUS_READY_FOR_PAYMENT,
-            STATUS_PAID,
+        return True
+
+    # مدير المشروع يشوف فقط دفعات مشروعه
+    if role_name == "project_manager":
+        return (
+            current_user.project_id is not None
+            and p.project_id == current_user.project_id
         )
 
-    # المهندس / مدير المشروع يشوفوا الدفعات اللي هم أدخلوها فقط
-    if role_name in ("engineer", "project_manager"):
+    # المهندس يشوف فقط الدفعات التي أنشأها (لا نقوم بتوسيع الصلاحيات هنا)
+    if role_name == "engineer":
         return p.created_by == current_user.id
 
     # DC حالياً لا يشوف الدفعات
@@ -182,7 +185,20 @@ def _can_delete_payment(p: PaymentRequest) -> bool:
 
 def _require_can_view(p: PaymentRequest):
     if not _can_view_payment(p):
-        abort(403)
+        abort(404)
+
+
+def _get_payment_or_404(payment_id: int, *, options: list | None = None) -> PaymentRequest:
+    query = PaymentRequest.query
+    if options:
+        query = query.options(*options)
+    payment = query.filter(PaymentRequest.id == payment_id).first()
+    if payment is None:
+        abort(404)
+    if not _can_view_payment(payment):
+        abort(404)
+
+    return payment
 
 
 def _attachments_base_path() -> str:
@@ -636,18 +652,15 @@ def detail(payment_id):
     - تعرض الدفعة + الـ approvals logs اللازمة لعرض
       اسم وتاريخ من اعتمد أو رفض في كل مرحلة.
     """
-    payment = (
-        PaymentRequest.query.options(
+    payment = _get_payment_or_404(
+        payment_id,
+        options=[
             joinedload(PaymentRequest.project),
             joinedload(PaymentRequest.supplier),
             joinedload(PaymentRequest.creator),
             joinedload(PaymentRequest.approvals).joinedload(PaymentApproval.decided_by),
-        )
-        .filter(PaymentRequest.id == payment_id)
-        .first_or_404()
+        ],
     )
-
-    _require_can_view(payment)
 
     # آخر رفض (من أي مرحلة)
     rejection_log = (
@@ -700,9 +713,7 @@ def detail(payment_id):
 )
 def download_attachment(attachment_id: int):
     attachment = PaymentAttachment.query.get_or_404(attachment_id)
-    payment = PaymentRequest.query.get_or_404(attachment.payment_request_id)
-
-    _require_can_view(payment)
+    payment = _get_payment_or_404(attachment.payment_request_id)
 
     stored = (attachment.stored_filename or "").strip()
     if not stored or os.path.basename(stored) != stored:
@@ -734,7 +745,7 @@ def download_attachment(attachment_id: int):
     "engineer",
 )
 def edit_payment(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
+    payment = _get_payment_or_404(payment_id)
     _require_can_edit(payment)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
@@ -794,7 +805,7 @@ def delete_payment(payment_id):
     - ثم نحذف الدفعة نفسها
     بذلك نتجنب محاولة تعيين payment_request_id = NULL (وهو NOT NULL).
     """
-    payment = PaymentRequest.query.get_or_404(payment_id)
+    payment = _get_payment_or_404(payment_id)
     _require_can_delete(payment)
 
     # حذف سجلات الاعتماد المرتبطة
@@ -822,8 +833,7 @@ def delete_payment(payment_id):
 @payments_bp.route("/<int:payment_id>/submit_to_pm", methods=["POST"])
 @role_required("admin", "engineering_manager", "project_manager", "engineer")
 def submit_to_pm(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_PM):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -849,8 +859,7 @@ def submit_to_pm(payment_id):
 @payments_bp.route("/<int:payment_id>/pm_approve", methods=["POST"])
 @role_required("admin", "engineering_manager", "project_manager")
 def pm_approve(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_ENG):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -876,8 +885,7 @@ def pm_approve(payment_id):
 @payments_bp.route("/<int:payment_id>/pm_reject", methods=["POST"])
 @role_required("admin", "engineering_manager", "project_manager")
 def pm_reject(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -903,8 +911,7 @@ def pm_reject(payment_id):
 @payments_bp.route("/<int:payment_id>/eng_approve", methods=["POST"])
 @role_required("admin", "engineering_manager")
 def eng_approve(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_FIN):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -930,8 +937,7 @@ def eng_approve(payment_id):
 @payments_bp.route("/<int:payment_id>/eng_reject", methods=["POST"])
 @role_required("admin", "engineering_manager")
 def eng_reject(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -962,8 +968,7 @@ def finance_approve(payment_id):
     - تتحول الحالة من pending_finance إلى ready_for_payment
     - لا نسجل مبلغ المالية الفعلي هنا (هيتسجل في خطوة تم الصرف)
     """
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_READY_FOR_PAYMENT):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -989,8 +994,7 @@ def finance_approve(payment_id):
 @payments_bp.route("/<int:payment_id>/finance_reject", methods=["POST"])
 @role_required("admin", "finance")
 def finance_reject(payment_id):
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
         return redirect(url_for("payments.detail", payment_id=payment.id))
@@ -1022,8 +1026,7 @@ def mark_paid(payment_id):
     - يُطلب من المالية إدخال amount_finance (المبلغ الفعلي المعتمد)
     - يتم حفظ amount_finance وتغيير الحالة إلى PAID
     """
-    payment = PaymentRequest.query.get_or_404(payment_id)
-    _require_can_view(payment)
+    payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PAID):
         return redirect(url_for("payments.detail", payment_id=payment.id))
