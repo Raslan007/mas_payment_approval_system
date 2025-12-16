@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from app import create_app
@@ -181,6 +182,38 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._login(self.users["project_manager"])
         resp = self.client.get(f"/payments/{payment.id}")
         self.assertEqual(resp.status_code, 404)
+
+    def test_project_manager_listing_only_shows_own_project(self):
+        other_project = Project(project_name="Other Project")
+        db.session.add(other_project)
+        db.session.commit()
+
+        outsider_pm = self._create_user(
+            "pm2@example.com", self.roles["project_manager"], other_project
+        )
+
+        own_payment = self._make_payment(
+            payment_routes.STATUS_PENDING_PM, self.users["project_manager"].id
+        )
+        other_payment = PaymentRequest(
+            project=other_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=750,
+            description="other",
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=outsider_pm.id,
+        )
+        db.session.add(other_payment)
+        db.session.commit()
+
+        self._login(self.users["project_manager"])
+        resp = self.client.get("/payments/?per_page=10")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_data(as_text=True)
+        row_ids = re.findall(r"<td class=\"text-center text-muted\">\s*(\d+)", body)
+        self.assertIn(str(own_payment.id), row_ids)
+        self.assertNotIn(str(other_payment.id), row_ids)
 
     def test_full_positive_workflow(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)

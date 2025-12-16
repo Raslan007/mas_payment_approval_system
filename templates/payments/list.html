@@ -3,6 +3,8 @@
 
 {% block content %}
 {% set page_title = page_title or "قائمة الدفعات" %}
+{% set pagination = pagination or None %}
+{% set query_params = query_params or {} %}
 
 <div class="d-flex justify-content-between	align-items-center mb-3">
     <div>
@@ -89,6 +91,16 @@
 {# --------------------  جدول الدفعات  -------------------- #}
 <div class="card shadow-sm">
     <div class="card-body">
+        {% if pagination and pagination.total %}
+            {% set start_item = ((pagination.page - 1) * pagination.per_page) + 1 %}
+            {% set end_item = (pagination.page * pagination.per_page) if (pagination.page * pagination.per_page) < pagination.total else pagination.total %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 text-muted xsmall">
+                <div>
+                    عرض {{ start_item }}–{{ end_item }} من {{ pagination.total }}
+                </div>
+            </div>
+        {% endif %}
+
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
@@ -214,6 +226,53 @@
                 </tbody>
             </table>
         </div>
+
+        {% if pagination and pagination.pages > 1 %}
+            <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الدفعات">
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                        {% set prev_params = query_params.copy() %}
+                        {% set _ = prev_params.update({'page': pagination.prev_num if pagination.has_prev else 1, 'per_page': pagination.per_page}) %}
+                        <a class="page-link" href="{{ url_for('payments.index', **prev_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                    </li>
+
+                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                            {% set page_params = query_params.copy() %}
+                            {% set _ = page_params.update({'page': p, 'per_page': pagination.per_page}) %}
+                            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                                <a class="page-link" href="{{ url_for('payments.index', **page_params) }}">{{ p }}</a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endfor %}
+
+                    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                        {% set next_params = query_params.copy() %}
+                        {% set _ = next_params.update({'page': pagination.next_num if pagination.has_next else pagination.page, 'per_page': pagination.per_page}) %}
+                        <a class="page-link" href="{{ url_for('payments.index', **next_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                    </li>
+                </ul>
+
+                <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                    <span>عدد السجلات في الصفحة:</span>
+                    <form method="get" action="{{ url_for('payments.index') }}" class="d-flex align-items-center gap-2 mb-0">
+                        {% set per_page_params = query_params.copy() %}
+                        {% set _ = per_page_params.pop('per_page', None) %}
+                        {% set _ = per_page_params.pop('page', None) %}
+                        {% for key, value in per_page_params.items() %}
+                            <input type="hidden" name="{{ key }}" value="{{ value }}">
+                        {% endfor %}
+                        <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                            {% for option in [10, 20, 50, 100] %}
+                                <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+            </nav>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
