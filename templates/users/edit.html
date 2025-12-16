@@ -73,10 +73,9 @@
                     name="project_ids"
                     class="form-select"
                     multiple>
-                {% set selected_projects = user.projects | map(attribute='id') | list %}
                 {% for p in projects %}
                     <option value="{{ p.id }}"
-                            {% if p.id in selected_projects %}selected{% endif %}>
+                            {% if p.id in (selected_projects or []) %}selected{% endif %}>
                         {{ p.project_name }}
                     </option>
                 {% endfor %}

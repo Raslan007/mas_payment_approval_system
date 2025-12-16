@@ -1,7 +1,7 @@
 # Deployment Notes
 
 ## Render start command
-To ensure the schema is up to date before the app starts, configure Render's **Start Command** to run the idempotent migration scripts before launching the server:
+To ensure the schema is up to date before the app starts, configure Render's **Start Command** to run the idempotent migration scripts (including the `user_projects` table creation) before launching the server:
 
 ```bash
 python scripts/migrate_add_user_projects.py \

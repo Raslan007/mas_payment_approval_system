@@ -2,6 +2,10 @@
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import selectinload
+
 from extensions import db
 from models import User, Role, Project
 from permissions import role_required
@@ -88,6 +92,25 @@ def edit_user(user_id):
     user = User.query.get_or_404(user_id)
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
+    selected_projects: list[int] = []
+
+    try:
+        inspector = inspect(db.engine)
+        has_user_projects = inspector.has_table("user_projects")
+    except Exception:
+        has_user_projects = False
+
+    if has_user_projects:
+        try:
+            user = (
+                User.query.options(selectinload(User.projects))
+                .filter_by(id=user_id)
+                .first_or_404()
+            )
+            selected_projects = [project.id for project in user.projects]
+        except OperationalError:
+            db.session.rollback()
+            selected_projects = []
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
@@ -150,7 +173,13 @@ def edit_user(user_id):
         flash("تم تحديث بيانات المستخدم بنجاح.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/edit.html", user=user, roles=roles, projects=projects)
+    return render_template(
+        "users/edit.html",
+        user=user,
+        roles=roles,
+        projects=projects,
+        selected_projects=selected_projects,
+    )
 
 
 @users_bp.route("/<int:user_id>/delete", methods=["POST"])
