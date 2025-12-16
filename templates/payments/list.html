@@ -72,7 +72,7 @@
                        name="week_number"
                        min="1" max="53"
                        class="form-control form-control-sm"
-                       value="{{ filters.week_number }}">
+                       value="{{ request.args.get('week_number', '') }}">
             </div>
 
             <div class="col-12 text-end mt-2">

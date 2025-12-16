@@ -430,7 +430,7 @@ def index():
         filters["status"] = status_filter
         q = q.filter(PaymentRequest.status == status_filter)
 
-    raw_week = request.args.get("week_number")
+    raw_week = (request.args.get("week_number") or "").strip()
     week_number: int | None = None
     if raw_week:
         try:
@@ -440,7 +440,7 @@ def index():
         except (TypeError, ValueError):
             pass
 
-    if week_number:
+    if week_number is not None:
         filters["week_number"] = str(week_number)
 
         if db.session.get_bind().dialect.name == "sqlite":
