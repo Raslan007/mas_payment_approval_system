@@ -2,7 +2,9 @@
 
 Steps:
 - Add the nullable column if it doesn't exist.
-- Backfill from the earliest engineer submit log (step='engineer', action='submit').
+- Backfill from the earliest engineer submit log (step='engineer', action in
+  ('submit', 'submit_to_pm') or any log that moved the request to pending_pm).
+- If no matching log exists, fall back to the payment's created_at.
 - Safe to rerun and will log progress.
 """
 import os
@@ -55,7 +57,9 @@ def add_column(cursor) -> None:
 
 
 def backfill_column(cursor) -> None:
-    log("Backfilling submitted_to_pm_at from earliest engineer submit log...")
+    log(
+        "Backfilling submitted_to_pm_at from engineer submit logs or created_at when missing..."
+    )
     cursor.execute(
         """
         WITH first_submit AS (
@@ -63,14 +67,22 @@ def backfill_column(cursor) -> None:
                 payment_request_id,
                 MIN(decided_at) AS first_submit_at
             FROM payment_approvals
-            WHERE step = 'engineer' AND action = 'submit'
+            WHERE
+                (step = 'engineer' AND action IN ('submit', 'submit_to_pm'))
+                OR new_status = 'pending_pm'
             GROUP BY payment_request_id
+        ),
+        updated_with_logs AS (
+            UPDATE payment_requests p
+            SET submitted_to_pm_at = fs.first_submit_at
+            FROM first_submit fs
+            WHERE p.id = fs.payment_request_id
+              AND p.submitted_to_pm_at IS NULL
+            RETURNING p.id
         )
         UPDATE payment_requests p
-        SET submitted_to_pm_at = fs.first_submit_at
-        FROM first_submit fs
-        WHERE p.id = fs.payment_request_id
-          AND p.submitted_to_pm_at IS NULL;
+        SET submitted_to_pm_at = p.created_at
+        WHERE p.submitted_to_pm_at IS NULL;
         """
     )
     log(f"Updated {cursor.rowcount or 0} payment(s) with submission timestamps.")
