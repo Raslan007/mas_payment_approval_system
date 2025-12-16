@@ -20,6 +20,14 @@
         <div class="text-muted">
             {{ user.email }}
         </div>
+        {% if current_user.role and current_user.role.name == 'admin' %}
+            <div class="mt-2">
+                <a href="{{ url_for('users.assign_user_projects', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-diagram-3 ms-1"></i>
+                    إسناد مشاريع
+                </a>
+            </div>
+        {% endif %}
     </div>
 </div>
 

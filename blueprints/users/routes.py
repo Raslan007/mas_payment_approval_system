@@ -2,8 +2,10 @@
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user
+from sqlalchemy import inspect
+
 from extensions import db
-from models import User, Role, Project
+from models import User, Role, Project, user_projects
 from permissions import role_required
 from . import users_bp
 
@@ -167,3 +169,59 @@ def delete_user(user_id):
     db.session.commit()
     flash("تم حذف المستخدم بنجاح.", "success")
     return redirect(url_for("users.list_users"))
+
+
+def _user_projects_table_exists() -> bool:
+    inspector = inspect(db.engine)
+    return inspector.has_table("user_projects")
+
+
+@users_bp.route("/<int:user_id>/projects", methods=["GET", "POST"])
+@role_required("admin")
+def assign_user_projects(user_id):
+    user = User.query.get_or_404(user_id)
+    projects = Project.query.order_by(Project.project_name.asc()).all()
+    has_user_projects_table = _user_projects_table_exists()
+
+    if request.method == "POST":
+        if not has_user_projects_table:
+            flash("جدول ربط المستخدمين بالمشاريع غير متاح حاليًا.", "danger")
+            return redirect(url_for("users.assign_user_projects", user_id=user.id))
+
+        project_ids_int: list[int] = []
+        for pid in request.form.getlist("project_ids"):
+            try:
+                project_ids_int.append(int(pid))
+            except (TypeError, ValueError):
+                continue
+
+        unique_project_ids = list(dict.fromkeys(project_ids_int))
+        selected_projects = (
+            Project.query.filter(Project.id.in_(unique_project_ids))
+            .order_by(Project.project_name.asc())
+            .all()
+            if unique_project_ids
+            else []
+        )
+
+        user.projects = selected_projects
+        db.session.commit()
+        flash("تم تحديث المشاريع المرتبطة بالمستخدم بنجاح.", "success")
+        return redirect(url_for("users.assign_user_projects", user_id=user.id))
+
+    selected_project_ids: list[int] = []
+    if has_user_projects_table:
+        selected_project_ids = [
+            row.project_id
+            for row in db.session.query(user_projects.c.project_id)
+            .filter(user_projects.c.user_id == user.id)
+            .all()
+        ]
+
+    return render_template(
+        "users/assign_projects.html",
+        user=user,
+        projects=projects,
+        selected_project_ids=selected_project_ids,
+        user_projects_exists=has_user_projects_table,
+    )
