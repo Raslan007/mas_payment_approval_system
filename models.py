@@ -116,6 +116,7 @@ class PaymentRequest(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    submitted_to_pm_at = db.Column(db.DateTime, nullable=True)
 
     project = db.relationship("Project", backref="payment_requests")
     supplier = db.relationship("Supplier", backref="payment_requests")
