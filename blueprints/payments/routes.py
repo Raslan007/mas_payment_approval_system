@@ -442,21 +442,28 @@ def index():
 
     if week_number is not None:
         filters["week_number"] = str(week_number)
+        reference_year = datetime.utcnow().isocalendar().year
+        submission_ts = func.coalesce(
+            PaymentRequest.submitted_to_pm_at, PaymentRequest.created_at
+        )
 
         if db.session.get_bind().dialect.name == "sqlite":
             try:
-                week_start, week_end = _iso_week_bounds(week_number)
+                week_start, week_end = _iso_week_bounds(
+                    week_number, reference_year=reference_year
+                )
             except ValueError:
                 week_start = week_end = None
 
             if week_start and week_end:
                 q = q.filter(
-                    PaymentRequest.submitted_to_pm_at >= week_start,
-                    PaymentRequest.submitted_to_pm_at < week_end,
+                    submission_ts >= week_start,
+                    submission_ts < week_end,
                 )
         else:
             q = q.filter(
-                extract("week", PaymentRequest.submitted_to_pm_at) == week_number
+                extract("isoyear", submission_ts) == reference_year,
+                extract("week", submission_ts) == week_number,
             )
 
     date_from_dt = _safe_date_arg("date_from")

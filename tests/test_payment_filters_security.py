@@ -160,7 +160,7 @@ class PaymentFiltersSecurityTestCase(unittest.TestCase):
         self.assertEqual(rendered_ids[0], payments[-1].id)
         self.assertTrue(all(earlier >= later for earlier, later in zip(rendered_ids, rendered_ids[1:])))
 
-    def test_week_number_filter_uses_submission_iso_week(self):
+    def test_week_number_filter_uses_submission_iso_week_and_fallbacks(self):
         reference_year = datetime.utcnow().isocalendar().year
         target_week = 10
         other_week = 12
@@ -225,7 +225,7 @@ class PaymentFiltersSecurityTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertRegex(body, rf'data-payment-id="{week_payment.id}"')
-        self.assertNotRegex(body, rf'data-payment-id="{null_submission_payment.id}"')
+        self.assertRegex(body, rf'data-payment-id="{null_submission_payment.id}"')
         self.assertNotRegex(body, rf'data-payment-id="{another_payment.id}"')
 
     def test_my_payments_without_week_number_returns_results(self):
@@ -285,6 +285,41 @@ class PaymentFiltersSecurityTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertRegex(body, rf'data-payment-id="{matched_payment.id}"')
+        self.assertNotRegex(body, rf'data-payment-id="{other_payment.id}"')
+
+    def test_my_payments_week_number_filter_falls_back_to_created_at(self):
+        reference_year = datetime.utcnow().isocalendar().year
+        target_week = 6
+
+        fallback_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=410,
+            status="pending_pm",
+            created_by=self.admin.id,
+            created_at=datetime.fromisocalendar(reference_year, target_week, 2),
+            submitted_to_pm_at=None,
+        )
+        other_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=420,
+            status="pending_pm",
+            created_by=self.admin.id,
+            created_at=datetime.fromisocalendar(reference_year, target_week + 1, 3),
+            submitted_to_pm_at=None,
+        )
+        db.session.add_all([fallback_payment, other_payment])
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get(f"/payments/my?week_number={target_week}")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, rf'data-payment-id="{fallback_payment.id}"')
         self.assertNotRegex(body, rf'data-payment-id="{other_payment.id}"')
 
     def test_week_number_filter_applies_in_my_route_and_keeps_pagination_params(self):
