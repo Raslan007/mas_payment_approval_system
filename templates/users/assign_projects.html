@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}إسناد مشاريع للمستخدم{% endblock %}
+
+{% block content %}
+{% set page_title = "إسناد مشاريع للمستخدم " ~ (user.full_name or user.email) %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">إسناد مشاريع للمستخدم</h1>
+        <p class="text-muted xsmall mb-0">
+            اختر المشاريع التي يمكن للمستخدم الوصول إليها وإدارتها.
+        </p>
+    </div>
+    <div class="text-end xsmall">
+        <div class="fw-semibold">{{ user.full_name or user.username }}</div>
+        <div class="text-muted">{{ user.email }}</div>
+        <div class="text-muted">الدور: {{ user.role.name if user.role else "-" }}</div>
+    </div>
+</div>
+
+<div class="bg-white p-4 rounded-3 shadow-sm col-lg-7 col-md-9 col-12">
+    {% if not user_projects_exists %}
+        <div class="alert alert-warning" role="alert">
+            <i class="bi bi-exclamation-triangle-fill ms-1"></i>
+            لا يمكن حفظ التغييرات لأن جدول ربط المستخدمين بالمشاريع غير متوفر في قاعدة البيانات حاليًا.
+        </div>
+    {% endif %}
+
+    <form method="post" novalidate>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0">قائمة المشاريع</h2>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllProjects(true)">
+                    تحديد الكل
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllProjects(false)">
+                    مسح الاختيار
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-2">
+            {% for project in projects %}
+                <div class="col-md-6">
+                    <div class="form-check border rounded-3 p-3 h-100">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               value="{{ project.id }}"
+                               id="project-{{ project.id }}"
+                               name="project_ids"
+                               {% if project.id in selected_project_ids %}checked{% endif %}>
+                        <label class="form-check-label fw-semibold" for="project-{{ project.id }}">
+                            {{ project.project_name }}
+                        </label>
+                    </div>
+                </div>
+            {% endfor %}
+            {% if not projects %}
+                <p class="text-muted">لا توجد مشاريع متاحة.</p>
+            {% endif %}
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-4">
+            <a href="{{ url_for('users.list_users') }}" class="btn btn-outline-secondary">
+                رجوع
+            </a>
+            <button type="submit" class="btn btn-success" {% if not user_projects_exists %}disabled{% endif %}>
+                <i class="bi bi-check2-circle ms-1"></i>
+                حفظ التغييرات
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function selectAllProjects(value) {
+        const checkboxes = document.querySelectorAll('input[name="project_ids"]');
+        checkboxes.forEach(cb => cb.checked = value);
+    }
+</script>
+{% endblock %}
