@@ -26,7 +26,7 @@ def create_user():
         full_name = (request.form.get("full_name") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
         role_id = request.form.get("role_id")
-        project_id = request.form.get("project_id")  # يمكن أن يكون فارغاً لبعض الأدوار
+        project_ids = request.form.getlist("project_ids")
         password = (request.form.get("password") or "").strip()
         password_confirm = (request.form.get("password_confirm") or "").strip()
         # حالياً لا نستخدم is_active لأنه غير مخرّن في قاعدة البيانات
@@ -49,7 +49,11 @@ def create_user():
 
         # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
         selected_role = Role.query.get(int(role_id)) if role_id else None
-        if selected_role and selected_role.name in ("engineer", "project_manager") and not project_id:
+        requires_project = selected_role and selected_role.name in (
+            "engineer",
+            "project_manager",
+        )
+        if requires_project and not project_ids:
             flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
             return redirect(url_for("users.create_user"))
 
@@ -57,12 +61,18 @@ def create_user():
         user.role_id = int(role_id)
         user.set_password(password)
 
-        # ربط المشروع إن تم اختياره
-        if project_id:
+        project_ids_int = []
+        for pid in project_ids:
             try:
-                user.project_id = int(project_id)
-            except ValueError:
-                user.project_id = None
+                project_ids_int.append(int(pid))
+            except (TypeError, ValueError):
+                continue
+
+        if project_ids_int:
+            user.project_id = project_ids_int[0]
+
+        if selected_role and selected_role.name == "project_manager":
+            user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
 
         db.session.add(user)
         db.session.commit()
@@ -83,7 +93,7 @@ def edit_user(user_id):
         full_name = (request.form.get("full_name") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
         role_id = request.form.get("role_id")
-        project_id = request.form.get("project_id")  # يمكن أن يكون فارغاً لبعض الأدوار
+        project_ids = request.form.getlist("project_ids")
         # نفس الفكرة، لا نستخدم is_active حالياً
         # is_active_flag = bool(request.form.get("is_active"))
         new_password = (request.form.get("new_password") or "").strip()
@@ -103,7 +113,11 @@ def edit_user(user_id):
 
         # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
         selected_role = Role.query.get(int(role_id)) if role_id else None
-        if selected_role and selected_role.name in ("engineer", "project_manager") and not project_id:
+        requires_project = selected_role and selected_role.name in (
+            "engineer",
+            "project_manager",
+        )
+        if requires_project and not project_ids:
             flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
             return redirect(url_for("users.edit_user", user_id=user.id))
 
@@ -111,15 +125,22 @@ def edit_user(user_id):
         user.email = email
         user.role_id = int(role_id)
 
-        # تحديث المشروع المرتبط إن تم اختياره
-        if project_id:
+        project_ids_int = []
+        for pid in project_ids:
             try:
-                user.project_id = int(project_id)
-            except ValueError:
-                user.project_id = None
+                project_ids_int.append(int(pid))
+            except (TypeError, ValueError):
+                continue
+
+        if project_ids_int:
+            user.project_id = project_ids_int[0]
         else:
-            # في حال ترك الحقل فارغاً نلغي الربط
             user.project_id = None
+
+        if selected_role and selected_role.name == "project_manager":
+            user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
+        else:
+            user.projects = []
 
         # تحديث كلمة المرور لو تم إدخال واحدة جديدة
         if new_password:

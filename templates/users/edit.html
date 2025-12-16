@@ -68,19 +68,20 @@
 
         <!-- المشروع المرتبط بالمستخدم -->
         <div class="mb-3 d-none" id="project-group">
-            <label for="project_id" class="form-label">المشروع المرتبط بالمستخدم</label>
-            <select id="project_id"
-                    name="project_id"
-                    class="form-select">
-                <option value="">اختر المشروع...</option>
+            <label for="project_ids" class="form-label">المشاريع المرتبطة بالمستخدم</label>
+            <select id="project_ids"
+                    name="project_ids"
+                    class="form-select"
+                    multiple>
+                {% set selected_projects = user.projects | map(attribute='id') | list %}
                 {% for p in projects %}
                     <option value="{{ p.id }}"
-                            {% if user.project_id == p.id %}selected{% endif %}>
+                            {% if p.id in selected_projects %}selected{% endif %}>
                         {{ p.project_name }}
                     </option>
                 {% endfor %}
             </select>
-            <small class="text-muted xsmall">
+            <small class="text-muted xsmall" id="project-help-text">
                 هذا الحقل مطلوب للمهندس ومدير المشروع، واختياري لباقي الأدوار.
             </small>
         </div>
@@ -156,7 +157,7 @@
     function updateProjectVisibility() {
         const roleSelect = document.getElementById("role_id");
         const projectGroup = document.getElementById("project-group");
-        const projectSelect = document.getElementById("project_id");
+        const projectSelect = document.getElementById("project_ids");
 
         if (!roleSelect || !projectGroup) return;
 
@@ -170,11 +171,21 @@
             if (projectSelect) {
                 projectSelect.setAttribute("required", "required");
             }
+            if (projectSelect) {
+                projectSelect.multiple = roleName === "project_manager";
+            }
+            const helpText = document.getElementById("project-help-text");
+            if (helpText) {
+                helpText.textContent = roleName === "project_manager"
+                    ? "يمكن اختيار مشروع واحد أو أكثر لمدير المشروع."
+                    : "اختر مشروعًا واحدًا للمهندس.";
+            }
         } else {
             projectGroup.classList.add("d-none");
             if (projectSelect) {
                 projectSelect.removeAttribute("required");
-                // لا نغير القيمة هنا في التعديل لتفادي فقد الربط لو غير الدور بالخطأ ثم رجعه
+                projectSelect.selectedIndex = -1;
+                projectSelect.multiple = false;
             }
         }
     }
