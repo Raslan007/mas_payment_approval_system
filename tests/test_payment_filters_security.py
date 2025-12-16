@@ -228,6 +228,65 @@ class PaymentFiltersSecurityTestCase(unittest.TestCase):
         self.assertNotRegex(body, rf'data-payment-id="{null_submission_payment.id}"')
         self.assertNotRegex(body, rf'data-payment-id="{another_payment.id}"')
 
+    def test_my_payments_without_week_number_returns_results(self):
+        reference_year = datetime.utcnow().isocalendar().year
+        submit_day = datetime.fromisocalendar(reference_year, 30, 3)
+
+        payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=210,
+            status="pending_pm",
+            created_by=self.admin.id,
+            created_at=submit_day,
+            submitted_to_pm_at=submit_day,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get("/payments/my")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, rf'data-payment-id="{payment.id}"')
+
+    def test_my_payments_week_number_filter_still_applies(self):
+        reference_year = datetime.utcnow().isocalendar().year
+        desired_week = 12
+
+        matched_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=310,
+            status="pending_pm",
+            created_by=self.admin.id,
+            created_at=datetime.fromisocalendar(reference_year, desired_week, 2),
+            submitted_to_pm_at=datetime.fromisocalendar(reference_year, desired_week, 2),
+        )
+        other_payment = PaymentRequest(
+            project=self.projects[0],
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=320,
+            status="pending_pm",
+            created_by=self.admin.id,
+            created_at=datetime.fromisocalendar(reference_year, desired_week + 1, 3),
+            submitted_to_pm_at=datetime.fromisocalendar(reference_year, desired_week + 1, 3),
+        )
+        db.session.add_all([matched_payment, other_payment])
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get(f"/payments/my?week_number={desired_week}")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, rf'data-payment-id="{matched_payment.id}"')
+        self.assertNotRegex(body, rf'data-payment-id="{other_payment.id}"')
+
     def test_week_number_filter_applies_in_my_route_and_keeps_pagination_params(self):
         reference_year = datetime.utcnow().isocalendar().year
         target_week = 8
