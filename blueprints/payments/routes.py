@@ -13,8 +13,8 @@ from flask import (
     send_from_directory,
 )
 from flask_login import current_user
-from sqlalchemy.orm import joinedload
-from sqlalchemy import extract
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import extract, false
 import os
 
 from extensions import db
@@ -286,6 +286,7 @@ def _get_filter_lists():
     "engineer",
     "finance",
     "chairman",
+    "dc",
 )
 def index():
     """
@@ -300,20 +301,22 @@ def index():
     role_name = _get_role()
 
     q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
+        selectinload(PaymentRequest.project),
+        selectinload(PaymentRequest.supplier),
+        selectinload(PaymentRequest.creator),
     )
 
     # صلاحيات العرض الأساسية
-    if role_name in ("engineer", "project_manager"):
+    if role_name in ("admin", "engineering_manager", "chairman", "finance"):
+        pass
+    elif role_name == "project_manager":
+        q = q.filter(PaymentRequest.project_id == current_user.project_id)
+    elif role_name == "engineer":
         q = q.filter(PaymentRequest.created_by == current_user.id)
-    elif role_name == "finance":
-        q = q.filter(
-            PaymentRequest.status.in_(
-                [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
-            )
-        )
+    elif role_name == "dc":
+        q = q.filter(false())
+    else:
+        q = q.filter(false())
 
     # قراءة الفلاتر من الـ Query String
     filters = {
@@ -367,13 +370,25 @@ def index():
         except ValueError:
             pass
 
-    payments = q.order_by(PaymentRequest.id.desc()).all()
+    page = request.args.get("page", default=1, type=int)
+    per_page = request.args.get("per_page", default=20, type=int)
+    per_page = max(1, min(per_page or 20, 100))
+
+    payments_query = q.order_by(
+        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
+    )
+    pagination = payments_query.paginate(page=page, per_page=per_page, error_out=False)
+    payments = pagination.items
+
+    query_params = request.args.to_dict(flat=True)
 
     projects, request_types, status_choices = _get_filter_lists()
 
     return render_template(
         "payments/list.html",
         payments=payments,
+        pagination=pagination,
+        query_params=query_params,
         page_title="دفعات حسب صلاحياتي",
         filters=filters,
         projects=projects,
