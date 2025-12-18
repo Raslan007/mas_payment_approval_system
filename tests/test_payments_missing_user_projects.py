@@ -20,6 +20,7 @@ class PaymentsMissingUserProjectsTestCase(unittest.TestCase):
         self.app = create_app(TestConfig)
         self.app_context = self.app.app_context()
         self.app_context.push()
+        db.drop_all()
         db.create_all()
 
         inspector = inspect(db.engine)

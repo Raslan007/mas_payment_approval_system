@@ -37,3 +37,4 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _database_url or "sqlite:///" + os.path.join(BASE_DIR, "payments.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     DEBUG = _get_bool_env("FLASK_DEBUG", default=False)
+    AUTO_SCHEMA_BOOTSTRAP = _get_bool_env("AUTO_SCHEMA_BOOTSTRAP", default=False)

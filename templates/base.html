@@ -51,73 +51,93 @@
         <div class="app-sidebar-menu flex-grow-1">
             <ul class="nav flex-column">
 
-                <!-- لوحة التحكم الرئيسية -->
-                <li class="nav-item">
-                    <a href="{{ url_for('main.index') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'main.index' %} active{% endif %}">
-                        <i class="bi bi-speedometer2"></i>
-                        <span>لوحة التحكم</span>
-                    </a>
-                </li>
+                {% if role_name == 'payment_notifier' %}
+                    <li class="nav-item mt-2 sidebar-section-title">
+                        <span>الدفعات</span>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.finance_eng_approved') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
+                            <i class="bi bi-bell"></i>
+                            <span>جاهزة لإشعار المقاول</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.index', status='paid') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.index' and request.args.get('status') == 'paid' %} active{% endif %}">
+                            <i class="bi bi-cash-coin"></i>
+                            <span>دفعات مصروفة</span>
+                        </a>
+                    </li>
+                {% else %}
+                    <!-- لوحة التحكم الرئيسية -->
+                    <li class="nav-item">
+                        <a href="{{ url_for('main.index') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'main.index' %} active{% endif %}">
+                            <i class="bi bi-speedometer2"></i>
+                            <span>لوحة التحكم</span>
+                        </a>
+                    </li>
 
-                <!-- لوحة الإدارة الهندسية -->
-                {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
-                <li class="nav-item">
-                    <a href="{{ url_for('main.eng_dashboard') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'main.eng_dashboard' %} active{% endif %}">
-                        <i class="bi bi-diagram-3"></i>
-                        <span>لوحة الإدارة الهندسية</span>
-                    </a>
-                </li>
-                {% endif %}
+                    <!-- لوحة الإدارة الهندسية -->
+                    {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('main.eng_dashboard') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'main.eng_dashboard' %} active{% endif %}">
+                            <i class="bi bi-diagram-3"></i>
+                            <span>لوحة الإدارة الهندسية</span>
+                        </a>
+                    </li>
+                    {% endif %}
 
-                {# ======= الدفعات (كل الأدوار ماعدا dc) ======= #}
-                {% if role_name != 'dc' %}
-                <li class="nav-item mt-2 sidebar-section-title">
-                    <span>الدفعات</span>
-                </li>
+                    {# ======= الدفعات (كل الأدوار ماعدا dc) ======= #}
+                    {% if role_name != 'dc' %}
+                    <li class="nav-item mt-2 sidebar-section-title">
+                        <span>الدفعات</span>
+                    </li>
 
-                <!-- دفعات حسب صلاحياتي (كل الأدوار التي تتعامل مع الدفعات) -->
-                <li class="nav-item">
-                    <a href="{{ url_for('payments.index') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
-                        <i class="bi bi-wallet2"></i>
-                        <span>دفعات حسب صلاحياتي</span>
-                    </a>
-                </li>
+                    <!-- دفعات حسب صلاحياتي (كل الأدوار التي تتعامل مع الدفعات) -->
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.index') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
+                            <i class="bi bi-wallet2"></i>
+                            <span>دفعات حسب صلاحياتي</span>
+                        </a>
+                    </li>
 
-                <!-- جميع الدفعات: admin + engineering_manager + chairman -->
-                {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
-                <li class="nav-item">
-                    <a href="{{ url_for('payments.list_all') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'payments.list_all' %} active{% endif %}">
-                        <i class="bi bi-list-ul"></i>
-                        <span>جميع الدفعات</span>
-                    </a>
-                </li>
-                {% endif %}
+                    <!-- جميع الدفعات: admin + engineering_manager + chairman -->
+                    {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.list_all') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.list_all' %} active{% endif %}">
+                            <i class="bi bi-list-ul"></i>
+                            <span>جميع الدفعات</span>
+                        </a>
+                    </li>
+                    {% endif %}
 
-                <!-- إضافة دفعة جديدة: admin + engineering_manager + project_manager + engineer -->
-                {% if role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer'] %}
-                <li class="nav-item">
-                    <a href="{{ url_for('payments.create_payment') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'payments.create_payment' %} active{% endif %}">
-                        <i class="bi bi-plus-circle"></i>
-                        <span>إضافة دفعة جديدة</span>
-                    </a>
-                </li>
-                {% endif %}
+                    <!-- إضافة دفعة جديدة: admin + engineering_manager + project_manager + engineer -->
+                    {% if role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer'] %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.create_payment') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.create_payment' %} active{% endif %}">
+                            <i class="bi bi-plus-circle"></i>
+                            <span>إضافة دفعة جديدة</span>
+                        </a>
+                    </li>
+                    {% endif %}
 
-                <!-- دفعات جاهزة للصرف: admin + finance + engineering_manager + chairman (عرض فقط للأخير) -->
-                {% if role_name in ['finance', 'engineering_manager', 'admin', 'chairman'] %}
-                <li class="nav-item">
-                    <a href="{{ url_for('payments.finance_eng_approved') }}"
-                       class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
-                        <i class="bi bi-check2-circle"></i>
-                        <span>دفعات جاهزة للصرف</span>
-                    </a>
-                </li>
-                {% endif %}
+                    <!-- دفعات جاهزة للصرف: admin + finance + engineering_manager + chairman (عرض فقط للأخير) -->
+                    {% if role_name in ['finance', 'engineering_manager', 'admin', 'chairman'] %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.finance_eng_approved') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
+                            <i class="bi bi-check2-circle"></i>
+                            <span>دفعات جاهزة للصرف</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% endif %}
                 {% endif %}
 
                 {# ======= بيانات أساسية ======= #}
@@ -234,68 +254,88 @@
             </div>
             <div class="offcanvas-body p-0">
                 <ul class="nav flex-column">
-                    <!-- لوحة التحكم -->
-                    <li class="nav-item">
-                        <a href="{{ url_for('main.index') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'main.index' %} active{% endif %}">
-                            <i class="bi bi-speedometer2"></i>
-                            <span>لوحة التحكم</span>
-                        </a>
-                    </li>
+                    {% if role_name == 'payment_notifier' %}
+                        <li class="nav-item mt-2 sidebar-section-title">
+                            <span>الدفعات</span>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.finance_eng_approved') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
+                                <i class="bi bi-bell"></i>
+                                <span>جاهزة لإشعار المقاول</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.index', status='paid') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.index' and request.args.get('status') == 'paid' %} active{% endif %}">
+                                <i class="bi bi-cash-coin"></i>
+                                <span>دفعات مصروفة</span>
+                            </a>
+                        </li>
+                    {% else %}
+                        <!-- لوحة التحكم -->
+                        <li class="nav-item">
+                            <a href="{{ url_for('main.index') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'main.index' %} active{% endif %}">
+                                <i class="bi bi-speedometer2"></i>
+                                <span>لوحة التحكم</span>
+                            </a>
+                        </li>
 
-                    <!-- لوحة الإدارة الهندسية -->
-                    {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
-                    <li class="nav-item">
-                        <a href="{{ url_for('main.eng_dashboard') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'main.eng_dashboard' %} active{% endif %}">
-                            <i class="bi bi-diagram-3"></i>
-                            <span>لوحة الإدارة الهندسية</span>
-                        </a>
-                    </li>
-                    {% endif %}
+                        <!-- لوحة الإدارة الهندسية -->
+                        {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('main.eng_dashboard') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'main.eng_dashboard' %} active{% endif %}">
+                                <i class="bi bi-diagram-3"></i>
+                                <span>لوحة الإدارة الهندسية</span>
+                            </a>
+                        </li>
+                        {% endif %}
 
-                    {% if role_name != 'dc' %}
-                    <li class="nav-item mt-2 sidebar-section-title">
-                        <span>الدفعات</span>
-                    </li>
+                        {% if role_name != 'dc' %}
+                        <li class="nav-item mt-2 sidebar-section-title">
+                            <span>الدفعات</span>
+                        </li>
 
-                    <li class="nav-item">
-                        <a href="{{ url_for('payments.index') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
-                            <i class="bi bi-wallet2"></i>
-                            <span>دفعات حسب صلاحياتي</span>
-                        </a>
-                    </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.index') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
+                                <i class="bi bi-wallet2"></i>
+                                <span>دفعات حسب صلاحياتي</span>
+                            </a>
+                        </li>
 
-                    {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
-                    <li class="nav-item">
-                        <a href="{{ url_for('payments.list_all') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'payments.list_all' %} active{% endif %}">
-                            <i class="bi bi-list-ul"></i>
-                            <span>جميع الدفعات</span>
-                        </a>
-                    </li>
-                    {% endif %}
+                        {% if role_name in ['admin', 'engineering_manager', 'chairman'] %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.list_all') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.list_all' %} active{% endif %}">
+                                <i class="bi bi-list-ul"></i>
+                                <span>جميع الدفعات</span>
+                            </a>
+                        </li>
+                        {% endif %}
 
-                    {% if role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer'] %}
-                    <li class="nav-item">
-                        <a href="{{ url_for('payments.create_payment') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'payments.create_payment' %} active{% endif %}">
-                            <i class="bi bi-plus-circle"></i>
-                            <span>إضافة دفعة جديدة</span>
-                        </a>
-                    </li>
-                    {% endif %}
+                        {% if role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer'] %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.create_payment') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.create_payment' %} active{% endif %}">
+                                <i class="bi bi-plus-circle"></i>
+                                <span>إضافة دفعة جديدة</span>
+                            </a>
+                        </li>
+                        {% endif %}
 
-                    {% if role_name in ['finance', 'engineering_manager', 'admin', 'chairman'] %}
-                    <li class="nav-item">
-                        <a href="{{ url_for('payments.finance_eng_approved') }}"
-                           class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
-                            <i class="bi bi-check2-circle"></i>
-                            <span>دفعات جاهزة للصرف</span>
-                        </a>
-                    </li>
-                    {% endif %}
+                        {% if role_name in ['finance', 'engineering_manager', 'admin', 'chairman'] %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.finance_eng_approved') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.finance_eng_approved' %} active{% endif %}">
+                                <i class="bi bi-check2-circle"></i>
+                                <span>دفعات جاهزة للصرف</span>
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% endif %}
                     {% endif %}
 
                     {% if role_name in ['admin', 'engineering_manager', 'dc'] %}

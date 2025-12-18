@@ -132,8 +132,9 @@
 {% set can_fin_approve = (payment.status == 'pending_finance' and role_name in ['admin', 'finance']) %}
 {% set can_fin_reject = can_fin_approve %}
 {% set can_mark_paid = (payment.status == 'ready_for_payment' and role_name in ['admin', 'finance']) %}
+{% set can_add_notification_note = (role_name == 'payment_notifier' and payment.status in ['ready_for_payment', 'paid']) %}
 
-{% if role_name in ['chairman', 'dc'] %}
+{% if role_name in ['chairman', 'dc', 'payment_notifier'] %}
     {% set can_submit_to_pm = False %}
     {% set can_pm_approve = False %}
     {% set can_pm_reject = False %}
@@ -144,6 +145,9 @@
     {% set can_mark_paid = False %}
     {% set can_edit = False %}
     {% set can_delete = False %}
+    {% if role_name != 'payment_notifier' %}
+        {% set can_add_notification_note = False %}
+    {% endif %}
 {% endif %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -382,6 +386,44 @@
                     <div class="text-muted xsmall">
                         لا توجد مرفقات مسجلة لهذه الدفعة.
                     </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">ملاحظات إشعار المقاولين</span>
+                {% if can_add_notification_note %}
+                    <span class="badge bg-info text-dark">متاح للإضافة</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if payment.notification_notes %}
+                    <ul class="list-group list-group-flush">
+                        {% for note in payment.notification_notes %}
+                            <li class="list-group-item">
+                                <div class="fw-semibold">
+                                    {{ note.user.full_name if note.user else 'مستخدم غير معروف' }}
+                                    <span class="text-muted xsmall">— {{ note.created_at.strftime('%Y-%m-%d %H:%M') if note.created_at else '' }}</span>
+                                </div>
+                                <div class="text-muted small">{{ note.note }}</div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="text-muted xsmall mb-2">لا توجد ملاحظات إشعار مسجلة بعد.</div>
+                {% endif %}
+
+                {% if can_add_notification_note %}
+                    <form method="post" action="{{ url_for('payments.add_notification_note', payment_id=payment.id) }}" class="mt-3">
+                        {{ csrf_token() if csrf_token is defined }}
+                        <label class="form-label xsmall text-muted">أضف ملاحظة (مثال: تم إشعار المقاول بتاريخ ...)</label>
+                        <textarea name="note" class="form-control form-control-sm mb-2" rows="3" required></textarea>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-chat-dots ms-1"></i>
+                            حفظ الملاحظة
+                        </button>
+                    </form>
                 {% endif %}
             </div>
         </div>
