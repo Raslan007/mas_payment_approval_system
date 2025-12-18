@@ -16,6 +16,9 @@ def init_data():
             "project_manager",
             "engineer",
             "finance",
+            "chairman",
+            "dc",
+            "payment_notifier",
         ]
 
         for role_name in default_roles:

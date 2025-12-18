@@ -13,6 +13,7 @@ def ensure_roles():
         ("finance", "المالية"),
         ("chairman", "رئيس مجلس الإدارة"),
         ("dc", "Data Entry / Data Control"),
+        ("payment_notifier", "مسؤول إشعار المقاولين"),
     ]
 
     with app.app_context():
