@@ -177,6 +177,36 @@ class PaymentRequest(db.Model):
         return float(self.amount_finance) - float(self.amount)
 
 
+class PaymentNotificationNote(db.Model):
+    """
+    ملاحظات إشعار المقاولين دون تغيير حالة الدفعة.
+    تستخدم بواسطة دور payment_notifier لتسجيل أنه تم التواصل مع المقاول.
+    """
+
+    __tablename__ = "payment_notification_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_request_id = db.Column(
+        db.Integer, db.ForeignKey("payment_requests.id"), nullable=False
+    )
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    note = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    payment_request = db.relationship(
+        "PaymentRequest",
+        backref=db.backref(
+            "notification_notes",
+            cascade="all, delete-orphan",
+            order_by="desc(PaymentNotificationNote.created_at)",
+        ),
+    )
+    user = db.relationship("User")
+
+    def __repr__(self):  # type: ignore
+        return f"<PaymentNotificationNote {self.id} for PR {self.payment_request_id}>"
+
+
 class PaymentApproval(db.Model):
     """
     سجل حركة الاعتماد لكل طلب دفعة

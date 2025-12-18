@@ -4,7 +4,14 @@ import unittest
 from app import create_app
 from config import Config
 from extensions import db
-from models import PaymentRequest, Project, Supplier, Role, User
+from models import (
+    PaymentNotificationNote,
+    PaymentRequest,
+    Project,
+    Supplier,
+    Role,
+    User,
+)
 from blueprints.payments import routes as payment_routes
 
 
@@ -33,6 +40,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "engineer",
                 "finance",
                 "chairman",
+                "payment_notifier",
             ]
         }
         db.session.add_all(self.roles.values())
@@ -167,6 +175,60 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         updated = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(updated.status, payment_routes.STATUS_PENDING_FIN)
+
+    def test_payment_notifier_listing_is_restricted(self):
+        ready_payment = self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT)
+        paid_payment = self._make_payment(payment_routes.STATUS_PAID)
+        hidden_payment = self._make_payment(payment_routes.STATUS_PENDING_PM)
+
+        self._login(self.users["payment_notifier"])
+
+        response = self.client.get("/payments/?per_page=20")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        row_ids = re.findall(r"<td class=\"text-center text-muted\">\s*(\d+)", body)
+
+        self.assertIn(str(ready_payment.id), row_ids)
+        self.assertIn(str(paid_payment.id), row_ids)
+        self.assertNotIn(str(hidden_payment.id), row_ids)
+
+        blocked_detail = self.client.get(f"/payments/{hidden_payment.id}")
+        self.assertEqual(blocked_detail.status_code, 404)
+
+    def test_payment_notifier_cannot_use_approval_endpoints(self):
+        payment = self._make_payment(payment_routes.STATUS_PENDING_PM)
+        self._login(self.users["payment_notifier"])
+
+        response = self.client.post(f"/payments/{payment.id}/pm_approve")
+        self.assertEqual(response.status_code, 403)
+
+        refreshed = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed.status, payment_routes.STATUS_PENDING_PM)
+
+    def test_payment_notifier_can_add_notification_note_on_allowed_status(self):
+        payment = self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT)
+        blocked_payment = self._make_payment(payment_routes.STATUS_PENDING_PM)
+
+        self._login(self.users["payment_notifier"])
+
+        response = self.client.post(
+            f"/payments/{payment.id}/add_notification_note",
+            data={"note": "Contractor notified"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        notes = PaymentNotificationNote.query.filter_by(
+            payment_request_id=payment.id
+        ).all()
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].user_id, self.users["payment_notifier"].id)
+        self.assertIn("Contractor notified", notes[0].note)
+
+        blocked_resp = self.client.post(
+            f"/payments/{blocked_payment.id}/add_notification_note",
+            data={"note": "Should be blocked"},
+        )
+        self.assertEqual(blocked_resp.status_code, 404)
 
     def test_project_manager_cannot_view_other_project_payment(self):
         other_project = Project(project_name="Other Project")

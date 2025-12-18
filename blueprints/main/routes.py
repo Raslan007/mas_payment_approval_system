@@ -58,6 +58,9 @@ def index():
     if role_name == "dc":
         return redirect(url_for("users.list_users"))
 
+    if role_name == "payment_notifier":
+        return redirect(url_for("payments.finance_eng_approved"))
+
     # admin + engineering_manager + chairman + finance → لوحة التحكم العامة
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         return redirect(url_for("main.dashboard"))
