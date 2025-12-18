@@ -3,6 +3,8 @@
 from datetime import datetime
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import inspect
+
 from extensions import db
 
 
@@ -283,3 +285,46 @@ class Notification(db.Model):
 
     def __repr__(self) -> str:  # type: ignore
         return f"<Notification {self.id} to user {self.user_id}>"
+
+
+REQUIRED_ROLES: tuple[tuple[str, str], ...] = (
+    ("admin", "مدير النظام"),
+    ("engineering_manager", "مدير الإدارة الهندسية"),
+    ("project_manager", "مدير مشروع"),
+    ("engineer", "مهندس موقع"),
+    ("finance", "المالية"),
+    ("chairman", "رئيس مجلس الإدارة"),
+    ("dc", "Data Entry / Data Control"),
+    ("payment_notifier", "مسؤول إشعار المقاولين"),
+)
+
+
+def ensure_roles() -> None:
+    """Create any missing roles in an idempotent manner.
+
+    The function is safe to run multiple times and returns quietly when the
+    ``roles`` table has not yet been created (e.g., before migrations in tests).
+    """
+
+    inspector = inspect(db.engine)
+    if not inspector.has_table("roles"):
+        return
+
+    existing_roles = {
+        name
+        for (name,) in db.session.execute(db.select(Role.name)).all()
+    }
+
+    roles_to_add: list[Role] = []
+    for name, description in REQUIRED_ROLES:
+        if name in existing_roles:
+            continue
+
+        role = Role(name=name)
+        if hasattr(role, "description"):
+            role.description = description
+        roles_to_add.append(role)
+
+    if roles_to_add:
+        db.session.add_all(roles_to_add)
+        db.session.commit()
