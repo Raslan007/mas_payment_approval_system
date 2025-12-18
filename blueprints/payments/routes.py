@@ -25,6 +25,7 @@ from models import (
     Supplier,
     PaymentApproval,
     PaymentAttachment,
+    PaymentNotificationNote,
     user_projects,
 )
 from . import payments_bp
@@ -38,6 +39,11 @@ STATUS_PENDING_FIN = "pending_finance"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
+
+NOTIFIER_ALLOWED_STATUSES: set[str] = {
+    STATUS_READY_FOR_PAYMENT,
+    STATUS_PAID,
+}
 
 ALLOWED_STATUSES: set[str] = {
     STATUS_DRAFT,
@@ -181,6 +187,9 @@ def _can_view_payment(p: PaymentRequest) -> bool:
     role_name = _get_role()
     if role_name is None:
         return False
+
+    if role_name == "payment_notifier":
+        return p.status in NOTIFIER_ALLOWED_STATUSES
 
     # admin + المدير الهندسي + رئيس مجلس الإدارة يشوفوا الكل
     if role_name in ("admin", "engineering_manager", "chairman"):
@@ -366,6 +375,7 @@ def _get_filter_lists():
     "engineer",
     "finance",
     "chairman",
+    "payment_notifier",
     "dc",
 )
 def index():
@@ -390,9 +400,18 @@ def index():
     projects, request_types, status_choices = _get_filter_lists()
     allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
 
+    if role_name == "payment_notifier":
+        status_choices = [
+            choice
+            for choice in status_choices
+            if choice[0] in ("", *NOTIFIER_ALLOWED_STATUSES)
+        ]
+
     # صلاحيات العرض الأساسية
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
         pass
+    elif role_name == "payment_notifier":
+        q = q.filter(PaymentRequest.status.in_(NOTIFIER_ALLOWED_STATUSES))
     elif role_name == "project_manager":
         pm_project_ids = _project_manager_project_ids()
         if pm_project_ids:
@@ -429,6 +448,8 @@ def index():
     if status_filter in ALLOWED_STATUSES:
         filters["status"] = status_filter
         q = q.filter(PaymentRequest.status == status_filter)
+        if role_name == "payment_notifier" and status_filter not in NOTIFIER_ALLOWED_STATUSES:
+            q = q.filter(false())
 
     raw_week = (request.args.get("week_number") or "").strip()
     week_number: int | None = None
@@ -631,7 +652,13 @@ def list_finance_review():
 
 
 @payments_bp.route("/finance_eng_approved")
-@role_required("admin", "engineering_manager", "finance", "chairman")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "finance",
+    "chairman",
+    "payment_notifier",
+)
 def finance_eng_approved():
     """
     قائمة الدفعات الجاهزة للصرف:
@@ -759,6 +786,7 @@ def create_payment():
     "engineer",
     "finance",
     "chairman",
+    "payment_notifier",
 )
 def detail(payment_id):
     """
@@ -773,6 +801,9 @@ def detail(payment_id):
             joinedload(PaymentRequest.supplier),
             joinedload(PaymentRequest.creator),
             joinedload(PaymentRequest.approvals).joinedload(PaymentApproval.decided_by),
+            joinedload(PaymentRequest.notification_notes).joinedload(
+                PaymentNotificationNote.user
+            ),
         ],
     )
 
@@ -816,6 +847,32 @@ def detail(payment_id):
     )
 
 
+@payments_bp.route("/<int:payment_id>/add_notification_note", methods=["POST"])
+@role_required("payment_notifier")
+def add_notification_note(payment_id: int):
+    payment = _get_payment_or_404(payment_id)
+
+    if _get_role() == "payment_notifier" and payment.status not in NOTIFIER_ALLOWED_STATUSES:
+        abort(404)
+
+    note_text = (request.form.get("note") or "").strip()
+    if not note_text:
+        flash("برجاء إدخال الملاحظة أولًا.", "warning")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
+    note = PaymentNotificationNote(
+        payment_request_id=payment.id,
+        user_id=current_user.id,
+        note=note_text,
+        created_at=datetime.utcnow(),
+    )
+    db.session.add(note)
+    db.session.commit()
+
+    flash("تم تسجيل ملاحظة الإشعار بنجاح.", "success")
+    return redirect(url_for("payments.detail", payment_id=payment.id))
+
+
 @payments_bp.route("/attachments/<int:attachment_id>/download")
 @role_required(
     "admin",
@@ -824,6 +881,7 @@ def detail(payment_id):
     "engineer",
     "finance",
     "chairman",
+    "payment_notifier",
 )
 def download_attachment(attachment_id: int):
     attachment = PaymentAttachment.query.get_or_404(attachment_id)
