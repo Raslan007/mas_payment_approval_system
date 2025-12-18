@@ -11,3 +11,6 @@ python scripts/migrate_add_payment_submitted_to_pm_at.py \
 ```
 
 These scripts read `DATABASE_URL`, create/patch missing tables or columns safely (Postgres or SQLite), backfill data where necessary, and then start the Flask application via Gunicorn.
+
+## Optional automatic schema bootstrap
+To let the application create any missing tables (e.g., newly added models) during startup, set the environment variable `AUTO_SCHEMA_BOOTSTRAP=1`. When unset or `0`, the app skips the automatic `create_all()` call and relies on your migration scripts instead. The flag is idempotent and safe to enable on platforms like Render where schema drift may occur.

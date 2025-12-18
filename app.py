@@ -5,7 +5,7 @@ from flask import Flask
 
 from config import Config
 from extensions import db, login_manager
-from models import User, ensure_roles
+from models import User, ensure_roles, ensure_schema
 
 # استيراد الـ Blueprints
 from blueprints.main import main_bp
@@ -51,6 +51,8 @@ def create_app(config_class=Config) -> Flask:
     login_manager.init_app(app)
 
     with app.app_context():
+        if app.config.get("AUTO_SCHEMA_BOOTSTRAP"):
+            ensure_schema()
         ensure_roles()
 
     # إضافة فلتر لتنسيق الأرقام مع فواصل الآلاف

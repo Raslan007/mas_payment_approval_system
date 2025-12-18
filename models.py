@@ -328,3 +328,15 @@ def ensure_roles() -> None:
     if roles_to_add:
         db.session.add_all(roles_to_add)
         db.session.commit()
+
+
+def ensure_schema() -> None:
+    """Create any missing database tables without destructive changes.
+
+    SQLAlchemy's ``create_all`` uses ``checkfirst=True`` internally, so running
+    this function on startup will create new tables (e.g.,
+    ``payment_notification_notes``) if they do not exist while leaving existing
+    schema untouched. The function is safe to call multiple times.
+    """
+
+    db.create_all()
