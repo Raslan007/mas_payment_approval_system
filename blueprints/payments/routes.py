@@ -16,6 +16,7 @@ from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import extract, false, exists, inspect, func
 import os
+import pathlib
 
 from extensions import db
 from permissions import role_required
@@ -292,6 +293,35 @@ def _get_payment_or_404(payment_id: int, *, options: list | None = None) -> Paym
 
 def _attachments_base_path() -> str:
     return os.path.join(current_app.instance_path, "attachments")
+
+
+def _attachments_enabled() -> bool:
+    return bool(current_app.config.get("ATTACHMENTS_ENABLED"))
+
+
+def _attachment_file_path(attachment: PaymentAttachment) -> pathlib.Path:
+    stored = (attachment.stored_filename or "").strip()
+    if not stored or os.path.basename(stored) != stored:
+        abort(404)
+
+    base_path = pathlib.Path(_attachments_base_path())
+    return base_path / stored
+
+
+def _remove_attachment_file(attachment: PaymentAttachment) -> None:
+    """Best-effort removal of the attachment file without raising."""
+
+    try:
+        path = _attachment_file_path(attachment)
+    except Exception:
+        return
+
+    try:
+        if path.is_file():
+            path.unlink(missing_ok=True)
+    except Exception:
+        # Ignore cleanup failures to avoid interrupting primary flow
+        return
 
 
 def _require_can_edit(p: PaymentRequest):
@@ -887,14 +917,13 @@ def download_attachment(attachment_id: int):
     attachment = PaymentAttachment.query.get_or_404(attachment_id)
     payment = _get_payment_or_404(attachment.payment_request_id)
 
-    stored = (attachment.stored_filename or "").strip()
-    if not stored or os.path.basename(stored) != stored:
-        abort(404)
+    if not _attachments_enabled():
+        flash("تم تعطيل تحميل المرفقات حالياً.", "warning")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
 
-    base_path = _attachments_base_path()
-    file_path = os.path.join(base_path, stored)
+    file_path = _attachment_file_path(attachment)
 
-    if not os.path.isfile(file_path):
+    if not file_path.is_file():
         flash(
             "الملف المطلوب غير موجود على الخادم، برجاء إعادة رفعه أو التواصل مع الدعم.",
             "warning",
@@ -902,8 +931,8 @@ def download_attachment(attachment_id: int):
         abort(404)
 
     return send_from_directory(
-        base_path,
-        stored,
+        str(file_path.parent),
+        file_path.name,
         as_attachment=True,
         download_name=attachment.original_filename,
     )
@@ -984,6 +1013,14 @@ def delete_payment(payment_id):
     PaymentApproval.query.filter_by(
         payment_request_id=payment.id
     ).delete(synchronize_session=False)
+
+    attachments = list(
+        PaymentAttachment.query.filter_by(
+            payment_request_id=payment.id
+        ).all()
+    )
+    for att in attachments:
+        _remove_attachment_file(att)
 
     # حذف المرفقات المرتبطة
     PaymentAttachment.query.filter_by(
