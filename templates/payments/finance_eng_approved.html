@@ -17,6 +17,7 @@
 {% set current_date_from = filters.get('date_from') or request.args.get('date_from', '') %}
 {% set current_date_to = filters.get('date_to') or request.args.get('date_to', '') %}
 {% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
+{% set current_query_string = request.query_string.decode('utf-8') if request.query_string else '' %}
 
 <div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
     <div>
@@ -27,7 +28,7 @@
             قائمة بالدفعات التي تم اعتمادها هندسيًا ويمكن للقطاع المالي مراجعتها واعتمادها أو صرفها.
         </p>
     </div>
-    <div>
+    <div class="d-flex flex-column align-items-end gap-2">
         <div class="d-flex align-items-center gap-2">
             {% if export_endpoint %}
                 <a href="{{ url_for(export_endpoint, **(export_params or {})) }}"
@@ -38,6 +39,27 @@
             {% endif %}
             <a href="{{ url_for('payments.list_finance_review') }}" class="btn btn-outline-secondary btn-sm">
                 عرض جميع دفعات المالية
+            </a>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+            <form method="post" action="{{ url_for('payments.create_saved_view') }}" class="d-flex align-items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="endpoint" value="{{ request.endpoint }}">
+                <input type="hidden" name="query_string" value="{{ current_query_string }}">
+                <input type="hidden" name="return_to" value="{{ return_to }}">
+                <input type="text"
+                       name="name"
+                       class="form-control form-control-sm"
+                       placeholder="اسم العرض المحفوظ"
+                       required>
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-bookmark-plus ms-1"></i>
+                    حفظ هذا العرض
+                </button>
+            </form>
+            <a href="{{ url_for('payments.saved_views') }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-collection ms-1"></i>
+                عروضي المحفوظة
             </a>
         </div>
     </div>

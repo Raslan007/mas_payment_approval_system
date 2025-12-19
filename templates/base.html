@@ -80,6 +80,13 @@
                             <span>دفعات مصروفة</span>
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.saved_views') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.saved_views' %} active{% endif %}">
+                            <i class="bi bi-collection"></i>
+                            <span>عروضي المحفوظة</span>
+                        </a>
+                    </li>
                 {% else %}
                     <!-- لوحة التحكم الرئيسية -->
                     <li class="nav-item">
@@ -113,6 +120,13 @@
                            class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
                             <i class="bi bi-wallet2"></i>
                             <span>دفعات حسب صلاحياتي</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('payments.saved_views') }}"
+                           class="nav-link sidebar-link{% if request.endpoint == 'payments.saved_views' %} active{% endif %}">
+                            <i class="bi bi-collection"></i>
+                            <span>عروضي المحفوظة</span>
                         </a>
                     </li>
 
@@ -293,6 +307,13 @@
                                 <span>دفعات مصروفة</span>
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.saved_views') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.saved_views' %} active{% endif %}">
+                                <i class="bi bi-collection"></i>
+                                <span>عروضي المحفوظة</span>
+                            </a>
+                        </li>
                     {% else %}
                         <!-- لوحة التحكم -->
                         <li class="nav-item">
@@ -324,6 +345,14 @@
                                class="nav-link sidebar-link{% if request.endpoint == 'payments.index' %} active{% endif %}">
                                 <i class="bi bi-wallet2"></i>
                                 <span>دفعات حسب صلاحياتي</span>
+                            </a>
+                        </li>
+
+                        <li class="nav-item">
+                            <a href="{{ url_for('payments.saved_views') }}"
+                               class="nav-link sidebar-link{% if request.endpoint == 'payments.saved_views' %} active{% endif %}">
+                                <i class="bi bi-collection"></i>
+                                <span>عروضي المحفوظة</span>
                             </a>
                         </li>
 

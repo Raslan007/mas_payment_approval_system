@@ -32,6 +32,7 @@ from models import (
     PaymentApproval,
     PaymentAttachment,
     PaymentNotificationNote,
+    SavedView,
     user_projects,
 )
 from . import payments_bp
@@ -73,6 +74,26 @@ ALLOWED_STATUSES: set[str] = {
 }
 
 EXPORT_ROW_LIMIT = 10000
+
+ALLOWED_SAVED_VIEW_ENDPOINTS: set[str] = {
+    "payments.index",
+    "payments.list_all",
+    "payments.pm_review",
+    "payments.eng_review",
+    "payments.list_finance_review",
+    "payments.finance_eng_approved",
+}
+
+SAVED_VIEWS_ROLES: tuple[str, ...] = (
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+    "payment_notifier",
+    "dc",
+)
 
 
 # خريطة الانتقالات المسموح بها بين الحالات
@@ -518,6 +539,26 @@ def _can_delete_payment(p: PaymentRequest) -> bool:
     return role_name in ("admin", "engineering_manager")
 
 
+def _clean_query_string(raw_query: str | None) -> str:
+    if not raw_query:
+        return ""
+    return raw_query.lstrip("?").strip()
+
+
+def _saved_view_allowed(endpoint: str) -> bool:
+    return endpoint in ALLOWED_SAVED_VIEW_ENDPOINTS
+
+
+def _get_user_saved_view_or_404(view_id: int) -> SavedView:
+    view = SavedView.query.filter(
+        SavedView.id == view_id,
+        SavedView.user_id == current_user.id,
+    ).first()
+    if view is None:
+        abort(404)
+    return view
+
+
 def _require_can_view(p: PaymentRequest):
     if not _can_view_payment(p):
         abort(404)
@@ -635,6 +676,93 @@ def _get_filter_lists():
     ]
 
     return projects, request_types, status_choices
+
+
+# =========================
+#   العروض المحفوظة
+# =========================
+
+
+@payments_bp.route("/saved_views")
+@role_required(*SAVED_VIEWS_ROLES)
+def saved_views():
+    views = (
+        SavedView.query.filter(SavedView.user_id == current_user.id)
+        .order_by(SavedView.created_at.desc(), SavedView.id.desc())
+        .all()
+    )
+    return render_template(
+        "payments/saved_views.html",
+        saved_views=views,
+        page_title="عروضي المحفوظة",
+    )
+
+
+@payments_bp.route("/saved_views/create", methods=["POST"])
+@role_required(*SAVED_VIEWS_ROLES)
+def create_saved_view():
+    name = (request.form.get("name") or "").strip()
+    endpoint = (request.form.get("endpoint") or "").strip()
+    query_string = _clean_query_string(request.form.get("query_string"))
+    requested_return_to = _normalize_return_to(request.form.get("return_to"))
+    return_to = (
+        requested_return_to
+        if requested_return_to and _is_safe_return_to(requested_return_to)
+        else _get_return_to()
+    )
+
+    if not name:
+        flash("يرجى إدخال اسم صالح للعرض المحفوظ.", "danger")
+        return redirect(return_to)
+
+    if not _saved_view_allowed(endpoint):
+        abort(400, description="Endpoint not allowed for saved views.")
+
+    view = SavedView(
+        user_id=current_user.id,
+        name=name,
+        endpoint=endpoint,
+        query_string=query_string,
+    )
+    db.session.add(view)
+    db.session.commit()
+    flash("تم حفظ العرض الحالي.", "success")
+    return redirect(return_to)
+
+
+@payments_bp.route("/saved_views/<int:view_id>/delete", methods=["POST"])
+@role_required(*SAVED_VIEWS_ROLES)
+def delete_saved_view(view_id: int):
+    view = _get_user_saved_view_or_404(view_id)
+    requested_return_to = _normalize_return_to(request.form.get("return_to"))
+    return_to = (
+        requested_return_to
+        if requested_return_to and _is_safe_return_to(requested_return_to)
+        else url_for("payments.saved_views")
+    )
+
+    db.session.delete(view)
+    db.session.commit()
+    flash("تم حذف العرض المحفوظ.", "success")
+    return redirect(return_to)
+
+
+@payments_bp.route("/saved_views/<int:view_id>/open")
+@role_required(*SAVED_VIEWS_ROLES)
+def open_saved_view(view_id: int):
+    view = _get_user_saved_view_or_404(view_id)
+
+    if not _saved_view_allowed(view.endpoint):
+        abort(400, description="Saved view endpoint is not allowed.")
+
+    base_url = url_for(view.endpoint)
+    query_string = _clean_query_string(view.query_string)
+    target = f"{base_url}?{query_string}" if query_string else base_url
+
+    if not _is_safe_return_to(target):
+        abort(400, description="Unsafe redirect target.")
+
+    return redirect(target)
 
 
 def _scoped_payments_query_for_listing():
