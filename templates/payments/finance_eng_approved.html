@@ -8,6 +8,13 @@
 {% set pagination_endpoint = pagination_endpoint or request.endpoint %}
 {% set pagination_view_args = pagination_view_args or request.view_args or {} %}
 {% set return_to = request.full_path.rstrip('?') %}
+{% set filters = filters or {} %}
+{% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
+{% set current_supplier_id = filters.get('supplier_id') or request.args.get('supplier_id', '') %}
+{% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
+{% set current_date_from = filters.get('date_from') or request.args.get('date_from', '') %}
+{% set current_date_to = filters.get('date_to') or request.args.get('date_to', '') %}
+{% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
 
 <div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
     <div>
@@ -34,7 +41,7 @@
                 <option value="">الكل</option>
                 {% for p in projects %}
                     <option value="{{ p.id }}"
-                        {% if filters.project_id and filters.project_id|string == p.id|string %}selected{% endif %}>
+                        {% if current_project_id and current_project_id|string == p.id|string %}selected{% endif %}>
                         {{ p.project_name }}
                     </option>
                 {% endfor %}
@@ -47,7 +54,7 @@
                 <option value="">الكل</option>
                 {% for s in suppliers %}
                     <option value="{{ s.id }}"
-                        {% if filters.supplier_id and filters.supplier_id|string == s.id|string %}selected{% endif %}>
+                        {% if current_supplier_id and current_supplier_id|string == s.id|string %}selected{% endif %}>
                         {{ s.name }}
                     </option>
                 {% endfor %}
@@ -58,23 +65,25 @@
             <label class="form-label" for="request_type">نوع الدفعة</label>
             <select name="request_type" id="request_type" class="form-select">
                 <option value="">الكل</option>
-                <option value="مقاول"   {% if filters.request_type == "مقاول" %}selected{% endif %}>مقاول</option>
-                <option value="مشتريات" {% if filters.request_type == "مشتريات" %}selected{% endif %}>مشتريات</option>
-                <option value="عهدة"    {% if filters.request_type == "عهدة" %}selected{% endif %}>عهدة</option>
+                <option value="مقاول"   {% if current_request_type == "مقاول" %}selected{% endif %}>مقاول</option>
+                <option value="مشتريات" {% if current_request_type == "مشتريات" %}selected{% endif %}>مشتريات</option>
+                <option value="عهدة"    {% if current_request_type == "عهدة" %}selected{% endif %}>عهدة</option>
             </select>
         </div>
 
         <div class="col-lg-2 col-md-4">
             <label class="form-label" for="date_from">من تاريخ</label>
             <input type="date" name="date_from" id="date_from" class="form-control"
-                   value="{{ filters.date_from or '' }}">
+                   value="{{ current_date_from }}">
         </div>
 
         <div class="col-lg-2 col-md-4">
             <label class="form-label" for="date_to">إلى تاريخ</label>
             <input type="date" name="date_to" id="date_to" class="form-control"
-                   value="{{ filters.date_to or '' }}">
+                   value="{{ current_date_to }}">
         </div>
+
+        <input type="hidden" name="per_page" value="{{ current_per_page }}">
 
         <div class="col-12 d-flex justify-content-end gap-2">
             <a href="{{ url_for('payments.finance_eng_approved') }}" class="btn btn-outline-secondary">
