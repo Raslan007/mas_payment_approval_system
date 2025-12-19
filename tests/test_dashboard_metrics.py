@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 
+from flask import url_for
 from config import Config
 from app import create_app
 from extensions import db
@@ -118,6 +119,21 @@ class DashboardMetricsTestCase(unittest.TestCase):
         self.assertIn('data-kpi="paid_this_month" data-kpi-value="6500.0"', body)
         self.assertIn('data-kpi="action_required" data-kpi-value="2"', body)
         self.assertIn('data-overdue-stage="pending_finance"', body)
+
+    def test_dashboard_charts_include_datasets_and_listing_link(self):
+        self._login(self.finance_user)
+        with self.app.test_request_context():
+            listing_url = url_for("payments.index")
+
+        response = self.client.get("/dashboard")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="workflowFunnelChart"', body)
+        self.assertIn('id="cashFlowChart"', body)
+        self.assertIn("workflowFunnel", body)
+        self.assertIn("ready_for_payment", body)
+        self.assertIn(listing_url, body)
 
 
 if __name__ == "__main__":
