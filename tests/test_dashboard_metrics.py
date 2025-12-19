@@ -119,6 +119,9 @@ class DashboardMetricsTestCase(unittest.TestCase):
         self.assertIn('data-kpi="paid_this_month" data-kpi-value="6500.0"', body)
         self.assertIn('data-kpi="action_required" data-kpi-value="2"', body)
         self.assertIn('data-overdue-stage="pending_finance"', body)
+        self.assertIn('data-kpi="oldest_overdue" data-kpi-value="7"', body)
+        self.assertIn("أعلى الدفعات المتأخرة", body)
+        self.assertIn("متوسط زمن الاعتماد", body)
 
     def test_dashboard_charts_include_datasets_and_listing_link(self):
         self._login(self.finance_user)

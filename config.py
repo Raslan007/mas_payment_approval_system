@@ -48,3 +48,11 @@ class Config:
 
     # Attachments: disabled by default in production unless explicitly enabled
     ATTACHMENTS_ENABLED = _get_bool_env("ATTACHMENTS_ENABLED", default=not _is_production)
+
+    # SLA thresholds (in days) per workflow stage. Can be overridden via env/instance config.
+    SLA_THRESHOLDS_DAYS = {
+        "pending_pm": 3,
+        "pending_eng": 4,
+        "pending_finance": 3,
+        "ready_for_payment": 2,
+    }
