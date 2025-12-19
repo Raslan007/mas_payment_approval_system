@@ -7,6 +7,7 @@
 {% set query_params = query_params or {} %}
 {% set pagination_endpoint = pagination_endpoint or request.endpoint %}
 {% set pagination_view_args = pagination_view_args or request.view_args or {} %}
+{% set return_to = request.full_path.rstrip('?') %}
 
 <div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
     <div>
@@ -170,7 +171,7 @@
                             {{ p.created_at.strftime("%Y-%m-%d") if p.created_at else "" }}
                         </td>
                         <td class="text-center">
-                            <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
+                            <a href="{{ url_for('payments.detail', payment_id=p.id, return_to=return_to) }}"
                                class="btn btn-sm btn-outline-primary btn-sm-icon">
                                 <i class="bi bi-eye ms-1"></i>
                                 عرض / اعتماد مالي
