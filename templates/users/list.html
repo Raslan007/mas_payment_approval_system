@@ -75,6 +75,7 @@
                                       action="{{ url_for('users.delete_user', user_id=u.id) }}"
                                       onsubmit="return confirm('هل أنت متأكد من حذف هذا المستخدم؟');"
                                       class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit"
                                             class="btn btn-sm btn-outline-danger btn-sm-icon"
                                             title="حذف المستخدم">

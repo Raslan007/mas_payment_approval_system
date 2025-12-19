@@ -13,6 +13,7 @@
 
 <div class="bg-white p-4 rounded-3 shadow-sm">
     <form method="post" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div class="row g-3">
             <!-- المشروع -->

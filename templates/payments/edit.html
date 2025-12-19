@@ -31,8 +31,7 @@
         <form method="post"
               action="{{ url_for('payments.edit_payment', payment_id=payment.id) }}"
               enctype="multipart/form-data">
-
-            {{ csrf_token() if csrf_token is defined }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <div class="row g-3">
 

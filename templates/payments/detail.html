@@ -179,7 +179,7 @@
                   action="{{ url_for('payments.delete_payment', payment_id=payment.id) }}"
                   class="d-inline-block"
                   onsubmit="return confirm('هل أنت متأكد من حذف هذه الدفعة؟ لا يمكن التراجع عن هذا الإجراء.');">
-                {{ csrf_token() if csrf_token is defined }}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-outline-danger btn-sm">
                     <i class="bi bi-trash ms-1"></i>
                     حذف الدفعة
@@ -416,7 +416,7 @@
 
                 {% if can_add_notification_note %}
                     <form method="post" action="{{ url_for('payments.add_notification_note', payment_id=payment.id) }}" class="mt-3">
-                        {{ csrf_token() if csrf_token is defined }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <label class="form-label xsmall text-muted">أضف ملاحظة (مثال: تم إشعار المقاول بتاريخ ...)</label>
                         <textarea name="note" class="form-control form-control-sm mb-2" rows="3" required></textarea>
                         <button type="submit" class="btn btn-outline-primary btn-sm">
@@ -606,7 +606,7 @@
                 <div class="d-flex flex-column gap-2">
                     {% if can_submit_to_pm and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.submit_to_pm', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-primary btn-sm">
                                 <i class="bi bi-send ms-1"></i>
                                 إرسال لمراجعة مدير المشروع
@@ -616,14 +616,14 @@
 
                     {% if can_pm_approve and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.pm_approve', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة مدير المشروع
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.pm_reject', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من مدير المشروع
@@ -633,14 +633,14 @@
 
                     {% if can_eng_approve and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.eng_approve', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة الإدارة الهندسية
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.eng_reject', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من الإدارة الهندسية
@@ -650,14 +650,14 @@
 
                     {% if can_fin_approve and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.finance_approve', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-success btn-sm">
                                 <i class="bi bi-check-circle ms-1"></i>
                                 موافقة الإدارة المالية (جاهزة للصرف)
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('payments.finance_reject', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="bi bi-x-circle ms-1"></i>
                                 رفض من الإدارة المالية
@@ -667,7 +667,7 @@
 
                     {% if can_mark_paid and not is_rejected %}
                         <form method="post" action="{{ url_for('payments.mark_paid', payment_id=payment.id) }}">
-                            {{ csrf_token() if csrf_token is defined }}
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                             <div class="mb-2">
                                 <label class="form-label xsmall mb-1">

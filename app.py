@@ -4,7 +4,7 @@ import os
 from flask import Flask
 
 from config import Config
-from extensions import db, login_manager
+from extensions import csrf, db, login_manager
 from models import User, ensure_roles, ensure_schema
 
 # استيراد الـ Blueprints
@@ -49,6 +49,7 @@ def create_app(config_class=Config) -> Flask:
     # تهيئة الـ Extensions
     db.init_app(app)
     login_manager.init_app(app)
+    csrf.init_app(app)
 
     with app.app_context():
         if app.config.get("AUTO_SCHEMA_BOOTSTRAP"):
