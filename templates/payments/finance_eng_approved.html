@@ -9,6 +9,8 @@
 {% set pagination_view_args = pagination_view_args or request.view_args or {} %}
 {% set return_to = request.full_path.rstrip('?') %}
 {% set filters = filters or {} %}
+{% set export_endpoint = export_endpoint or None %}
+{% set export_params = export_params or {} %}
 {% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
 {% set current_supplier_id = filters.get('supplier_id') or request.args.get('supplier_id', '') %}
 {% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
@@ -26,9 +28,18 @@
         </p>
     </div>
     <div>
-        <a href="{{ url_for('payments.list_finance_review') }}" class="btn btn-outline-secondary btn-sm">
-            عرض جميع دفعات المالية
-        </a>
+        <div class="d-flex align-items-center gap-2">
+            {% if export_endpoint %}
+                <a href="{{ url_for(export_endpoint, **(export_params or {})) }}"
+                   class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download ms-1"></i>
+                    تصدير CSV
+                </a>
+            {% endif %}
+            <a href="{{ url_for('payments.list_finance_review') }}" class="btn btn-outline-secondary btn-sm">
+                عرض جميع دفعات المالية
+            </a>
+        </div>
     </div>
 </div>
 
