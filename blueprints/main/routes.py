@@ -247,6 +247,29 @@ def dashboard():
         or 0.0
     )
 
+    # -----------------------------
+    # مبالغ الدفعات المصروفة هذا الشهر (مالية فعلية)
+    # -----------------------------
+    now = datetime.utcnow()
+    start_of_month = datetime(now.year, now.month, 1)
+    paid_this_month = (
+        paid_q.filter(PaymentRequest.updated_at >= start_of_month)
+        .with_entities(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        PaymentRequest.amount_finance,
+                        PaymentRequest.amount,
+                        0.0,
+                    )
+                ),
+                0.0,
+            )
+        )
+        .scalar()
+        or 0.0
+    )
+
     # بارامترات الفلترة الحالية (مع حذف أرقام الصفحات) للاستخدام في روابط التصفح
     query_params = request.args.to_dict()
     query_params.pop("page", None)
@@ -302,6 +325,45 @@ def dashboard():
             }
         )
 
+    ready_for_payment_amount = (
+        amount_lookup.get(STATUS_READY_FOR_PAYMENT).total_finance_amount
+        if amount_lookup.get(STATUS_READY_FOR_PAYMENT)
+        else 0.0
+    )
+
+    pending_amount = sum(
+        (amount_lookup.get(status).total_amount if amount_lookup.get(status) else 0.0)
+        for status in pending_review_statuses
+    )
+    total_outstanding_amount = pending_amount + ready_for_payment_amount
+
+    overdue_threshold = datetime.utcnow() - timedelta(days=7)
+    overdue_statuses = pending_review_statuses | {STATUS_READY_FOR_PAYMENT}
+    overdue_rows = (
+        base_q.filter(
+            PaymentRequest.status.in_(overdue_statuses),
+            PaymentRequest.updated_at < overdue_threshold,
+        )
+        .with_entities(PaymentRequest.status, func.count(PaymentRequest.id))
+        .group_by(PaymentRequest.status)
+        .all()
+    )
+    overdue_by_stage = {status: count for status, count in overdue_rows}
+    overdue_total = sum(overdue_by_stage.values())
+    overdue_stage_breakdown = [
+        {
+            "status": status,
+            "label": status_labels.get(status, status),
+            "count": overdue_by_stage.get(status, 0),
+        }
+        for status in (
+            STATUS_PENDING_PM,
+            STATUS_PENDING_ENG,
+            STATUS_PENDING_FIN,
+            STATUS_READY_FOR_PAYMENT,
+        )
+    ]
+
     # -------------------------------------------------
     # توزيع حسب المشروع (حالياً على أساس المبلغ المطلوب من المهندس)
     # -------------------------------------------------
@@ -324,11 +386,26 @@ def dashboard():
     }
     action_required_statuses = actionable_statuses.get(role_name or "", set())
     action_required = []
+    action_required_total = 0
     if action_required_statuses:
+        action_required_base = base_q.filter(PaymentRequest.status.in_(action_required_statuses))
+        action_required_total = action_required_base.order_by(None).count()
         action_required = (
-            base_q.options(selectinload(PaymentRequest.project))
-            .filter(PaymentRequest.status.in_(action_required_statuses))
+            action_required_base.options(selectinload(PaymentRequest.project))
             .order_by(PaymentRequest.updated_at.desc(), PaymentRequest.id.desc())
+            .limit(10)
+            .all()
+        )
+
+    ready_for_payment_list = []
+    if role_name in ("finance", "admin"):
+        ready_for_payment_list = (
+            base_q.options(
+                selectinload(PaymentRequest.project),
+                selectinload(PaymentRequest.supplier),
+            )
+            .filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
+            .order_by(PaymentRequest.updated_at.asc(), PaymentRequest.id.asc())
             .limit(10)
             .all()
         )
@@ -363,6 +440,11 @@ def dashboard():
     kpis = {
         "total": total_count,
         "pending_review": pending_review_count,
+        "overdue_total": overdue_total,
+        "action_required": action_required_total,
+        "outstanding_amount": total_outstanding_amount,
+        "paid_this_month": paid_this_month,
+        "ready_amount": ready_for_payment_amount,
         "approved": approved_count,
         "paid": paid_count,
         "rejected": rejected_count,
@@ -382,9 +464,11 @@ def dashboard():
         total_paid=total_paid,
         total_waiting_finance=total_waiting_finance,
         total_approved_not_paid=total_approved_not_paid,
+        ready_for_payment_list=ready_for_payment_list,
         totals_by_status=totals_by_status,
         totals_by_project=totals_by_project,
         kpis=kpis,
+        overdue_stage_breakdown=overdue_stage_breakdown,
         action_required=action_required,
         daily_chart={"labels": daily_labels, "values": daily_values},
         status_chart={"labels": status_chart_labels, "values": status_chart_values},
