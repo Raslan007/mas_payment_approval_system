@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta
 
 from config import Config
 from app import create_app
@@ -36,6 +37,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
         self.finance_user = self._create_user("finance@example.com", self.roles["finance"])
         self.admin_user = self._create_user("admin@example.com", self.roles["admin"])
 
+        now = datetime.utcnow()
         self.pending_finance = PaymentRequest(
             project=self.project,
             supplier=self.supplier,
@@ -44,6 +46,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
             status="pending_finance",
             created_by=self.admin_user.id,
         )
+        self.pending_finance.updated_at = now - timedelta(days=10)
         self.pending_eng = PaymentRequest(
             project=self.project,
             supplier=self.supplier,
@@ -52,7 +55,29 @@ class DashboardMetricsTestCase(unittest.TestCase):
             status="pending_eng",
             created_by=self.admin_user.id,
         )
-        db.session.add_all([self.pending_finance, self.pending_eng])
+        self.pending_eng.updated_at = now - timedelta(days=2)
+        self.ready_for_payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=3000,
+            status="ready_for_payment",
+            created_by=self.admin_user.id,
+        )
+        self.ready_for_payment.updated_at = now - timedelta(days=1)
+        self.paid_this_month = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=7000,
+            amount_finance=6500,
+            status="paid",
+            created_by=self.admin_user.id,
+        )
+        self.paid_this_month.updated_at = now - timedelta(days=3)
+        db.session.add_all(
+            [self.pending_finance, self.pending_eng, self.ready_for_payment, self.paid_this_month]
+        )
         db.session.commit()
 
     def tearDown(self):
@@ -81,6 +106,18 @@ class DashboardMetricsTestCase(unittest.TestCase):
         self.assertIn(f'data-payment-id="{self.pending_finance.id}"', body)
         self.assertNotIn(f'data-payment-id="{self.pending_eng.id}"', body)
         self.assertIn('data-kpi="pending_review"', body)
+        self.assertIn(f'data-ready-payment-id="{self.ready_for_payment.id}"', body)
+
+    def test_financial_and_operational_kpis_render(self):
+        self._login(self.finance_user)
+        response = self.client.get("/dashboard")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-kpi="outstanding_amount" data-kpi-value="10500.0"', body)
+        self.assertIn('data-kpi="paid_this_month" data-kpi-value="6500.0"', body)
+        self.assertIn('data-kpi="action_required" data-kpi-value="2"', body)
+        self.assertIn('data-overdue-stage="pending_finance"', body)
 
 
 if __name__ == "__main__":
