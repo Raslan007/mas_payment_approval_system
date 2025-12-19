@@ -45,3 +45,6 @@ class Config:
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SECURE = bool(_is_production)
     REMEMBER_COOKIE_DURATION = timedelta(days=14)
+
+    # Attachments: disabled by default in production unless explicitly enabled
+    ATTACHMENTS_ENABLED = _get_bool_env("ATTACHMENTS_ENABLED", default=not _is_production)

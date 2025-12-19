@@ -124,7 +124,7 @@
                     <div class="form-text xsmall text-muted">
                         رفع المرفقات سيتم تفعيله قريباً.
                     </div>
-                    {% if payment.attachments %}
+                    {% if payment.attachments and config.ATTACHMENTS_ENABLED %}
                         <div class="mt-2 xsmall">
                             المرفقات الحالية:
                             <ul class="mb-0">
@@ -136,6 +136,10 @@
                                     </li>
                                 {% endfor %}
                             </ul>
+                        </div>
+                    {% elif payment.attachments %}
+                        <div class="mt-2 xsmall text-muted">
+                            تم تعطيل تحميل المرفقات حالياً.
                         </div>
                     {% endif %}
                 </div>
