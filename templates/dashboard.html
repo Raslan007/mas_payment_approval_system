@@ -30,86 +30,130 @@
 </div>
 
 <!-- كروت إجمالية -->
-<div class="row g-3 mb-3">
-    <!-- إجمالي عدد الدفعات -->
-    <div class="col-sm-6 col-md-3">
-        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-6 g-3 mb-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="total" data-kpi-value="{{ kpis.total }}">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">إجمالي عدد الدفعات</span>
-                <i class="bi bi-receipt-cutoff text-primary"></i>
+                <span class="text-muted small">إجمالي الدفعات</span>
+                <i class="bi bi-collection text-primary"></i>
             </div>
-            <div class="h4 mb-1">{{ total_count or 0 }}</div>
-            <div class="text-muted xsmall">
-                يشمل جميع الحالات المسجلة في النظام.
-            </div>
+            <div class="h4 mb-1">{{ kpis.total }}</div>
+            <div class="text-muted xsmall">يشمل جميع الدفعات حسب صلاحياتك.</div>
         </div>
     </div>
-
-    <!-- إجمالي قيمة الدفعات -->
-    <div class="col-sm-6 col-md-3">
-        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="pending_review" data-kpi-value="{{ kpis.pending_review }}">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">إجمالي قيمة الدفعات</span>
-                <i class="bi bi-cash-stack text-success"></i>
-            </div>
-            <div class="h4 mb-1">
-                {{ "%.2f"|format(total_amount or 0) }} <span class="h6 text-muted">ج.م</span>
-            </div>
-            <div class="text-muted xsmall">
-                إجمالي قيمة كل الدفعات المسجلة.
-            </div>
-        </div>
-    </div>
-
-    <!-- تم الصرف -->
-    <div class="col-sm-6 col-md-3">
-        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">مبالغ مصروفة</span>
-                <i class="bi bi-check2-circle text-success"></i>
-            </div>
-            <div class="h4 mb-1">
-                {{ "%.2f"|format(total_paid or 0) }} <span class="h6 text-muted">ج.م</span>
-            </div>
-            {% set paid_ratio = ((total_paid or 0) / (total_amount or 1) * 100) if (total_amount or 0) > 0 else 0 %}
-            <div class="progress progress-thin mt-1">
-                <div class="progress-bar" role="progressbar"
-                     style="width: {{ paid_ratio|round(0) }}%;"
-                     aria-valuenow="{{ paid_ratio|round(0) }}" aria-valuemin="0" aria-valuemax="100">
-                </div>
-            </div>
-            <div class="text-muted xsmall mt-1">
-                {{ paid_ratio|round(0) }}٪ من إجمالي مبالغ الدفعات.
-            </div>
-        </div>
-    </div>
-
-    <!-- معتمد ولم يُصرف / في انتظار المالية -->
-    <div class="col-sm-6 col-md-3">
-        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">مبالغ لم تُصرف بعد</span>
+                <span class="text-muted small">قيد المراجعة</span>
                 <i class="bi bi-hourglass-split text-warning"></i>
             </div>
-
-            {% set not_paid_total = (total_approved_not_paid or 0) + (total_waiting_finance or 0) %}
-            <div class="h4 mb-1">
-                {{ "%.2f"|format(not_paid_total) }} <span class="h6 text-muted">ج.م</span>
-            </div>
-
-            {% set not_paid_ratio = (not_paid_total / (total_amount or 1) * 100) if (total_amount or 0) > 0 else 0 %}
-            <div class="progress progress-thin mt-1">
-                <div class="progress-bar" role="progressbar"
-                     style="width: {{ not_paid_ratio|round(0) }}%;"
-                     aria-valuenow="{{ not_paid_ratio|round(0) }}"
-                     aria-valuemin="0" aria-valuemax="100">
-                </div>
-            </div>
-            <div class="text-muted xsmall mt-1">
-                يشمل المعتمد نهائيًا + المنتظر اعتماد المالية.
-            </div>
+            <div class="h4 mb-1">{{ kpis.pending_review }}</div>
+            <div class="text-muted xsmall">دفعات تنتظر اتخاذ إجراء.</div>
         </div>
     </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="approved" data-kpi-value="{{ kpis.approved }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">معتمد للصرف</span>
+                <i class="bi bi-shield-check text-success"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.approved }}</div>
+            <div class="text-muted xsmall">جاهزة للتحويل أو الصرف.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="paid" data-kpi-value="{{ kpis.paid }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">تم الصرف</span>
+                <i class="bi bi-cash-coin text-success"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.paid }}</div>
+            <div class="text-muted xsmall">دفعات مسجلة كمدفوعة.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="rejected" data-kpi-value="{{ kpis.rejected }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">مرفوضة</span>
+                <i class="bi bi-x-octagon text-danger"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.rejected }}</div>
+            <div class="text-muted xsmall">دفعات تم رفضها.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="total_amount" data-kpi-value="{{ kpis.total_amount }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي المبالغ</span>
+                <i class="bi bi-wallet2 text-primary"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ kpis.total_amount|num(2) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">إجمالي المبالغ ضمن نطاق صلاحياتك.</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">عدد الدفعات آخر 30 يومًا</div>
+                    <div class="text-muted xsmall">يعرض حجم العمل اليومي.</div>
+                </div>
+            </div>
+            <canvas id="paymentsDailyChart" height="160" aria-label="رسم بياني لعدد الدفعات اليومية" role="img"></canvas>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">توزيع الدفعات حسب الحالة</div>
+                    <div class="text-muted xsmall">يعكس نسب الحالات الحالية.</div>
+                </div>
+            </div>
+            <canvas id="paymentsStatusChart" height="160" aria-label="رسم بياني لتوزيع حالات الدفعات" role="img"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">إجراءات مطلوبة</div>
+            <div class="text-muted xsmall">دفعات تنتظر إجراءك وفق دورك الحالي.</div>
+        </div>
+    </div>
+    {% if action_required %}
+        <div class="list-group list-group-flush">
+            {% for payment in action_required %}
+                <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
+                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2"
+                   data-payment-id="{{ payment.id }}">
+                    <div>
+                        <div class="fw-semibold small mb-1">
+                            دفعة رقم {{ payment.id }}
+                            {% if payment.project %}
+                                • {{ payment.project.project_name }}
+                            {% endif %}
+                        </div>
+                        <div class="text-muted xsmall">
+                            {{ payment.human_status }}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="fw-semibold">{{ payment.amount|num(2) }} ج.م</div>
+                        <span class="badge bg-{{ payment.status_badge_class }}">تفاصيل</span>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد دفعات تنتظر إجراءك حاليًا.</p>
+    {% endif %}
 </div>
 
 <div class="row g-3">
@@ -331,4 +375,57 @@
 
 {% endif %} {# نهاية شرط الصلاحيات #}
 
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    (() => {
+        const daily = {{ daily_chart|tojson }};
+        const status = {{ status_chart|tojson }};
+
+        const dailyCtx = document.getElementById('paymentsDailyChart');
+        if (dailyCtx && daily?.labels) {
+            new Chart(dailyCtx, {
+                type: 'line',
+                data: {
+                    labels: daily.labels,
+                    datasets: [{
+                        label: 'عدد الدفعات',
+                        data: daily.values,
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                        tension: 0.25,
+                        fill: true,
+                        pointRadius: 3
+                    }]
+                },
+                options: {
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+        }
+
+        const statusCtx = document.getElementById('paymentsStatusChart');
+        if (statusCtx && status?.labels) {
+            new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: status.labels,
+                    datasets: [{
+                        data: status.values,
+                        backgroundColor: ['#0d6efd', '#ffc107', '#0dcaf0', '#20c997', '#198754', '#6c757d', '#dc3545']
+                    }]
+                },
+                options: {
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+    })();
+</script>
 {% endblock %}

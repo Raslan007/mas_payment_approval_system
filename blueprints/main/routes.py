@@ -4,12 +4,13 @@ from datetime import datetime, timedelta
 
 from flask import redirect, url_for, render_template, request, flash
 from flask_login import login_required, current_user
-from sqlalchemy import func
+from sqlalchemy import func, false, inspect
 from sqlalchemy.orm import selectinload
 
+from extensions import db
 from permissions import role_required
 from . import main_bp
-from models import PaymentRequest, Project, PaymentApproval
+from models import PaymentRequest, Project, PaymentApproval, user_projects
 
 # تعريف الحالات مثل ملف payments.routes
 STATUS_DRAFT = "draft"
@@ -28,6 +29,47 @@ ALLOWED_STATUSES = {
     STATUS_PAID,
     STATUS_REJECTED,
 }
+
+
+def _scoped_dashboard_query():
+    """
+    Build a base query for dashboard data respecting the current user's role and project access.
+    """
+
+    role_name = current_user.role.name if current_user.role else None
+    query = PaymentRequest.query
+    scoped_project_ids: list[int] = []
+
+    def _project_ids_from_link_table() -> list[int]:
+        try:
+            inspector = inspect(db.engine)
+            if not inspector.has_table("user_projects"):
+                return []
+        except Exception:
+            return []
+
+        rows = (
+            db.session.query(user_projects.c.project_id)
+            .filter(user_projects.c.user_id == current_user.id)
+            .all()
+        )
+        return [row.project_id for row in rows]
+
+    if role_name == "project_manager":
+        scoped_project_ids = _project_ids_from_link_table()
+        if current_user.project_id:
+            scoped_project_ids.append(current_user.project_id)
+        scoped_project_ids = list({pid for pid in scoped_project_ids if pid})
+        if scoped_project_ids:
+            query = query.filter(PaymentRequest.project_id.in_(scoped_project_ids))
+        else:
+            query = query.filter(false())
+    elif role_name == "engineer":
+        query = query.filter(PaymentRequest.created_by == current_user.id)
+    elif role_name == "dc":
+        query = query.filter(false())
+
+    return query, role_name, scoped_project_ids
 
 @main_bp.route("/")
 @login_required
@@ -100,7 +142,7 @@ def dashboard():
     - توزيع مبالغ الدفعات حسب المشروع
     """
 
-    base_q = PaymentRequest.query
+    base_q, role_name, _ = _scoped_dashboard_query()
 
     # إعداد التصفح (Pagination) لتحميل عدد محدود من الدفعات في كل صفحة
     try:
@@ -116,13 +158,21 @@ def dashboard():
     page = max(page, 1)
     per_page = min(max(per_page, 1), 100)
 
-    # إجمالي عدد الدفعات (أي حالة)
-    total_count = (
+    status_counts_rows = (
         base_q.order_by(None)
-        .with_entities(func.count(PaymentRequest.id))
-        .scalar()
-        or 0
+        .with_entities(PaymentRequest.status, func.count(PaymentRequest.id))
+        .group_by(PaymentRequest.status)
+        .all()
     )
+    status_counts = {status: count for status, count in status_counts_rows}
+
+    total_count = sum(status_counts.values())
+
+    pending_review_statuses = {STATUS_PENDING_PM, STATUS_PENDING_ENG, STATUS_PENDING_FIN}
+    pending_review_count = sum(status_counts.get(status, 0) for status in pending_review_statuses)
+    approved_count = status_counts.get(STATUS_READY_FOR_PAYMENT, 0)
+    paid_count = status_counts.get(STATUS_PAID, 0)
+    rejected_count = status_counts.get(STATUS_REJECTED, 0)
 
     ordered_q = base_q.options(selectinload(PaymentRequest.project)).order_by(
         PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
@@ -216,12 +266,11 @@ def dashboard():
     }
 
     totals_by_status = []
-    for status, label in status_labels.items():
-        s_q = base_q.filter(PaymentRequest.status == status)
-
-        # للحالات بعد المالية نستخدم المبلغ المالي الفعلي
-        if status in (STATUS_READY_FOR_PAYMENT, STATUS_PAID):
-            sum_expr = func.coalesce(
+    status_amount_rows = (
+        base_q.with_entities(
+            PaymentRequest.status.label("status"),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
+            func.coalesce(
                 func.sum(
                     func.coalesce(
                         PaymentRequest.amount_finance,
@@ -230,11 +279,20 @@ def dashboard():
                     )
                 ),
                 0.0,
-            )
-        else:
-            sum_expr = func.coalesce(func.sum(PaymentRequest.amount), 0.0)
+            ).label("total_finance_amount"),
+        )
+        .group_by(PaymentRequest.status)
+        .all()
+    )
+    amount_lookup = {row.status: row for row in status_amount_rows}
 
-        amount = s_q.with_entities(sum_expr).scalar() or 0.0
+    totals_by_status = []
+    for status, label in status_labels.items():
+        row = amount_lookup.get(status)
+        if status in (STATUS_READY_FOR_PAYMENT, STATUS_PAID):
+            amount = row.total_finance_amount if row else 0.0
+        else:
+            amount = row.total_amount if row else 0.0
 
         totals_by_status.append(
             {
@@ -258,6 +316,59 @@ def dashboard():
         .all()
     )
 
+    actionable_statuses = {
+        "admin": {STATUS_PENDING_PM, STATUS_PENDING_ENG, STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT},
+        "engineering_manager": {STATUS_PENDING_PM, STATUS_PENDING_ENG},
+        "finance": {STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT},
+        "chairman": set(),
+    }
+    action_required_statuses = actionable_statuses.get(role_name or "", set())
+    action_required = []
+    if action_required_statuses:
+        action_required = (
+            base_q.options(selectinload(PaymentRequest.project))
+            .filter(PaymentRequest.status.in_(action_required_statuses))
+            .order_by(PaymentRequest.updated_at.desc(), PaymentRequest.id.desc())
+            .limit(10)
+            .all()
+        )
+
+    thirty_days_ago = datetime.utcnow().date() - timedelta(days=29)
+    date_cutoff = datetime.combine(thirty_days_ago, datetime.min.time())
+    daily_rows = (
+        base_q.filter(PaymentRequest.created_at >= date_cutoff)
+        .with_entities(
+            func.date(PaymentRequest.created_at).label("day"),
+            func.count(PaymentRequest.id).label("count"),
+        )
+        .group_by(func.date(PaymentRequest.created_at))
+        .order_by(func.date(PaymentRequest.created_at))
+        .all()
+    )
+    daily_lookup = {
+        (row.day.isoformat() if hasattr(row.day, "isoformat") else str(row.day)): row.count
+        for row in daily_rows
+    }
+    daily_labels = []
+    daily_values = []
+    for offset in range(30):
+        day = thirty_days_ago + timedelta(days=offset)
+        label = day.isoformat()
+        daily_labels.append(label)
+        daily_values.append(daily_lookup.get(label, 0))
+
+    status_chart_labels = [label for _, label in status_labels.items()]
+    status_chart_values = [status_counts.get(status, 0) for status in status_labels.keys()]
+
+    kpis = {
+        "total": total_count,
+        "pending_review": pending_review_count,
+        "approved": approved_count,
+        "paid": paid_count,
+        "rejected": rejected_count,
+        "total_amount": total_amount,
+    }
+
     return render_template(
         "dashboard.html",
         page_title="لوحة التحكم العامة للدفعات",
@@ -273,6 +384,10 @@ def dashboard():
         total_approved_not_paid=total_approved_not_paid,
         totals_by_status=totals_by_status,
         totals_by_project=totals_by_project,
+        kpis=kpis,
+        action_required=action_required,
+        daily_chart={"labels": daily_labels, "values": daily_values},
+        status_chart={"labels": status_chart_labels, "values": status_chart_values},
     )
 
 
