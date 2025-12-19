@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from flask import redirect, url_for, render_template, request, flash
+from flask import redirect, url_for, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func, false, inspect
 from sqlalchemy.orm import selectinload
@@ -11,6 +11,11 @@ from extensions import db
 from permissions import role_required
 from . import main_bp
 from models import PaymentRequest, Project, PaymentApproval, user_projects
+from .dashboard_helpers import (
+    compute_overdue_items,
+    compute_stage_sla_metrics,
+    resolve_sla_thresholds,
+)
 
 # تعريف الحالات مثل ملف payments.routes
 STATUS_DRAFT = "draft"
@@ -348,32 +353,33 @@ def dashboard():
     )
     total_outstanding_amount = pending_amount + ready_for_payment_amount
 
-    overdue_threshold = datetime.utcnow() - timedelta(days=7)
-    overdue_statuses = pending_review_statuses | {STATUS_READY_FOR_PAYMENT}
-    overdue_rows = (
-        base_q.filter(
-            PaymentRequest.status.in_(overdue_statuses),
-            PaymentRequest.updated_at < overdue_threshold,
-        )
-        .with_entities(PaymentRequest.status, func.count(PaymentRequest.id))
-        .group_by(PaymentRequest.status)
+    sla_thresholds = resolve_sla_thresholds(current_app.config)
+    sla_statuses = {stage for stage in sla_thresholds.keys()}
+    overdue_candidates = (
+        base_q.options(selectinload(PaymentRequest.project), selectinload(PaymentRequest.supplier))
+        .filter(PaymentRequest.status.in_(sla_statuses))
+        .order_by(PaymentRequest.updated_at.asc(), PaymentRequest.id.asc())
+        .limit(300)
         .all()
     )
-    overdue_by_stage = {status: count for status, count in overdue_rows}
-    overdue_total = sum(overdue_by_stage.values())
+    overdue_data = compute_overdue_items(overdue_candidates, sla_thresholds)
+    overdue_total = overdue_data["summary"]["total"]
     overdue_stage_breakdown = [
         {
-            "status": status,
-            "label": status_labels.get(status, status),
-            "count": overdue_by_stage.get(status, 0),
+            "status": stage,
+            "label": status_labels.get(stage, stage),
+            "count": overdue_data["summary"]["breakdown"].get(stage, 0),
         }
-        for status in (
-            STATUS_PENDING_PM,
-            STATUS_PENDING_ENG,
-            STATUS_PENDING_FIN,
-            STATUS_READY_FOR_PAYMENT,
-        )
+        for stage in (STATUS_PENDING_PM, STATUS_PENDING_ENG, STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT)
     ]
+    overdue_stage_with_highest_delay = overdue_data["summary"]["worst_stage"]
+    aging_kpis = {
+        "oldest_overdue_days": overdue_data["summary"]["oldest_days"],
+        "worst_stage_label": status_labels.get(overdue_stage_with_highest_delay, overdue_stage_with_highest_delay)
+        if overdue_stage_with_highest_delay
+        else None,
+    }
+    top_overdue = overdue_data["items"][:10]
 
     # -------------------------------------------------
     # توزيع حسب المشروع (حالياً على أساس المبلغ المطلوب من المهندس)
@@ -521,6 +527,33 @@ def dashboard():
             "paid": paid_values,
         },
     }
+
+    payment_ids_for_sla = [row.id for row in base_q.with_entities(PaymentRequest.id).limit(500).all()]
+    sla_metrics = compute_stage_sla_metrics(payment_ids_for_sla)
+
+    dashboard_alerts = []
+    if overdue_total:
+        dashboard_alerts.append(
+            {
+                "level": "danger",
+                "text": f"هناك {overdue_total} دفعات متأخرة زمنياً ضمن نطاق صلاحياتك.",
+            }
+        )
+    if aging_kpis["worst_stage_label"]:
+        dashboard_alerts.append(
+            {
+                "level": "warning",
+                "text": f"أكثر مرحلة بها تأخير: {aging_kpis['worst_stage_label']}.",
+            }
+        )
+    if action_required_total:
+        dashboard_alerts.append(
+            {
+                "level": "info",
+                "text": f"يوجد {action_required_total} دفعات تحتاج إلى إجراء منك.",
+            }
+        )
+
     listing_base_url = url_for("payments.index")
     status_filters = {"outstanding_group": "outstanding", "paid": STATUS_PAID}
 
@@ -536,6 +569,7 @@ def dashboard():
         "paid": paid_count,
         "rejected": rejected_count,
         "total_amount": total_amount,
+        "oldest_overdue": aging_kpis["oldest_overdue_days"],
     }
 
     return render_template(
@@ -554,8 +588,13 @@ def dashboard():
         ready_for_payment_list=ready_for_payment_list,
         totals_by_status=totals_by_status,
         totals_by_project=totals_by_project,
+        status_labels=status_labels,
         kpis=kpis,
         overdue_stage_breakdown=overdue_stage_breakdown,
+        aging_kpis=aging_kpis,
+        top_overdue=top_overdue,
+        sla_metrics=sla_metrics,
+        dashboard_alerts=dashboard_alerts,
         action_required=action_required,
         daily_chart={"labels": daily_labels, "values": daily_values},
         status_chart={"labels": status_chart_labels, "values": status_chart_values},

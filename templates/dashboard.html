@@ -29,6 +29,17 @@
     </p>
 </div>
 
+{% if dashboard_alerts %}
+    <div class="mb-3">
+        {% for alert in dashboard_alerts %}
+            <div class="alert alert-{{ alert.level }} small mb-2" role="alert">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                {{ alert.text }}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
+
 <!-- كروت إجمالية تجمع المؤشرات التشغيلية والمالية -->
 <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-6 g-3 mb-3">
     <div class="col">
@@ -102,6 +113,42 @@
                 {{ kpis.ready_amount|num(2) }} <span class="h6 text-muted">ج.م</span>
             </div>
             <div class="text-muted xsmall">دفعات معتمدة ماليًا ولم تُسجل كمدفوعة.</div>
+        </div>
+    </div>
+</div>
+
+<!-- مؤشرات الأعمار الزمنية -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-3 mb-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="oldest_overdue" data-kpi-value="{{ kpis.oldest_overdue }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">أقدم تأخير (أيام)</span>
+                <i class="bi bi-alarm text-danger"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.oldest_overdue }}</div>
+            <div class="text-muted xsmall">زمن الانتظار منذ آخر تحديث.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">أكثر مرحلة بها تأخير</span>
+                <i class="bi bi-flag text-warning"></i>
+            </div>
+            <div class="h6 mb-1">
+                {{ aging_kpis.worst_stage_label if aging_kpis.worst_stage_label else "لا يوجد تأخير" }}
+            </div>
+            <div class="text-muted xsmall">يتم التحديث وفق تجاوز SLA.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">تنبيهات المتأخرات</span>
+                <i class="bi bi-bell-fill text-primary"></i>
+            </div>
+            <div class="h6 mb-1">{{ kpis.overdue_total }} دفعات</div>
+            <div class="text-muted xsmall">ضمن نطاق صلاحيات المستخدم الحالي.</div>
         </div>
     </div>
 </div>
@@ -194,6 +241,47 @@
     {% endif %}
 </div>
 
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">أعلى الدفعات المتأخرة (SLA)</div>
+            <div class="text-muted xsmall">حسب آخر تحديث ومرحلة العمل الحالية.</div>
+        </div>
+    </div>
+    {% if top_overdue %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width: 70px;">رقم</th>
+                        <th>المشروع</th>
+                        <th class="text-center">المرحلة</th>
+                        <th class="text-center">أيام التأخير</th>
+                        <th class="text-center">حد SLA (أيام)</th>
+                        <th class="text-end" style="width: 120px;">التفاصيل</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in top_overdue %}
+                        <tr>
+                            <td class="text-center small">{{ item.payment.id }}</td>
+                            <td class="small">{{ item.payment.project.project_name if item.payment.project else '-' }}</td>
+                            <td class="text-center small">{{ item.payment.human_status }}</td>
+                            <td class="text-center fw-semibold text-danger">{{ item.days_overdue }}</td>
+                            <td class="text-center text-muted xsmall">{{ item.sla_days }}</td>
+                            <td class="text-end">
+                                <a href="{{ url_for('payments.detail', payment_id=item.payment.id) }}" class="btn btn-sm btn-outline-primary">عرض</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد متأخرات ضمن صلاحياتك حالياً.</p>
+    {% endif %}
+</div>
+
 {% set show_finance_ready = current_user.role and current_user.role.name in ["finance", "admin"] %}
 {% if show_finance_ready %}
 <div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
@@ -230,6 +318,39 @@
     {% endif %}
 </div>
 {% endif %}
+
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">مؤشرات SLA لكل مرحلة</div>
+            <div class="text-muted xsmall">متوسط زمن الاعتماد (أيام) بناءً على حركات الموافقات.</div>
+        </div>
+    </div>
+    {% if sla_metrics %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th>المرحلة</th>
+                    <th class="text-center">متوسط الأيام</th>
+                    <th class="text-center">عدد العينات</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for metric in sla_metrics %}
+                    <tr>
+                        <td class="small">{{ status_labels.get(metric.stage, metric.stage) if status_labels else metric.stage }}</td>
+                        <td class="text-center fw-semibold">{{ metric.average_days }}</td>
+                        <td class="text-center text-muted xsmall">{{ metric.count }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد بيانات كافية لحساب مؤشرات SLA حالياً.</p>
+    {% endif %}
+</div>
 
 <div class="row g-3">
     <!-- توزيع حسب الحالة -->
