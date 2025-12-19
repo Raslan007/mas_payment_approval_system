@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 def _get_bool_env(var_name: str, default: bool = False) -> bool:
@@ -38,3 +39,9 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     DEBUG = _get_bool_env("FLASK_DEBUG", default=False)
     AUTO_SCHEMA_BOOTSTRAP = _get_bool_env("AUTO_SCHEMA_BOOTSTRAP", default=False)
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = bool(_is_production)
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SECURE = bool(_is_production)
+    REMEMBER_COOKIE_DURATION = timedelta(days=14)

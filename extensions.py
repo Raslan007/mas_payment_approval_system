@@ -1,6 +1,7 @@
 # extensions.py
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
+from flask_wtf import CSRFProtect
 
 # تهيئة الـ SQLAlchemy (قاعدة البيانات)
 db = SQLAlchemy()
@@ -13,3 +14,6 @@ login_manager.login_view = "auth.login"
 
 # الرسالة الافتراضية لو حد حاول يدخل صفحة محمية بدون تسجيل دخول
 login_manager.login_message = "من فضلك سجل الدخول أولاً"
+
+# تهيئة CSRF protection
+csrf = CSRFProtect()
