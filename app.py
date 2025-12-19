@@ -2,6 +2,7 @@ import logging
 import os
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from extensions import csrf, db, login_manager
@@ -34,6 +35,12 @@ def _warn_insecure_defaults(app: Flask) -> None:
         )
 
 
+def _is_production_environment() -> bool:
+    """Return True when running in a production-like environment."""
+
+    return os.environ.get("APP_ENV") == "production" or os.environ.get("FLASK_ENV") == "production"
+
+
 def create_app(config_class=Config) -> Flask:
     """إنشاء وتهيئة تطبيق Flask الرئيسي."""
     app = Flask(__name__)
@@ -55,6 +62,9 @@ def create_app(config_class=Config) -> Flask:
         if app.config.get("AUTO_SCHEMA_BOOTSTRAP"):
             ensure_schema()
         ensure_roles()
+
+    if _is_production_environment():
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     # إضافة فلتر لتنسيق الأرقام مع فواصل الآلاف
     def format_number(value, decimals=0):
