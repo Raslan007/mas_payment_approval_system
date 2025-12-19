@@ -1,5 +1,7 @@
+import html
 import re
 import unittest
+from urllib.parse import quote, unquote
 
 from app import create_app
 from config import Config
@@ -377,6 +379,64 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(resp_a.status_code, 200)
         self.assertEqual(resp_b.status_code, 200)
         self.assertEqual(resp_c.status_code, 404)
+
+    def test_detail_back_link_preserves_filters(self):
+        payment = self._make_payment(payment_routes.STATUS_PENDING_PM, self.users["admin"].id)
+        self._login(self.users["admin"])
+
+        filtered_path = "/payments/all?status=pending_pm&per_page=5"
+        listing = self.client.get(filtered_path)
+        self.assertEqual(listing.status_code, 200)
+
+        body = listing.get_data(as_text=True)
+        detail_link = re.search(rf"/payments/{payment.id}[^\"']*return_to=([^\"']+)", body)
+        self.assertIsNotNone(detail_link)
+        self.assertEqual(unquote(detail_link.group(1)), filtered_path)
+
+        detail_resp = self.client.get(
+            f"/payments/{payment.id}?return_to={quote(filtered_path, safe='')}"
+        )
+        self.assertEqual(detail_resp.status_code, 200)
+        detail_body = detail_resp.get_data(as_text=True)
+        back_link = re.search(
+            r'href="([^"]+)"[^>]*>\s*<i class="bi bi-arrow-right-circle',
+            detail_body,
+        )
+        self.assertIsNotNone(back_link)
+        self.assertEqual(html.unescape(back_link.group(1)), filtered_path)
+
+    def test_post_action_redirects_to_filtered_listing(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
+        self._login(self.users["admin"])
+
+        return_to = "/payments/?status=draft&per_page=15"
+        response = self.client.post(
+            f"/payments/{payment.id}/submit_to_pm",
+            data={"return_to": return_to},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], return_to)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.status, payment_routes.STATUS_PENDING_PM)
+
+    def test_external_return_to_is_rejected(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
+        self._login(self.users["admin"])
+
+        malicious_return = "https://example.com/payments/all"
+        response = self.client.post(
+            f"/payments/{payment.id}/submit_to_pm",
+            data={"return_to": malicious_return},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"],
+            f"/payments/{payment.id}",
+        )
 
     def test_full_positive_workflow(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)

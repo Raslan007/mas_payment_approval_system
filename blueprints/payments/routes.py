@@ -2,6 +2,9 @@
 
 from datetime import datetime, timedelta, date
 import math
+import os
+import pathlib
+from urllib.parse import urljoin, urlparse
 
 from flask import (
     render_template,
@@ -16,8 +19,6 @@ from flask import (
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import extract, false, exists, inspect, func
-import os
-import pathlib
 
 from extensions import db
 from permissions import role_required
@@ -114,6 +115,40 @@ def _get_role():
     if not current_user.is_authenticated or not current_user.role:
         return None
     return current_user.role.name
+
+
+def _normalize_return_to(target: str | None) -> str | None:
+    if not target:
+        return None
+    target = target.strip()
+    if target.endswith("?"):
+        target = target[:-1]
+    return target
+
+
+def _is_safe_return_to(target: str | None) -> bool:
+    if not target:
+        return False
+
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return (
+        test_url.scheme in ("http", "https")
+        and ref_url.netloc == test_url.netloc
+    )
+
+
+def _get_return_to(default_endpoint: str = "payments.index", **default_kwargs) -> str:
+    for candidate in (request.values.get("return_to"), request.referrer):
+        normalized = _normalize_return_to(candidate)
+        if normalized and _is_safe_return_to(normalized):
+            return normalized
+
+    return url_for(default_endpoint, **default_kwargs)
+
+
+def _redirect_with_return_to(default_endpoint: str = "payments.index", **default_kwargs):
+    return redirect(_get_return_to(default_endpoint, **default_kwargs))
 
 
 def _user_projects_table_exists() -> bool:
@@ -916,6 +951,8 @@ def detail(payment_id):
     finance_ready_log = _latest_step("finance", ["approve"])
     paid_log = _latest_step("finance", ["mark_paid"])
 
+    return_to = _get_return_to()
+
     return render_template(
         "payments/detail.html",
         payment=payment,
@@ -926,6 +963,7 @@ def detail(payment_id):
         fin_decision=fin_decision,
         finance_ready_log=finance_ready_log,
         paid_log=paid_log,
+        return_to=return_to,
     )
 
 
@@ -940,7 +978,7 @@ def add_notification_note(payment_id: int):
     note_text = (request.form.get("note") or "").strip()
     if not note_text:
         flash("برجاء إدخال الملاحظة أولًا.", "warning")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     note = PaymentNotificationNote(
         payment_request_id=payment.id,
@@ -952,7 +990,7 @@ def add_notification_note(payment_id: int):
     db.session.commit()
 
     flash("تم تسجيل ملاحظة الإشعار بنجاح.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/attachments/<int:attachment_id>/download")
@@ -1084,7 +1122,7 @@ def delete_payment(payment_id):
     db.session.commit()
 
     flash(f"تم حذف الدفعة رقم {payment.id} بنجاح.", "success")
-    return redirect(url_for("payments.index"))
+    return _redirect_with_return_to("payments.index")
 
 
 # =========================
@@ -1097,7 +1135,7 @@ def submit_to_pm(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_PM):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_PENDING_PM
@@ -1115,7 +1153,7 @@ def submit_to_pm(payment_id):
     db.session.commit()
 
     flash("تم إرسال الدفعة إلى مدير المشروع للمراجعة.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/pm_approve", methods=["POST"])
@@ -1124,7 +1162,7 @@ def pm_approve(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_ENG):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_PENDING_ENG
@@ -1141,7 +1179,7 @@ def pm_approve(payment_id):
     db.session.commit()
 
     flash("تم اعتماد الدفعة من مدير المشروع وتم إرسالها للإدارة الهندسية.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/pm_reject", methods=["POST"])
@@ -1150,7 +1188,7 @@ def pm_reject(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -1167,7 +1205,7 @@ def pm_reject(payment_id):
     db.session.commit()
 
     flash("تم رفض الدفعة من مدير المشروع.", "danger")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/eng_approve", methods=["POST"])
@@ -1176,7 +1214,7 @@ def eng_approve(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_FIN):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_PENDING_FIN
@@ -1193,7 +1231,7 @@ def eng_approve(payment_id):
     db.session.commit()
 
     flash("تم اعتماد الدفعة من الإدارة الهندسية وتم إرسالها للمالية.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/eng_reject", methods=["POST"])
@@ -1202,7 +1240,7 @@ def eng_reject(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -1219,7 +1257,7 @@ def eng_reject(payment_id):
     db.session.commit()
 
     flash("تم رفض الدفعة من الإدارة الهندسية.", "danger")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/finance_approve", methods=["POST"])
@@ -1233,7 +1271,7 @@ def finance_approve(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_READY_FOR_PAYMENT):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_READY_FOR_PAYMENT
@@ -1250,7 +1288,7 @@ def finance_approve(payment_id):
     db.session.commit()
 
     flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/finance_reject", methods=["POST"])
@@ -1259,7 +1297,7 @@ def finance_reject(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_REJECTED):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -1276,7 +1314,7 @@ def finance_reject(payment_id):
     db.session.commit()
 
     flash("تم رفض الدفعة من المالية.", "danger")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
 @payments_bp.route("/<int:payment_id>/mark_paid", methods=["POST"])
@@ -1291,22 +1329,22 @@ def mark_paid(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PAID):
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     amount_finance_str = (request.form.get("amount_finance") or "").strip()
     if not amount_finance_str:
         flash("برجاء إدخال مبلغ المالية الفعلي قبل تأكيد الصرف.", "danger")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     try:
         amount_finance = float(amount_finance_str.replace(",", ""))
     except ValueError:
         flash("برجاء إدخال مبلغ مالية فعلي صحيح.", "danger")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     if not math.isfinite(amount_finance) or amount_finance <= 0:
         flash("برجاء إدخال مبلغ مالية فعلي أكبر من صفر.", "danger")
-        return redirect(url_for("payments.detail", payment_id=payment.id))
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.amount_finance = amount_finance
@@ -1324,4 +1362,4 @@ def mark_paid(payment_id):
     db.session.commit()
 
     flash("تم تسجيل أن الدفعة تم صرفها وحفظ مبلغ المالية الفعلي.", "success")
-    return redirect(url_for("payments.detail", payment_id=payment.id))
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)

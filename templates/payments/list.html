@@ -8,6 +8,7 @@
 {% set pagination_endpoint = pagination_endpoint or request.endpoint %}
 {% set pagination_view_args = pagination_view_args or request.view_args or {} %}
 {% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
+{% set return_to = request.full_path.rstrip('?') %}
 
 <div class="d-flex justify-content-between	align-items-center mb-3">
     <div>
@@ -206,7 +207,7 @@
                             <!-- الإجراءات -->
                             <td class="text-center">
                                 <div class="d-flex justify-content-center flex-wrap gap-1">
-                                    <a href="{{ url_for('payments.detail', payment_id=p.id) }}"
+                                    <a href="{{ url_for('payments.detail', payment_id=p.id, return_to=return_to) }}"
                                        class="btn btn-sm btn-outline-primary btn-sm-icon">
                                         <i class="bi bi-eye ms-1"></i>
                                         عرض / اعتماد
