@@ -1,11 +1,16 @@
 import logging
 import os
+import time
+import uuid
 
-from flask import Flask
+from flask import Flask, g, request
+from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import HTTPException
 
 from config import Config
 from extensions import csrf, db, login_manager
+from logging_config import setup_logging
 from models import User, ensure_roles, ensure_schema
 
 # استيراد الـ Blueprints
@@ -49,8 +54,7 @@ def create_app(config_class=Config) -> Flask:
     # تحميل الإعدادات من Config (ملف config.py)
     app.config.from_object(config_class)
 
-    # ضبط مستوى تسجيلات التطبيق ليظهر التحذيرات المتعلقة بالإعدادات
-    app.logger.setLevel(logging.INFO)
+    setup_logging(app)
 
     _warn_insecure_defaults(app)
 
@@ -109,6 +113,43 @@ def create_app(config_class=Config) -> Flask:
 
         # أسلوب SQLAlchemy 2 الموصى به
         return db.session.get(User, user_id_int)
+
+    def _log_request_summary(status_code: int) -> None:
+        request_id = getattr(g, "request_id", None)
+        start_time = getattr(g, "request_start_time", None)
+
+        duration_ms = None
+        if start_time is not None:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+        app.logger.info(
+            "request completed",
+            extra={
+                "request_id": request_id,
+                "status_code": status_code,
+                "duration_ms": int(duration_ms) if duration_ms is not None else None,
+            },
+        )
+
+    @app.before_request
+    def attach_request_context() -> None:
+        g.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        g.request_start_time = time.perf_counter()
+
+    @app.after_request
+    def append_request_id(response):
+        response.headers["X-Request-ID"] = getattr(g, "request_id", "")
+        _log_request_summary(response.status_code)
+        return response
+
+    @app.errorhandler(Exception)
+    def handle_exception(error):
+        if not isinstance(error, HTTPException):
+            app.logger.exception("Unhandled exception", exc_info=error)
+
+        response = error.get_response() if isinstance(error, HTTPException) else app.make_response(("Internal Server Error", 500))
+        response.headers["X-Request-ID"] = getattr(g, "request_id", "")
+        return response
 
     # تسجيل الـ Blueprints
     app.register_blueprint(main_bp)                              # /
