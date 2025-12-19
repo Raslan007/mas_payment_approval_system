@@ -181,6 +181,82 @@ def _default_filters() -> dict[str, str]:
     }
 
 
+def _apply_filters(q, *, role_name: str | None, allowed_request_types: set[str], pm_project_ids: list[int] | None = None):
+    filters = _default_filters()
+
+    project_id = _safe_int_arg("project_id", None, min_value=1)
+    if project_id:
+        filters["project_id"] = str(project_id)
+        if role_name == "project_manager":
+            allowed_pm_projects = set(pm_project_ids or [])
+            if project_id not in allowed_pm_projects:
+                q = q.filter(false())
+            else:
+                q = q.filter(PaymentRequest.project_id == project_id)
+        else:
+            q = q.filter(PaymentRequest.project_id == project_id)
+
+    raw_request_type = (request.args.get("request_type") or "").strip()
+    if raw_request_type and raw_request_type in allowed_request_types:
+        filters["request_type"] = raw_request_type
+        q = q.filter(PaymentRequest.request_type == raw_request_type)
+
+    status_filter = (request.args.get("status") or "").strip()
+    if status_filter in ALLOWED_STATUSES:
+        filters["status"] = status_filter
+        q = q.filter(PaymentRequest.status == status_filter)
+        if role_name == "payment_notifier" and status_filter not in NOTIFIER_ALLOWED_STATUSES:
+            q = q.filter(false())
+
+    raw_week = (request.args.get("week_number") or "").strip()
+    week_number: int | None = None
+    if raw_week:
+        try:
+            parsed_week = int(raw_week)
+            if 1 <= parsed_week <= 53:
+                week_number = parsed_week
+        except (TypeError, ValueError):
+            pass
+
+    if week_number is not None:
+        filters["week_number"] = str(week_number)
+        reference_year = datetime.utcnow().isocalendar().year
+        submission_ts = func.coalesce(
+            PaymentRequest.submitted_to_pm_at, PaymentRequest.created_at
+        )
+
+        if db.session.get_bind().dialect.name == "sqlite":
+            try:
+                week_start, week_end = _iso_week_bounds(
+                    week_number, reference_year=reference_year
+                )
+            except ValueError:
+                week_start = week_end = None
+
+            if week_start and week_end:
+                q = q.filter(
+                    submission_ts >= week_start,
+                    submission_ts < week_end,
+                )
+        else:
+            q = q.filter(
+                extract("isoyear", submission_ts) == reference_year,
+                extract("week", submission_ts) == week_number,
+            )
+
+    date_from_dt = _safe_date_arg("date_from")
+    if date_from_dt:
+        filters["date_from"] = date_from_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at >= date_from_dt)
+
+    date_to_dt = _safe_date_arg("date_to")
+    if date_to_dt:
+        filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
+
+    return q, filters
+
+
 def _paginate_payments_query(q, *, default_per_page: int = 20):
     page = _safe_int_arg("page", 1, min_value=1) or 1
     per_page = _safe_int_arg("per_page", default_per_page, min_value=1, max_value=100) or default_per_page
@@ -489,77 +565,12 @@ def index():
     else:
         q = q.filter(false())
 
-    filters = _default_filters()
-
-    project_id = _safe_int_arg("project_id", None, min_value=1)
-    if project_id:
-        filters["project_id"] = str(project_id)
-        if role_name == "project_manager":
-            allowed_pm_projects = set(pm_project_ids or [])
-            if project_id not in allowed_pm_projects:
-                q = q.filter(false())
-            else:
-                q = q.filter(PaymentRequest.project_id == project_id)
-        else:
-            q = q.filter(PaymentRequest.project_id == project_id)
-
-    raw_request_type = (request.args.get("request_type") or "").strip()
-    if raw_request_type and raw_request_type in allowed_request_types:
-        filters["request_type"] = raw_request_type
-        q = q.filter(PaymentRequest.request_type == raw_request_type)
-
-    status_filter = (request.args.get("status") or "").strip()
-    if status_filter in ALLOWED_STATUSES:
-        filters["status"] = status_filter
-        q = q.filter(PaymentRequest.status == status_filter)
-        if role_name == "payment_notifier" and status_filter not in NOTIFIER_ALLOWED_STATUSES:
-            q = q.filter(false())
-
-    raw_week = (request.args.get("week_number") or "").strip()
-    week_number: int | None = None
-    if raw_week:
-        try:
-            parsed_week = int(raw_week)
-            if 1 <= parsed_week <= 53:
-                week_number = parsed_week
-        except (TypeError, ValueError):
-            pass
-
-    if week_number is not None:
-        filters["week_number"] = str(week_number)
-        reference_year = datetime.utcnow().isocalendar().year
-        submission_ts = func.coalesce(
-            PaymentRequest.submitted_to_pm_at, PaymentRequest.created_at
-        )
-
-        if db.session.get_bind().dialect.name == "sqlite":
-            try:
-                week_start, week_end = _iso_week_bounds(
-                    week_number, reference_year=reference_year
-                )
-            except ValueError:
-                week_start = week_end = None
-
-            if week_start and week_end:
-                q = q.filter(
-                    submission_ts >= week_start,
-                    submission_ts < week_end,
-                )
-        else:
-            q = q.filter(
-                extract("isoyear", submission_ts) == reference_year,
-                extract("week", submission_ts) == week_number,
-            )
-
-    date_from_dt = _safe_date_arg("date_from")
-    if date_from_dt:
-        filters["date_from"] = date_from_dt.strftime("%Y-%m-%d")
-        q = q.filter(PaymentRequest.created_at >= date_from_dt)
-
-    date_to_dt = _safe_date_arg("date_to")
-    if date_to_dt:
-        filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
-        q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
+    q, filters = _apply_filters(
+        q,
+        role_name=role_name,
+        allowed_request_types=allowed_request_types,
+        pm_project_ids=pm_project_ids,
+    )
 
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
@@ -590,11 +601,21 @@ def list_all():
         joinedload(PaymentRequest.creator),
     )
 
-    pagination, page, per_page = _paginate_payments_query(q)
-
     projects, request_types, status_choices = _get_filter_lists()
-    filters = _default_filters()
-    query_params = {"page": page, "per_page": per_page}
+
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    role_name = _get_role()
+
+    q, filters = _apply_filters(
+        q,
+        role_name=role_name,
+        allowed_request_types=allowed_request_types,
+    )
+
+    pagination, page, per_page = _paginate_payments_query(q)
+    query_params = {k: v for k, v in filters.items() if v}
+    query_params["page"] = page
+    query_params["per_page"] = per_page
 
     return render_template(
         "payments/list.html",
