@@ -29,6 +29,17 @@ ALLOWED_STATUSES = {
     STATUS_PAID,
     STATUS_REJECTED,
 }
+STATUS_GROUPS: dict[str, set[str]] = {
+    "outstanding": {
+        STATUS_PENDING_PM,
+        STATUS_PENDING_ENG,
+        STATUS_PENDING_FIN,
+        STATUS_READY_FOR_PAYMENT,
+    },
+    "paid": {
+        STATUS_PAID,
+    },
+}
 
 
 def _scoped_dashboard_query():
@@ -437,6 +448,82 @@ def dashboard():
     status_chart_labels = [label for _, label in status_labels.items()]
     status_chart_values = [status_counts.get(status, 0) for status in status_labels.keys()]
 
+    def _amount_for_status(status: str) -> float:
+        row = amount_lookup.get(status)
+        if not row:
+            return 0.0
+        if status in (STATUS_READY_FOR_PAYMENT, STATUS_PAID):
+            return row.total_finance_amount
+        return row.total_amount
+
+    workflow_stages = [
+        (STATUS_DRAFT, "مراجعة المهندس"),
+        (STATUS_PENDING_PM, "مراجعة مدير المشروع"),
+        (STATUS_PENDING_ENG, "مراجعة الإدارة الهندسية"),
+        (STATUS_PENDING_FIN, "مراجعة المالية"),
+        (STATUS_READY_FOR_PAYMENT, "معتمد للصرف"),
+        (STATUS_PAID, "تم الصرف"),
+        (STATUS_REJECTED, "مرفوض"),
+    ]
+    workflow_funnel = [
+        {
+            "status": status,
+            "label": label,
+            "count": status_counts.get(status, 0),
+            "amount": _amount_for_status(status),
+        }
+        for status, label in workflow_stages
+    ]
+
+    trend_start_date = datetime.utcnow().date() - timedelta(days=59)
+    trend_start = datetime.combine(trend_start_date, datetime.min.time())
+    status_for_trend = STATUS_GROUPS["outstanding"] | {STATUS_PAID}
+    trend_rows = (
+        base_q.filter(
+            PaymentRequest.status.in_(status_for_trend),
+            func.coalesce(PaymentRequest.updated_at, PaymentRequest.created_at) >= trend_start,
+        )
+        .with_entities(
+            func.date(func.coalesce(PaymentRequest.updated_at, PaymentRequest.created_at)).label("day"),
+            PaymentRequest.status,
+            func.coalesce(PaymentRequest.amount_finance, PaymentRequest.amount, 0.0).label(
+                "finance_amount"
+            ),
+            func.coalesce(PaymentRequest.amount, 0.0).label("requested_amount"),
+        )
+        .all()
+    )
+    trend_lookup: dict[str, dict[str, float]] = {}
+    outstanding_statuses = STATUS_GROUPS["outstanding"]
+    for row in trend_rows:
+        day_str = row.day.isoformat() if hasattr(row.day, "isoformat") else str(row.day)
+        bucket = trend_lookup.setdefault(day_str, {"outstanding": 0.0, "paid": 0.0})
+        amount_for_status = row.finance_amount if row.status in (STATUS_READY_FOR_PAYMENT, STATUS_PAID) else row.requested_amount
+        if row.status in outstanding_statuses:
+            bucket["outstanding"] += amount_for_status
+        if row.status == STATUS_PAID:
+            bucket["paid"] += amount_for_status
+
+    cash_flow_labels = []
+    outstanding_values = []
+    paid_values = []
+    for offset in range(60):
+        day = trend_start_date + timedelta(days=offset)
+        label = day.isoformat()
+        cash_flow_labels.append(label)
+        values = trend_lookup.get(label, {"outstanding": 0.0, "paid": 0.0})
+        outstanding_values.append(values["outstanding"])
+        paid_values.append(values["paid"])
+    cash_flow_chart = {
+        "labels": cash_flow_labels,
+        "datasets": {
+            "outstanding": outstanding_values,
+            "paid": paid_values,
+        },
+    }
+    listing_base_url = url_for("payments.index")
+    status_filters = {"outstanding_group": "outstanding", "paid": STATUS_PAID}
+
     kpis = {
         "total": total_count,
         "pending_review": pending_review_count,
@@ -472,6 +559,10 @@ def dashboard():
         action_required=action_required,
         daily_chart={"labels": daily_labels, "values": daily_values},
         status_chart={"labels": status_chart_labels, "values": status_chart_values},
+        workflow_funnel=workflow_funnel,
+        cash_flow_chart=cash_flow_chart,
+        listing_base_url=listing_base_url,
+        status_filters=status_filters,
     )
 
 

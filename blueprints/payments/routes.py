@@ -45,6 +45,17 @@ STATUS_PENDING_FIN = "pending_finance"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
+STATUS_GROUPS: dict[str, set[str]] = {
+    "outstanding": {
+        STATUS_PENDING_PM,
+        STATUS_PENDING_ENG,
+        STATUS_PENDING_FIN,
+        STATUS_READY_FOR_PAYMENT,
+    },
+    "paid": {
+        STATUS_PAID,
+    },
+}
 
 NOTIFIER_ALLOWED_STATUSES: set[str] = {
     STATUS_READY_FOR_PAYMENT,
@@ -215,6 +226,7 @@ def _default_filters() -> dict[str, str]:
         "project_id": "",
         "request_type": "",
         "status": "",
+        "status_group": "",
         "week_number": "",
         "date_from": "",
         "date_to": "",
@@ -247,6 +259,11 @@ def _apply_filters(q, *, role_name: str | None, allowed_request_types: set[str],
         q = q.filter(PaymentRequest.status == status_filter)
         if role_name == "payment_notifier" and status_filter not in NOTIFIER_ALLOWED_STATUSES:
             q = q.filter(false())
+    else:
+        status_group = (request.args.get("status_group") or "").strip()
+        if status_group in STATUS_GROUPS:
+            filters["status_group"] = status_group
+            q = q.filter(PaymentRequest.status.in_(STATUS_GROUPS[status_group]))
 
     raw_week = (request.args.get("week_number") or "").strip()
     week_number: int | None = None

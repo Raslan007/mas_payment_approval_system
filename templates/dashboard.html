@@ -131,6 +131,33 @@
     </div>
 </div>
 
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">مسار الاعتماد</div>
+                    <div class="text-muted xsmall">عدد الدفعات وإجمالي المبالغ في كل مرحلة.</div>
+                </div>
+            </div>
+            <canvas id="workflowFunnelChart" height="190" aria-label="مخطط مسار الاعتماد" role="img"></canvas>
+            <div class="text-muted xsmall mt-2">اضغط على أي مرحلة للانتقال إلى قائمة الدفعات مع تطبيق الفلتر.</div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">اتجاه التدفقات النقدية - آخر 60 يومًا</div>
+                    <div class="text-muted xsmall">خط الالتزامات (قيد/معتمد) مقابل المدفوع.</div>
+                </div>
+            </div>
+            <canvas id="cashFlowChart" height="190" aria-label="اتجاه التدفقات النقدية" role="img"></canvas>
+            <div class="text-muted xsmall mt-2">اضغط على نقطة في أحد الخطين للذهاب للقائمة بتاريخ اليوم نفسه.</div>
+        </div>
+    </div>
+</div>
+
 <div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div>
@@ -432,6 +459,16 @@
     (() => {
         const daily = {{ daily_chart|tojson }};
         const status = {{ status_chart|tojson }};
+        const workflowFunnel = {{ workflow_funnel|tojson }};
+        const cashFlow = {{ cash_flow_chart|tojson }};
+        const listingBaseUrl = {{ listing_base_url|tojson }};
+        const statusFilters = {{ status_filters|tojson }};
+
+        const buildListingUrl = (params = {}) => {
+            if (!listingBaseUrl) return null;
+            const search = new URLSearchParams(params);
+            return `${listingBaseUrl}?${search.toString()}`;
+        };
 
         const dailyCtx = document.getElementById('paymentsDailyChart');
         if (dailyCtx && daily?.labels) {
@@ -472,6 +509,116 @@
                 options: {
                     plugins: { legend: { position: 'bottom' } }
                 }
+            });
+        }
+
+        const workflowCtx = document.getElementById('workflowFunnelChart');
+        if (workflowCtx && workflowFunnel?.length) {
+            const funnelChart = new Chart(workflowCtx, {
+                type: 'bar',
+                data: {
+                    labels: workflowFunnel.map(stage => stage.label),
+                    datasets: [
+                        {
+                            label: 'عدد الدفعات',
+                            data: workflowFunnel.map(stage => stage.count),
+                            backgroundColor: 'rgba(13, 110, 253, 0.5)',
+                            borderColor: '#0d6efd',
+                            borderWidth: 1,
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'إجمالي المبلغ (ج.م)',
+                            data: workflowFunnel.map(stage => stage.amount),
+                            backgroundColor: 'rgba(25, 135, 84, 0.35)',
+                            borderColor: '#198754',
+                            borderWidth: 1,
+                            yAxisID: 'y1',
+                        }
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    interaction: { mode: 'nearest', intersect: true },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } },
+                        y1: {
+                            position: 'right',
+                            beginAtZero: true,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                callback: (value) => new Intl.NumberFormat('ar-EG').format(value)
+                            }
+                        }
+                    },
+                    plugins: { legend: { position: 'bottom' } },
+                    onClick: (evt) => {
+                        const points = funnelChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+                        if (!points?.length) return;
+                        const { index } = points[0];
+                        const stage = workflowFunnel[index];
+                        const targetUrl = buildListingUrl({ status: stage.status });
+                        if (targetUrl) {
+                            window.location.href = targetUrl;
+                        }
+                    }
+                },
+            });
+        }
+
+        const cashFlowCtx = document.getElementById('cashFlowChart');
+        if (cashFlowCtx && cashFlow?.labels) {
+            const cashFlowChart = new Chart(cashFlowCtx, {
+                type: 'line',
+                data: {
+                    labels: cashFlow.labels,
+                    datasets: [
+                        {
+                            label: 'الالتزامات (قيد/معتمد)',
+                            data: cashFlow.datasets?.outstanding || [],
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                            tension: 0.25,
+                            fill: true,
+                            pointRadius: 3,
+                        },
+                        {
+                            label: 'مدفوع',
+                            data: cashFlow.datasets?.paid || [],
+                            borderColor: '#198754',
+                            backgroundColor: 'rgba(25, 135, 84, 0.15)',
+                            tension: 0.25,
+                            fill: true,
+                            pointRadius: 3,
+                        },
+                    ],
+                },
+                options: {
+                    plugins: { legend: { position: 'bottom' } },
+                    interaction: { mode: 'nearest', intersect: false },
+                    scales: {
+                        y: { beginAtZero: true }
+                    },
+                    onClick: (evt) => {
+                        const points = cashFlowChart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+                        if (!points?.length) return;
+                        const { index, datasetIndex } = points[0];
+                        const dateLabel = cashFlow.labels[index];
+                        const params = {
+                            date_from: dateLabel,
+                            date_to: dateLabel,
+                        };
+                        if (datasetIndex === 0) {
+                            params.status_group = statusFilters?.outstanding_group || 'outstanding';
+                        } else {
+                            params.status = statusFilters?.paid || 'paid';
+                        }
+                        const targetUrl = buildListingUrl(params);
+                        if (targetUrl) {
+                            window.location.href = targetUrl;
+                        }
+                    },
+                },
             });
         }
     })();
