@@ -30,6 +30,7 @@
 
 {% set is_auth = current_user.is_authenticated %}
 {% set role_name = current_user.role.name if is_auth and current_user.role else '' %}
+{% set unread_notifications_count = current_user.notifications.filter_by(is_read=False).count() if is_auth else 0 %}
 
 <div class="app-wrapper d-flex">
 
@@ -50,6 +51,16 @@
 
         <div class="app-sidebar-menu flex-grow-1">
             <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a href="{{ url_for('notifications.list_notifications') }}"
+                       class="nav-link sidebar-link{% if request.blueprint == 'notifications' %} active{% endif %}">
+                        <i class="bi bi-bell"></i>
+                        <span>الإشعارات</span>
+                        {% if unread_notifications_count %}
+                            <span class="badge bg-danger rounded-pill me-2">{{ unread_notifications_count }}</span>
+                        {% endif %}
+                    </a>
+                </li>
 
                 {% if role_name == 'payment_notifier' %}
                     <li class="nav-item mt-2 sidebar-section-title">
@@ -254,6 +265,16 @@
             </div>
             <div class="offcanvas-body p-0">
                 <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a href="{{ url_for('notifications.list_notifications') }}"
+                           class="nav-link sidebar-link{% if request.blueprint == 'notifications' %} active{% endif %}">
+                            <i class="bi bi-bell"></i>
+                            <span>الإشعارات</span>
+                            {% if unread_notifications_count %}
+                                <span class="badge bg-danger rounded-pill me-2">{{ unread_notifications_count }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
                     {% if role_name == 'payment_notifier' %}
                         <li class="nav-item mt-2 sidebar-section-title">
                             <span>الدفعات</span>

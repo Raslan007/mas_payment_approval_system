@@ -10,9 +10,12 @@
         </p>
     </div>
     <div>
-        <a href="{{ url_for('notifications.mark_all_read') }}" class="btn btn-sm btn-outline-secondary">
-            تعليم الكل كمقروء
-        </a>
+        <form method="post" action="{{ url_for('notifications.mark_all_read') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                تعليم الكل كمقروء
+            </button>
+        </form>
     </div>
 </div>
 
@@ -39,16 +42,20 @@
                     </div>
                     <div class="d-flex flex-column align-items-end gap-1">
                         {% if n.url %}
-                            <a href="{{ url_for('notifications.read_notification', notification_id=n.id) }}"
-                               class="btn btn-sm btn-outline-primary">
-                                فتح
-                            </a>
+                            <form method="post" action="{{ url_for('notifications.read_notification', notification_id=n.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    فتح
+                                </button>
+                            </form>
                         {% else %}
                             {% if not n.is_read %}
-                                <a href="{{ url_for('notifications.read_notification', notification_id=n.id) }}"
-                                   class="btn btn-sm btn-outline-secondary">
-                                    تعليم كمقروء
-                                </a>
+                                <form method="post" action="{{ url_for('notifications.read_notification', notification_id=n.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                        تعليم كمقروء
+                                    </button>
+                                </form>
                             {% endif %}
                         {% endif %}
                     </div>
