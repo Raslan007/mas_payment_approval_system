@@ -268,6 +268,29 @@ class PaymentAttachment(db.Model):
         return f"<PaymentAttachment {self.id} for PR {self.payment_request_id}>"
 
 
+class SavedView(db.Model):
+    """
+    عروض محفوظة خاصة بكل مستخدم لتخزين فلاتر قوائم الدفعات.
+    """
+
+    __tablename__ = "saved_views"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    name = db.Column(db.String(150), nullable=False)
+    endpoint = db.Column(db.String(255), nullable=False)
+    query_string = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship(
+        "User",
+        backref=db.backref("saved_views", cascade="all, delete-orphan"),
+    )
+
+    def __repr__(self):  # type: ignore
+        return f"<SavedView {self.id} for user {self.user_id}>"
+
+
 class Notification(db.Model):
     __tablename__ = "notifications"
 

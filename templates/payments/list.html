@@ -17,6 +17,7 @@
 {% set current_status = filters.get('status') or request.args.get('status', '') %}
 {% set current_week_number = filters.get('week_number') or request.args.get('week_number', '') %}
 {% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
+{% set current_query_string = request.query_string.decode('utf-8') if request.query_string else '' %}
 
 <div class="d-flex justify-content-between	align-items-center mb-3">
     <div>
@@ -25,8 +26,8 @@
             يمكنك استعراض الدفعات حسب صلاحياتك الحالية مع إمكانية تصفية النتائج.
         </div>
     </div>
-    {% if role_name not in ['payment_notifier', 'dc'] %}
-        <div>
+    <div class="d-flex flex-column align-items-end gap-2">
+        {% if role_name not in ['payment_notifier', 'dc'] %}
             <div class="d-flex align-items-center gap-2">
                 {% if export_endpoint %}
                     <a href="{{ url_for(export_endpoint, **(export_params or {})) }}"
@@ -40,8 +41,29 @@
                     إضافة دفعة جديدة
                 </a>
             </div>
+        {% endif %}
+        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+            <form method="post" action="{{ url_for('payments.create_saved_view') }}" class="d-flex align-items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="endpoint" value="{{ request.endpoint }}">
+                <input type="hidden" name="query_string" value="{{ current_query_string }}">
+                <input type="hidden" name="return_to" value="{{ return_to }}">
+                <input type="text"
+                       name="name"
+                       class="form-control form-control-sm"
+                       placeholder="اسم العرض المحفوظ"
+                       required>
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-bookmark-plus ms-1"></i>
+                    حفظ هذا العرض
+                </button>
+            </form>
+            <a href="{{ url_for('payments.saved_views') }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-collection ms-1"></i>
+                عروضي المحفوظة
+            </a>
         </div>
-    {% endif %}
+    </div>
 </div>
 
 {# --------------------  فلاتر البحث  -------------------- #}
