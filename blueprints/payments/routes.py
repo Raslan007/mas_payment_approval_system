@@ -1,5 +1,7 @@
 # blueprints/payments/routes.py
 
+import csv
+import io
 from datetime import datetime, timedelta, date
 import math
 import os
@@ -15,6 +17,7 @@ from flask import (
     abort,
     current_app,
     send_from_directory,
+    Response,
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
@@ -57,6 +60,8 @@ ALLOWED_STATUSES: set[str] = {
     STATUS_PAID,
     STATUS_REJECTED,
 }
+
+EXPORT_ROW_LIMIT = 10000
 
 
 # خريطة الانتقالات المسموح بها بين الحالات
@@ -314,6 +319,84 @@ def _paginate_payments_query(q, *, default_per_page: int = 20):
     return pagination, page, per_page
 
 
+def _count_query(q):
+    return (
+        q.order_by(None)
+        .with_entities(func.count(PaymentRequest.id))
+        .scalar()
+        or 0
+    )
+
+
+def _format_ts(value: datetime | None) -> str:
+    return value.isoformat() if value else ""
+
+
+def _export_query_to_csv(q, *, filename: str):
+    total = _count_query(q)
+    if total > EXPORT_ROW_LIMIT:
+        message = (
+            f"عدد النتائج ({total}) يتجاوز الحد الأقصى للتصدير ({EXPORT_ROW_LIMIT}). "
+            "برجاء تضييق الفلاتر قبل التصدير."
+        )
+        return Response(
+            message,
+            status=400,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    rows = (
+        q.order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
+        .limit(EXPORT_ROW_LIMIT)
+        .all()
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "id",
+            "project",
+            "project_code",
+            "supplier",
+            "supplier_type",
+            "request_type",
+            "status",
+            "amount",
+            "amount_finance",
+            "progress_percentage",
+            "created_at",
+            "updated_at",
+            "submitted_to_pm_at",
+        ]
+    )
+    for payment in rows:
+        writer.writerow(
+            [
+                payment.id,
+                payment.project.project_name if payment.project else "",
+                payment.project.code if payment.project else "",
+                payment.supplier.name if payment.supplier else "",
+                payment.supplier.supplier_type if payment.supplier else "",
+                payment.request_type,
+                payment.status,
+                payment.amount,
+                payment.amount_finance if payment.amount_finance is not None else "",
+                payment.progress_percentage if payment.progress_percentage is not None else "",
+                _format_ts(payment.created_at),
+                _format_ts(payment.updated_at),
+                _format_ts(payment.submitted_to_pm_at),
+            ]
+        )
+
+    csv_data = output.getvalue()
+    return Response(
+        csv_data,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _iso_week_bounds(week_number: int, *, reference_year: int | None = None) -> tuple[datetime, datetime]:
     """Return start/end datetimes (UTC naive) for the ISO week in the given year."""
 
@@ -537,32 +620,7 @@ def _get_filter_lists():
     return projects, request_types, status_choices
 
 
-# =========================
-#   قوائم الدفعات
-# =========================
-
-@payments_bp.route("/")
-@payments_bp.route("/my")
-@role_required(
-    "admin",
-    "engineering_manager",
-    "project_manager",
-    "engineer",
-    "finance",
-    "chairman",
-    "payment_notifier",
-    "dc",
-)
-def index():
-    """
-    قائمة "دفعات حسب صلاحياتي" مع فلاتر:
-    - المشروع
-    - نوع الدفعة
-    - الحالة
-    - رقم الأسبوع (أسبوع الإرسال لمدير المشروع)
-    - من تاريخ / إلى تاريخ
-    """
-
+def _scoped_payments_query_for_listing():
     role_name = _get_role()
     pm_project_ids: list[int] | None = None
 
@@ -607,6 +665,37 @@ def index():
         pm_project_ids=pm_project_ids,
     )
 
+    return q, filters, projects, request_types, status_choices
+
+
+# =========================
+#   قوائم الدفعات
+# =========================
+
+@payments_bp.route("/")
+@payments_bp.route("/my")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+    "payment_notifier",
+    "dc",
+)
+def index():
+    """
+    قائمة "دفعات حسب صلاحياتي" مع فلاتر:
+    - المشروع
+    - نوع الدفعة
+    - الحالة
+    - رقم الأسبوع (أسبوع الإرسال لمدير المشروع)
+    - من تاريخ / إلى تاريخ
+    """
+
+    q, filters, projects, request_types, status_choices = _scoped_payments_query_for_listing()
+
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
 
@@ -624,7 +713,26 @@ def index():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        export_endpoint="payments.export_my",
+        export_params={k: v for k, v in filters.items() if v},
     )
+
+
+@payments_bp.route("/export")
+@payments_bp.route("/my/export")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+    "payment_notifier",
+    "dc",
+)
+def export_my():
+    q, filters, _, _, _ = _scoped_payments_query_for_listing()
+    return _export_query_to_csv(q, filename="payments_export.csv")
 
 
 @payments_bp.route("/all")
@@ -662,7 +770,31 @@ def list_all():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        export_endpoint="payments.export_all",
+        export_params={k: v for k, v in filters.items() if v},
     )
+
+
+@payments_bp.route("/all/export")
+@role_required("admin", "engineering_manager", "chairman")
+def export_all():
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    )
+
+    _, request_types, _ = _get_filter_lists()
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    role_name = _get_role()
+
+    q, _ = _apply_filters(
+        q,
+        role_name=role_name,
+        allowed_request_types=allowed_request_types,
+    )
+
+    return _export_query_to_csv(q, filename="payments_all_export.csv")
 
 
 @payments_bp.route("/pm_review")
@@ -762,26 +894,7 @@ def list_finance_review():
     )
 
 
-@payments_bp.route("/finance_eng_approved")
-@role_required(
-    "admin",
-    "engineering_manager",
-    "finance",
-    "chairman",
-    "payment_notifier",
-)
-def finance_eng_approved():
-    """
-    قائمة الدفعات الجاهزة للصرف:
-    - دفعات حالتها READY_FOR_PAYMENT (معتمدة ماليًا ولم تُسجل كـ تم الصرف)
-    مع فلاتر على:
-    - المشروع
-    - المورد/المقاول
-    - نوع الدفعة
-    - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
-    """
-
-    # كويري أساسي: دفعات حالتها جاهزة للصرف
+def _finance_ready_query():
     q = PaymentRequest.query.options(
         joinedload(PaymentRequest.project),
         joinedload(PaymentRequest.supplier),
@@ -820,6 +933,30 @@ def finance_eng_approved():
         filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
         q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
 
+    return q, filters, projects, suppliers
+
+
+@payments_bp.route("/finance_eng_approved")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "finance",
+    "chairman",
+    "payment_notifier",
+)
+def finance_eng_approved():
+    """
+    قائمة الدفعات الجاهزة للصرف:
+    - دفعات حالتها READY_FOR_PAYMENT (معتمدة ماليًا ولم تُسجل كـ تم الصرف)
+    مع فلاتر على:
+    - المشروع
+    - المورد/المقاول
+    - نوع الدفعة
+    - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
+    """
+
+    q, filters, projects, suppliers = _finance_ready_query()
+
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
 
@@ -837,7 +974,22 @@ def finance_eng_approved():
         filters=filters,
         pagination_endpoint="payments.finance_eng_approved",
         page_title="دفعات جاهزة للصرف",
+        export_endpoint="payments.export_finance_ready",
+        export_params={k: v for k, v in filters.items() if v},
     )
+
+
+@payments_bp.route("/finance_eng_approved/export")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "finance",
+    "chairman",
+    "payment_notifier",
+)
+def export_finance_ready():
+    q, _, _, _ = _finance_ready_query()
+    return _export_query_to_csv(q, filename="payments_finance_ready.csv")
 
 
 # =========================
