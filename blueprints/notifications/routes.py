@@ -24,7 +24,7 @@ def list_notifications():
     return render_template("notifications/list.html", notifications=notifications)
 
 
-@notifications_bp.route("/<int:notification_id>/read")
+@notifications_bp.route("/<int:notification_id>/read", methods=["POST"])
 @login_required
 def read_notification(notification_id):
     """
@@ -44,7 +44,7 @@ def read_notification(notification_id):
     return redirect(url_for("notifications.list_notifications"))
 
 
-@notifications_bp.route("/mark-all-read")
+@notifications_bp.route("/read_all", methods=["POST"])
 @login_required
 def mark_all_read():
     """
