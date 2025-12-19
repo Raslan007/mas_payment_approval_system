@@ -1,6 +1,7 @@
 # blueprints/payments/routes.py
 
 from datetime import datetime, timedelta, date
+import math
 
 from flask import (
     render_template,
@@ -167,6 +168,39 @@ def _safe_date_arg(name: str) -> datetime | None:
         return datetime.strptime(raw, "%Y-%m-%d")
     except (TypeError, ValueError):
         return None
+
+
+def _default_filters() -> dict[str, str]:
+    return {
+        "project_id": "",
+        "request_type": "",
+        "status": "",
+        "week_number": "",
+        "date_from": "",
+        "date_to": "",
+    }
+
+
+def _paginate_payments_query(q, *, default_per_page: int = 20):
+    page = _safe_int_arg("page", 1, min_value=1) or 1
+    per_page = _safe_int_arg("per_page", default_per_page, min_value=1, max_value=100) or default_per_page
+
+    total_count = (
+        q.order_by(None)
+        .with_entities(func.count(PaymentRequest.id))
+        .scalar()
+        or 0
+    )
+
+    ordered_q = q.order_by(
+        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
+    )
+    pagination = ordered_q.paginate(
+        page=page, per_page=per_page, error_out=False, count=False
+    )
+    pagination.total = total_count
+
+    return pagination, page, per_page
 
 
 def _iso_week_bounds(week_number: int, *, reference_year: int | None = None) -> tuple[datetime, datetime]:
@@ -455,7 +489,7 @@ def index():
     else:
         q = q.filter(false())
 
-    filters = {"project_id": "", "request_type": "", "status": "", "week_number": "", "date_from": "", "date_to": ""}
+    filters = _default_filters()
 
     project_id = _safe_int_arg("project_id", None, min_value=1)
     if project_id:
@@ -527,23 +561,7 @@ def index():
         filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
         q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
 
-    page = _safe_int_arg("page", 1, min_value=1) or 1
-    per_page = _safe_int_arg("per_page", 20, min_value=1, max_value=100) or 20
-
-    total_count = (
-        q.order_by(None)
-        .with_entities(func.count(PaymentRequest.id))
-        .scalar()
-        or 0
-    )
-
-    payments_query = q.order_by(
-        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
-    )
-    pagination = payments_query.paginate(
-        page=page, per_page=per_page, error_out=False, count=False
-    )
-    pagination.total = total_count
+    pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
 
     query_params = {k: v for k, v in filters.items() if v}
@@ -566,23 +584,25 @@ def index():
 @payments_bp.route("/all")
 @role_required("admin", "engineering_manager", "chairman")
 def list_all():
-    payments = (
-        PaymentRequest.query.options(
-            joinedload(PaymentRequest.project),
-            joinedload(PaymentRequest.supplier),
-            joinedload(PaymentRequest.creator),
-        )
-        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
-        .all()
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
     )
 
+    pagination, page, per_page = _paginate_payments_query(q)
+
     projects, request_types, status_choices = _get_filter_lists()
+    filters = _default_filters()
+    query_params = {"page": page, "per_page": per_page}
 
     return render_template(
         "payments/list.html",
-        payments=payments,
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
         page_title="جميع الدفعات",
-        filters={},
+        filters=filters,
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
@@ -592,24 +612,26 @@ def list_all():
 @payments_bp.route("/pm_review")
 @role_required("admin", "engineering_manager", "project_manager", "chairman")
 def pm_review():
-    payments = (
-        PaymentRequest.query.options(
-            joinedload(PaymentRequest.project),
-            joinedload(PaymentRequest.supplier),
-            joinedload(PaymentRequest.creator),
-        )
-        .filter(PaymentRequest.status == STATUS_PENDING_PM)
-        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
-        .all()
-    )
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    ).filter(PaymentRequest.status == STATUS_PENDING_PM)
+
+    pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    filters = _default_filters()
+    filters["status"] = STATUS_PENDING_PM
+    query_params = {"page": page, "per_page": per_page, "status": STATUS_PENDING_PM}
 
     return render_template(
         "payments/list.html",
-        payments=payments,
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
         page_title="دفعات في انتظار مراجعة مدير المشروع",
-        filters={},
+        filters=filters,
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
@@ -619,24 +641,26 @@ def pm_review():
 @payments_bp.route("/eng_review")
 @role_required("admin", "engineering_manager", "chairman")
 def eng_review():
-    payments = (
-        PaymentRequest.query.options(
-            joinedload(PaymentRequest.project),
-            joinedload(PaymentRequest.supplier),
-            joinedload(PaymentRequest.creator),
-        )
-        .filter(PaymentRequest.status == STATUS_PENDING_ENG)
-        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
-        .all()
-    )
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    ).filter(PaymentRequest.status == STATUS_PENDING_ENG)
+
+    pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    filters = _default_filters()
+    filters["status"] = STATUS_PENDING_ENG
+    query_params = {"page": page, "per_page": per_page, "status": STATUS_PENDING_ENG}
 
     return render_template(
         "payments/list.html",
-        payments=payments,
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
         page_title="دفعات في انتظار الإدارة الهندسية",
-        filters={},
+        filters=filters,
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
@@ -653,28 +677,29 @@ def list_finance_review():
         * جاهزة للصرف
         * تم الصرف
     """
-    payments = (
-        PaymentRequest.query.options(
-            joinedload(PaymentRequest.project),
-            joinedload(PaymentRequest.supplier),
-            joinedload(PaymentRequest.creator),
+    q = PaymentRequest.query.options(
+        joinedload(PaymentRequest.project),
+        joinedload(PaymentRequest.supplier),
+        joinedload(PaymentRequest.creator),
+    ).filter(
+        PaymentRequest.status.in_(
+            [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
         )
-        .filter(
-            PaymentRequest.status.in_(
-                [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
-            )
-        )
-        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
-        .all()
     )
 
+    pagination, page, per_page = _paginate_payments_query(q)
+
     projects, request_types, status_choices = _get_filter_lists()
+    filters = _default_filters()
+    query_params = {"page": page, "per_page": per_page}
 
     return render_template(
         "payments/list.html",
-        payments=payments,
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
         page_title="جميع دفعات المالية",
-        filters={},
+        filters=filters,
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
@@ -739,16 +764,22 @@ def finance_eng_approved():
         filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
         q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
 
-    payments = q.order_by(
-        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
-    ).all()
+    pagination, page, per_page = _paginate_payments_query(q)
+    payments = pagination.items
+
+    query_params = {k: v for k, v in filters.items() if v}
+    query_params["page"] = page
+    query_params["per_page"] = per_page
 
     return render_template(
         "payments/finance_eng_approved.html",
         payments=payments,
+        pagination=pagination,
+        query_params=query_params,
         projects=projects,
         suppliers=suppliers,
         filters=filters,
+        pagination_endpoint="payments.finance_eng_approved",
         page_title="دفعات جاهزة للصرف",
     )
 
@@ -1250,6 +1281,10 @@ def mark_paid(payment_id):
         amount_finance = float(amount_finance_str.replace(",", ""))
     except ValueError:
         flash("برجاء إدخال مبلغ مالية فعلي صحيح.", "danger")
+        return redirect(url_for("payments.detail", payment_id=payment.id))
+
+    if not math.isfinite(amount_finance) or amount_finance <= 0:
+        flash("برجاء إدخال مبلغ مالية فعلي أكبر من صفر.", "danger")
         return redirect(url_for("payments.detail", payment_id=payment.id))
 
     old_status = payment.status

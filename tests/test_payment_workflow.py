@@ -167,6 +167,44 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(payment.status, payment_routes.STATUS_PAID)
         self.assertEqual(payment.amount_finance, 1200.0)
 
+    def test_mark_paid_rejects_invalid_amounts(self):
+        payment = self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT)
+        self._login(self.users["finance"])
+
+        response_negative = self.client.post(
+            f"/payments/{payment.id}/mark_paid",
+            data={"amount_finance": "-100"},
+        )
+        self.assertEqual(response_negative.status_code, 302)
+        refreshed = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed.status, payment_routes.STATUS_READY_FOR_PAYMENT)
+        self.assertIsNone(refreshed.amount_finance)
+
+        response_zero = self.client.post(
+            f"/payments/{payment.id}/mark_paid",
+            data={"amount_finance": "0"},
+        )
+        self.assertEqual(response_zero.status_code, 302)
+        refreshed_again = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed_again.status, payment_routes.STATUS_READY_FOR_PAYMENT)
+        self.assertIsNone(refreshed_again.amount_finance)
+
+    def test_finance_review_is_paginated(self):
+        payments = [self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT) for _ in range(3)]
+        expected_desc_ids = sorted([p.id for p in payments], reverse=True)
+        self._login(self.users["finance"])
+
+        first_page = self.client.get("/payments/finance_review?per_page=2")
+        self.assertEqual(first_page.status_code, 200)
+        ids_page1 = re.findall(r'data-payment-id="(\d+)"', first_page.get_data(as_text=True))
+        self.assertEqual(len(ids_page1), 2)
+        self.assertListEqual(ids_page1, [str(i) for i in expected_desc_ids[:2]])
+
+        second_page = self.client.get("/payments/finance_review?page=2&per_page=2")
+        self.assertEqual(second_page.status_code, 200)
+        ids_page2 = re.findall(r'data-payment-id="(\d+)"', second_page.get_data(as_text=True))
+        self.assertEqual(ids_page2, [str(expected_desc_ids[2])])
+
     def test_engineer_cannot_access_finance_endpoint(self):
         payment = self._make_payment(payment_routes.STATUS_PENDING_FIN)
         self._login(self.users["engineer"])
