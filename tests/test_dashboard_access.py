@@ -192,9 +192,17 @@ def test_tile_launcher_includes_overview_tile(client, user_factory, login):
     assert "/overview" in parser.hrefs
 
 
-def test_overview_includes_app_launcher_button(client, user_factory, login):
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/dashboard",
+        "/overview",
+        "/payments/",
+    ],
+)
+def test_launcher_button_visible_on_all_pages(client, user_factory, login, endpoint):
     login(user_factory("admin"))
-    response = client.get("/overview")
+    response = client.get(endpoint)
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -202,31 +210,66 @@ def test_overview_includes_app_launcher_button(client, user_factory, login):
     assert "لوحة التطبيقات" in body
 
 
-def test_dashboard_hides_sidebar(client, user_factory, login):
+def test_pages_do_not_render_sidebar(client, user_factory, login):
     login(user_factory("admin"))
-    response = client.get("/dashboard")
-    body = response.get_data(as_text=True)
 
-    assert response.status_code == 200
-    assert "app-sidebar" not in body
-    assert "mobileSidebar" not in body
+    dashboard_body = client.get("/dashboard").get_data(as_text=True)
+    overview_body = client.get("/overview").get_data(as_text=True)
+    payments_body = client.get("/payments/").get_data(as_text=True)
+
+    for body in (dashboard_body, overview_body, payments_body):
+        assert "app-sidebar" not in body
+        assert "offcanvas" not in body
 
 
-def test_overview_hides_sidebar(client, user_factory, login):
+def test_apps_dropdown_visible_for_authenticated_user(client, user_factory, login):
     login(user_factory("admin"))
     response = client.get("/overview")
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "app-sidebar" not in body
-    assert "mobileSidebar" not in body
+    assert "topbar-apps-dropdown" in body
+    assert "التطبيقات" in body
 
 
-def test_non_launcher_page_shows_sidebar(client, user_factory, login):
-    login(user_factory("admin"))
-    response = client.get("/payments/")
-    body = response.get_data(as_text=True)
+def test_dropdown_items_respect_roles(app_context, client, user_factory, login):
+    from flask_login import login_user, logout_user
+    from blueprints.main.navigation import get_launcher_modules
 
-    assert response.status_code == 200
-    assert "app-sidebar" in body
-    assert "mobileSidebar" in body
+    admin = user_factory("admin")
+    finance = user_factory("finance")
+
+    login(admin)
+    admin_body = client.get("/dashboard").get_data(as_text=True)
+    assert "المستخدمون" in admin_body
+    assert "لوحة الحسابات" in admin_body
+
+    with app_context.test_request_context("/dashboard"):
+        login_user(finance)
+        finance_modules = get_launcher_modules(finance)
+        logout_user()
+
+    finance_titles = [module["title"] for module in finance_modules]
+    assert "المستخدمون" not in finance_titles
+    assert "لوحة الحسابات" in finance_titles
+
+
+def test_launcher_modules_skip_missing_endpoints(app_context, monkeypatch, user_factory):
+    from blueprints.main import navigation
+
+    bad_definition = {
+        "key": "missing",
+        "title": "مسار مفقود",
+        "description": "يجب تجاهله",
+        "endpoint": "does.not.exist",
+    }
+    monkeypatch.setattr(
+        navigation,
+        "MODULE_DEFINITIONS",
+        navigation.MODULE_DEFINITIONS + [bad_definition],
+    )
+
+    modules = navigation.get_launcher_modules(user_factory("admin"))
+    titles = [module["title"] for module in modules]
+
+    assert "مسار مفقود" not in titles
