@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from extensions import db
 from permissions import role_required
 from . import main_bp
+from .dashboard_metrics import build_status_chips
 from models import PaymentRequest, Project, PaymentApproval, user_projects
 from .navigation import get_launcher_modules
 from .dashboard_helpers import (
@@ -168,7 +169,7 @@ def no_role():
     "dc",
 )
 def dashboard():
-    role_name = current_user.role.name if current_user.role else ""
+    base_q, role_name, _ = _scoped_dashboard_query()
     notifications_count = (
         current_user.notifications.filter_by(is_read=False).count()
         if current_user.is_authenticated
@@ -181,6 +182,14 @@ def dashboard():
         if tile.get("key") == "notifications":
             tile["badge"] = notifications_count
 
+    status_chips = build_status_chips(
+        base_q,
+        role_name,
+        notifications_count=notifications_count,
+        include_notifications=hasattr(current_user, "notifications"),
+        user_id=getattr(current_user, "id", None),
+    )
+
     return render_template(
         "dashboard.html",
         page_title="لوحة التطبيقات",
@@ -188,6 +197,7 @@ def dashboard():
         notifications_count=notifications_count,
         messages_count=messages_count,
         role_name=role_name,
+        status_chips=status_chips,
     )
 
 
