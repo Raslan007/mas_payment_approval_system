@@ -82,6 +82,7 @@ ALLOWED_SAVED_VIEW_ENDPOINTS: set[str] = {
     "payments.eng_review",
     "payments.list_finance_review",
     "payments.finance_eng_approved",
+    "finance.workbench",
 }
 
 SAVED_VIEWS_ROLES: tuple[str, ...] = (

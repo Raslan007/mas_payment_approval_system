@@ -21,6 +21,7 @@ from blueprints.projects import projects_bp
 from blueprints.suppliers import suppliers_bp
 from blueprints.payments import payments_bp
 from blueprints.notifications import notifications_bp
+from blueprints.finance import finance_bp
 
 
 def _warn_insecure_defaults(app: Flask) -> None:
@@ -159,6 +160,7 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(suppliers_bp, url_prefix="/suppliers")  # /suppliers/...
     app.register_blueprint(payments_bp, url_prefix="/payments")  # /payments/...
     app.register_blueprint(notifications_bp, url_prefix="/notifications")  # /notifications/...
+    app.register_blueprint(finance_bp)  # /finance/...
 
     return app
 
