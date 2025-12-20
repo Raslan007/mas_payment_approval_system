@@ -92,10 +92,10 @@ body .app-content {
     transform: translateY(0);
 }
 
-.dashboard-hero {
-    background: rgba(255, 255, 255, 0.78);
+.status-kpi-card {
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(10px);
-    border-radius: 20px;
+    border-radius: 18px;
 }
 
 .pill {
