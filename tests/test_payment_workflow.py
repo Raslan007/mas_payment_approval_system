@@ -327,6 +327,38 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         )
         self.assertEqual(blocked_resp.status_code, 404)
 
+    def test_admin_and_eng_manager_cannot_edit_ready_or_paid(self):
+        for role in ("admin", "engineering_manager"):
+            self._login(self.users[role])
+            for status in (
+                payment_routes.STATUS_READY_FOR_PAYMENT,
+                payment_routes.STATUS_PAID,
+            ):
+                payment = self._make_payment(status, self.users[role].id)
+                response = self.client.get(f"/payments/{payment.id}/edit")
+                self.assertEqual(response.status_code, 403)
+
+    def test_admin_and_eng_manager_cannot_delete_paid(self):
+        for role in ("admin", "engineering_manager"):
+            self._login(self.users[role])
+            payment = self._make_payment(payment_routes.STATUS_PAID, self.users[role].id)
+
+            response = self.client.post(f"/payments/{payment.id}/delete")
+            self.assertEqual(response.status_code, 403)
+
+            still_there = db.session.get(PaymentRequest, payment.id)
+            self.assertIsNotNone(still_there)
+
+    def test_delete_draft_succeeds(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
+        self._login(self.users["admin"])
+
+        response = self.client.post(f"/payments/{payment.id}/delete")
+        self.assertEqual(response.status_code, 302)
+
+        deleted = db.session.get(PaymentRequest, payment.id)
+        self.assertIsNone(deleted)
+
     def test_project_manager_cannot_view_other_project_payment(self):
         other_project = Project(project_name="Other Project")
         db.session.add(other_project)
