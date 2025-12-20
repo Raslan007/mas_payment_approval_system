@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from flask import redirect, url_for, render_template, request, flash, current_app
+from flask import redirect, url_for, render_template, request, flash, current_app, g
 from flask_login import login_required, current_user
 from sqlalchemy import case, func, false, inspect
 from sqlalchemy.orm import selectinload
@@ -11,6 +11,7 @@ from extensions import db
 from permissions import role_required
 from . import main_bp
 from models import PaymentRequest, Project, PaymentApproval, user_projects
+from .navigation import get_launcher_modules
 from .dashboard_helpers import (
     compute_overdue_items,
     compute_stage_sla_metrics,
@@ -86,6 +87,15 @@ def _scoped_dashboard_query():
         query = query.filter(false())
 
     return query, role_name, scoped_project_ids
+
+
+def _resolve_launcher_modules():
+    return get_launcher_modules(current_user)
+
+
+@main_bp.app_context_processor
+def inject_launcher_modules():
+    return {"launcher_modules": _resolve_launcher_modules()}
 
 
 @main_bp.route("/")
@@ -165,85 +175,11 @@ def dashboard():
         else 0
     )
     messages_count = getattr(current_user, "unread_messages", 0) or 0
-
-    def _add_tile(title, description, icon, endpoint=None, url=None, badge=None, roles=None):
-        if roles and role_name not in roles:
-            return
-        destination = url or (url_for(endpoint) if endpoint else "#")
-        tiles.append(
-            {
-                "title": title,
-                "description": description,
-                "icon": icon,
-                "url": destination,
-                "badge": badge,
-            }
-        )
-
-    tiles: list[dict[str, str | int]] = []
-
-    _add_tile(
-        "الإشعارات",
-        "رسائل وتنبيهات النظام الموجهة لك",
-        "fa-regular fa-bell",
-        endpoint="notifications.list_notifications",
-        badge=notifications_count,
-    )
-    _add_tile(
-        "لوحة الإدارة الهندسية",
-        "رؤية شاملة لمؤشرات الدفعات والمشروعات",
-        "fa-solid fa-chart-pie",
-        endpoint="main.overview",
-        roles={"admin", "engineering_manager", "chairman", "finance"},
-    )
-    _add_tile(
-        "الدفعات",
-        "إدارة طلبات الدفعات ومراحل الاعتماد",
-        "fa-solid fa-wallet",
-        endpoint="payments.index",
-    )
-    _add_tile(
-        "جاهزة للصرف",
-        "دفعات معتمدة تنتظر التسجيل المالي",
-        "fa-solid fa-circle-check",
-        endpoint="payments.finance_eng_approved",
-        roles={"finance", "admin", "engineering_manager"},
-    )
-    _add_tile(
-        "لوحة الإدارة الهندسية",
-        "متابعة الدفعات عبر الإدارة الهندسية",
-        "fa-solid fa-sitemap",
-        endpoint="main.eng_dashboard",
-        roles={"admin", "engineering_manager", "chairman"},
-    )
-    _add_tile(
-        "المشروعات",
-        "إدارة قائمة المشروعات والمعلومات الأساسية",
-        "fa-solid fa-building",
-        endpoint="projects.list_projects",
-        roles={"admin", "engineering_manager", "chairman", "dc"},
-    )
-    _add_tile(
-        "الموردون / المقاولون",
-        "تتبع بيانات الموردين وتحديثها",
-        "fa-solid fa-users",
-        endpoint="suppliers.list_suppliers",
-        roles={"admin", "engineering_manager", "chairman", "dc"},
-    )
-    _add_tile(
-        "المستخدمون",
-        "إدارة صلاحيات وحسابات المستخدمين",
-        "fa-solid fa-user-gear",
-        endpoint="users.list_users",
-        roles={"admin", "dc"},
-    )
-    _add_tile(
-        "تقارير مالية",
-        "تصدير بيانات وتقارير سريعة",
-        "fa-solid fa-file-export",
-        url=url_for("finance.workbench") if role_name in {"admin", "finance", "engineering_manager"} else "#",
-        roles={"admin", "finance", "engineering_manager"},
-    )
+    tiles = _resolve_launcher_modules()
+    # Enrich notifications badge for tiles when available
+    for tile in tiles:
+        if tile.get("key") == "notifications":
+            tile["badge"] = notifications_count
 
     return render_template(
         "dashboard.html",

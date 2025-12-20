@@ -6,82 +6,7 @@ body {
 /* ارتفاع التطبيق بالكامل */
 .app-wrapper {
     min-height: 100vh;
-}
-
-/* ===== Sidebar ===== */
-.app-sidebar {
-    width: 260px;
-    background: linear-gradient(180deg, #4b2c88 0%, #2f1e57 100%);
-    color: #f8f9fa;
-}
-
-.app-sidebar-header {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.brand-logo {
-    width: 40px;
-    height: 40px;
-    border-radius: 0.75rem;
-    background: rgba(255, 255, 255, 0.12);
-}
-
-.brand-text .xsmall {
-    font-size: 0.7rem;
-}
-
-.app-sidebar-menu {
-    padding-top: 0.5rem;
-}
-
-.sidebar-section-title {
-    padding: 0.75rem 1rem 0.25rem;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.6);
-}
-
-.sidebar-link {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 1rem;
-    color: rgba(255, 255, 255, 0.82);
-    font-size: 0.86rem;
-    text-decoration: none;
-    border-radius: 0;
-    border-inline-start: 3px solid transparent;
-}
-
-.sidebar-link i {
-    font-size: 1rem;
-}
-
-.sidebar-link:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #fff;
-}
-
-.sidebar-link.active {
-    background-color: rgba(255, 255, 255, 0.16);
-    color: #fff;
-    border-inline-start-color: #ffc107;
-}
-
-.app-sidebar-footer {
-    border-top: 1px solid rgba(255, 255, 255, 0.15);
-    font-size: 0.75rem;
-}
-
-/* نسخة موبايل من الروابط تستخدم نفس الستايل */
-.offcanvas .sidebar-link {
-    color: #212529;
-    border-inline-start-color: transparent;
-}
-.offcanvas .sidebar-link.active {
-    background-color: #f1f3f5;
-    border-inline-start-color: #4b2c88;
+    background-color: #f3f4f7;
 }
 
 /* ===== Topbar ===== */
@@ -114,10 +39,7 @@ body {
 /* ===== محتوى التطبيق ===== */
 .app-main {
     background-color: #f3f4f7;
-}
-
-.layout--no-sidebar .app-main {
-    width: 100%;
+    min-height: 100vh;
 }
 
 .app-footer {
@@ -180,13 +102,34 @@ textarea.form-control {
     font-size: 0.9rem;
 }
 
-/* تصغير ScrollBar في الـ Sidebar قليلاً */
-.app-sidebar-menu::-webkit-scrollbar {
-    width: 6px;
+.topbar-launcher-group {
+    gap: 0.5rem;
 }
-.app-sidebar-menu::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.35);
-    border-radius: 10px;
+
+.topbar-apps-dropdown .dropdown-menu {
+    min-width: 240px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.topbar-apps-dropdown .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.topbar-apps-dropdown .badge {
+    font-size: 0.7rem;
+}
+
+@media (max-width: 576px) {
+    .topbar-launcher-group > * {
+        width: 100%;
+    }
+
+    .topbar-launcher-group .btn {
+        justify-content: center;
+    }
 }
 
 /* ===== تنسيقات DataTables RTL ===== */
