@@ -1,0 +1,181 @@
+body .app-content {
+    background: linear-gradient(135deg, #f2f6ff 0%, #eef2ff 35%, #f8f9ff 70%, #ffffff 100%);
+}
+
+.dashboard-shell {
+    position: relative;
+}
+
+.dashboard-topbar {
+    border: 1px solid rgba(13, 110, 253, 0.08);
+    backdrop-filter: blur(8px);
+}
+
+.topbar-brand {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+    color: #fff;
+    font-size: 1.1rem;
+}
+
+.topbar-actions .topbar-icon-button {
+    border: none;
+    background: rgba(13, 110, 253, 0.08);
+    color: #0d6efd;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.topbar-actions .topbar-icon-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(13, 110, 253, 0.16);
+}
+
+.topbar-actions .counter {
+    position: absolute;
+    top: -4px;
+    left: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #dc3545;
+    color: #fff;
+    font-size: 11px;
+    line-height: 18px;
+}
+
+.topbar-user .avatar-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.user-menu-toggle {
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    padding: 6px 10px;
+    background: #fff;
+    transition: box-shadow 0.15s ease;
+}
+
+.user-menu-toggle:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+}
+
+.user-menu-dropdown {
+    position: absolute;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    top: 120%;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: all 0.15s ease;
+    z-index: 10;
+}
+
+.user-menu-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.dashboard-hero {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+}
+
+.pill {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(13, 110, 253, 0.08);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+}
+
+.tile-card {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 18px;
+    padding: 16px;
+    color: #0d1b2a;
+    text-decoration: none;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.tile-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(13, 110, 253, 0.35);
+    box-shadow: 0 16px 32px rgba(13, 110, 253, 0.12);
+}
+
+.tile-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: rgba(13, 110, 253, 0.12);
+    color: #0d6efd;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.tile-title {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.tile-desc {
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.tile-badge {
+    position: absolute;
+    inset-inline-start: 12px;
+    top: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ff6b6b 0%, #f06595 100%);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 576px) {
+    .topbar-brand {
+        width: 38px;
+        height: 38px;
+    }
+    .dashboard-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .user-menu-dropdown {
+        inset-inline-start: 0;
+        inset-inline-end: auto;
+        min-width: 220px;
+    }
+}
