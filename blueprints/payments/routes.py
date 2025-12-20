@@ -511,6 +511,13 @@ def _can_edit_payment(p: PaymentRequest) -> bool:
     if role_name is None:
         return False
 
+    if p.status in (
+        STATUS_PENDING_FIN,
+        STATUS_READY_FOR_PAYMENT,
+        STATUS_PAID,
+    ):
+        return False
+
     if role_name in ("admin", "engineering_manager"):
         return True
 
@@ -531,11 +538,18 @@ def _can_delete_payment(p: PaymentRequest) -> bool:
     حذف الدفعة مسموح فقط لـ:
     - admin
     - engineering_manager
-    ويمكن الحذف في أي حالة.
+    ويمنع الحذف في الحالات الجاهزة أو المصروفة.
     """
     role_name = _get_role()
     if role_name is None:
         return False
+
+    if p.status in (
+        STATUS_READY_FOR_PAYMENT,
+        STATUS_PAID,
+    ):
+        return False
+
     return role_name in ("admin", "engineering_manager")
 
 
