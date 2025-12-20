@@ -107,6 +107,24 @@ def test_dashboard_ui_elements_present(client, user_factory, login):
     assert "user-menu-toggle" in body
 
 
+def test_dashboard_includes_local_fontawesome(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "/static/vendor/fontawesome/css/all.min.css" in response.get_data(
+        as_text=True
+    )
+
+
+def test_fontawesome_webfont_served(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/static/vendor/fontawesome/webfonts/fa-solid-900.woff2")
+
+    assert response.status_code == 200
+    assert response.data
+
+
 class _TileIconParser(HTMLParser):
     def __init__(self):
         super().__init__()
