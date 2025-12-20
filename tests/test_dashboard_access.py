@@ -43,6 +43,7 @@ def roles():
         "engineer",
         "project_manager",
         "dc",
+        "chairman",
     ]
     role_objects = {name: Role(name=name) for name in role_names}
     db.session.add_all(role_objects.values())
@@ -80,6 +81,7 @@ def login(client):
         ("engineer", 200),
         ("engineering_manager", 200),
         ("finance", 200),
+        ("chairman", 200),
         ("dc", 403),
     ],
 )
@@ -145,3 +147,44 @@ def test_counters_default_to_zero(client, user_factory, login):
     counters = re.findall(r'class="counter">(\d+)<', body)
     assert counters
     assert all(count == "0" for count in counters)
+
+
+@pytest.mark.parametrize(
+    ("role_name", "expected_status"),
+    [
+        (None, 302),
+        ("admin", 200),
+        ("engineering_manager", 200),
+        ("finance", 200),
+        ("chairman", 200),
+        ("engineer", 403),
+    ],
+)
+def test_overview_access_matrix(client, user_factory, login, role_name, expected_status):
+    if role_name:
+        login(user_factory(role_name))
+
+    response = client.get("/overview")
+    assert response.status_code == expected_status
+    if role_name is None:
+        assert "/auth/login" in response.headers.get("Location", "")
+
+
+def test_overview_contains_old_dashboard_elements(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/overview")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "لوحة التحكم العامة للدفعات" in body
+    assert "paymentsDailyChart" in body
+    assert "إجمالي مبالغ الدفعات حسب الحالة" in body
+
+
+def test_tile_launcher_includes_overview_tile(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+    parser = _TileLinkParser()
+    parser.feed(response.get_data(as_text=True))
+
+    assert "/overview" in parser.hrefs
