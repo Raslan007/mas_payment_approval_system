@@ -8,6 +8,8 @@ from werkzeug.routing import BuildError
 
 Module = dict[str, Any]
 
+DEFAULT_ICON = "fa-solid fa-grid-2"
+
 
 MODULE_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -122,7 +124,7 @@ def get_launcher_modules(user: Any) -> list[Module]:
     Each module dictionary contains:
         - title: Arabic title to render.
         - description: Optional description for tiles.
-        - icon: Font Awesome icon classes.
+        - icon: Font Awesome icon classes (with a fallback default).
         - url: Resolved URL for the endpoint.
         - badge: Optional badge value (e.g., notifications count).
     """
@@ -153,11 +155,13 @@ def get_launcher_modules(user: Any) -> list[Module]:
         if badge_value == "notifications":
             badge_value = notifications_count
 
+        module_icon = definition.get("icon") or DEFAULT_ICON
+
         module: Module = {
             "key": definition["key"],
             "title": definition["title"],
             "description": definition.get("description"),
-            "icon": definition.get("icon"),
+            "icon": module_icon,
             "url": url,
         }
 
