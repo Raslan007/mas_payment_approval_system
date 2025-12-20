@@ -1161,14 +1161,31 @@ def create_payment():
             return redirect(url_for("payments.create_payment"))
 
         try:
+            project_id_value = int(project_id)
+            supplier_id_value = int(supplier_id)
+        except (TypeError, ValueError):
+            flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
+            return redirect(url_for("payments.create_payment"))
+
+        role_name = _get_role()
+        if role_name == "engineer" and current_user.project_id != project_id_value:
+            abort(403)
+        if role_name == "project_manager":
+            pm_project_ids = _project_manager_project_ids() or []
+            if project_id_value not in pm_project_ids:
+                abort(403)
+        if role_name not in ("admin", "engineering_manager", "project_manager", "engineer"):
+            abort(403)
+
+        try:
             amount = float(amount_str.replace(",", ""))
         except ValueError:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
             return redirect(url_for("payments.create_payment"))
 
         payment = PaymentRequest(
-            project_id=int(project_id),
-            supplier_id=int(supplier_id),
+            project_id=project_id_value,
+            supplier_id=supplier_id_value,
             request_type=request_type,
             amount=amount,
             description=description,

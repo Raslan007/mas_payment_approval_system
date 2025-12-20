@@ -191,6 +191,62 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(refreshed_again.status, payment_routes.STATUS_READY_FOR_PAYMENT)
         self.assertIsNone(refreshed_again.amount_finance)
 
+    def test_engineer_cannot_create_payment_for_other_project(self):
+        self._login(self.users["engineer"])
+        initial_count = PaymentRequest.query.count()
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.alt_project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "1500",
+                "description": "other project",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_project_manager_cannot_create_payment_for_unassigned_project(self):
+        self._login(self.users["project_manager"])
+        initial_count = PaymentRequest.query.count()
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.alt_project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "1750",
+                "description": "unauthorized",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_admin_can_create_payment_for_any_project(self):
+        self._login(self.users["admin"])
+        initial_count = PaymentRequest.query.count()
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.alt_project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "2000",
+                "description": "admin submission",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(PaymentRequest.query.count(), initial_count + 1)
+        created_payment = PaymentRequest.query.order_by(PaymentRequest.id.desc()).first()
+        self.assertEqual(created_payment.project_id, self.alt_project.id)
+
     def test_finance_review_is_paginated(self):
         payments = [self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT) for _ in range(3)]
         expected_desc_ids = sorted([p.id for p in payments], reverse=True)
