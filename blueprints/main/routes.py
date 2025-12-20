@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from flask import redirect, url_for, render_template, request, flash, current_app
 from flask_login import login_required, current_user
-from sqlalchemy import func, false, inspect
+from sqlalchemy import case, func, false, inspect
 from sqlalchemy.orm import selectinload
 
 from extensions import db
@@ -174,15 +174,74 @@ def dashboard():
     page = max(page, 1)
     per_page = min(max(per_page, 1), 100)
 
-    status_counts_rows = (
-        base_q.order_by(None)
-        .with_entities(PaymentRequest.status, func.count(PaymentRequest.id))
-        .group_by(PaymentRequest.status)
-        .all()
+    amount_finance_or_amount = func.coalesce(
+        PaymentRequest.amount_finance,
+        PaymentRequest.amount,
+        0.0,
     )
-    status_counts = {status: count for status, count in status_counts_rows}
+    aggregates = (
+        base_q.order_by(None)
+        .with_entities(
+            func.count(PaymentRequest.id).label("total_count"),
+            func.sum(case((PaymentRequest.status == STATUS_DRAFT, 1), else_=0)).label("draft_count"),
+            func.sum(case((PaymentRequest.status == STATUS_PENDING_PM, 1), else_=0)).label("pending_pm_count"),
+            func.sum(case((PaymentRequest.status == STATUS_PENDING_ENG, 1), else_=0)).label("pending_eng_count"),
+            func.sum(case((PaymentRequest.status == STATUS_PENDING_FIN, 1), else_=0)).label("pending_fin_count"),
+            func.sum(case((PaymentRequest.status == STATUS_READY_FOR_PAYMENT, 1), else_=0)).label(
+                "ready_for_payment_count"
+            ),
+            func.sum(case((PaymentRequest.status == STATUS_PAID, 1), else_=0)).label("paid_count"),
+            func.sum(case((PaymentRequest.status == STATUS_REJECTED, 1), else_=0)).label("rejected_count"),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
+            func.coalesce(
+                func.sum(case((PaymentRequest.status == STATUS_PAID, amount_finance_or_amount), else_=0.0)), 0.0
+            ).label("total_paid"),
+            func.coalesce(
+                func.sum(case((PaymentRequest.status == STATUS_PENDING_FIN, PaymentRequest.amount), else_=0.0)), 0.0
+            ).label("total_waiting_finance"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (PaymentRequest.status == STATUS_READY_FOR_PAYMENT, amount_finance_or_amount),
+                        else_=0.0,
+                    )
+                ),
+                0.0,
+            ).label("total_approved_not_paid"),
+        )
+        .first()
+    )
+    if aggregates is None:
+        aggregates = type(
+            "Aggregates",
+            (),
+            {
+                "total_count": 0,
+                "draft_count": 0,
+                "pending_pm_count": 0,
+                "pending_eng_count": 0,
+                "pending_fin_count": 0,
+                "ready_for_payment_count": 0,
+                "paid_count": 0,
+                "rejected_count": 0,
+                "total_amount": 0.0,
+                "total_paid": 0.0,
+                "total_waiting_finance": 0.0,
+                "total_approved_not_paid": 0.0,
+            },
+        )()
 
-    total_count = sum(status_counts.values())
+    status_counts = {
+        STATUS_DRAFT: aggregates.draft_count or 0,
+        STATUS_PENDING_PM: aggregates.pending_pm_count or 0,
+        STATUS_PENDING_ENG: aggregates.pending_eng_count or 0,
+        STATUS_PENDING_FIN: aggregates.pending_fin_count or 0,
+        STATUS_READY_FOR_PAYMENT: aggregates.ready_for_payment_count or 0,
+        STATUS_PAID: aggregates.paid_count or 0,
+        STATUS_REJECTED: aggregates.rejected_count or 0,
+    }
+
+    total_count = aggregates.total_count or 0
 
     pending_review_statuses = {STATUS_PENDING_PM, STATUS_PENDING_ENG, STATUS_PENDING_FIN}
     pending_review_count = sum(status_counts.get(status, 0) for status in pending_review_statuses)
@@ -200,68 +259,10 @@ def dashboard():
     pagination.total = total_count
     payments_page = pagination.items
 
-    # إجمالي قيمة الدفعات المطلوبة (مبلغ المهندس)
-    total_amount = (
-        base_q.with_entities(func.coalesce(func.sum(PaymentRequest.amount), 0.0))
-        .scalar()
-        or 0.0
-    )
-
-    # -----------------------------
-    # المبالغ المصروفة فعلياً
-    # -----------------------------
-    paid_q = base_q.filter(PaymentRequest.status == STATUS_PAID)
-    # نستخدم amount_finance، ولو فاضي نرجع لـ amount احتياطيًا
-    total_paid = (
-        paid_q.with_entities(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        PaymentRequest.amount_finance,
-                        PaymentRequest.amount,
-                        0.0,
-                    )
-                ),
-                0.0,
-            )
-        ).scalar()
-        or 0.0
-    )
-
-    # -----------------------------
-    # في انتظار المالية (ما قبل إدخال المبلغ الفعلي)
-    # -----------------------------
-    waiting_fin_q = base_q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
-    total_waiting_finance = (
-        waiting_fin_q.with_entities(
-            func.coalesce(func.sum(PaymentRequest.amount), 0.0)
-        )
-        .scalar()
-        or 0.0
-    )
-
-    # -----------------------------
-    # جاهزة للصرف (معتمدة ماليًا ولم تُسجل كـ تم الصرف)
-    # هنا نستخدم المبلغ المالي الفعلي amount_finance
-    # -----------------------------
-    approved_not_paid_q = base_q.filter(
-        PaymentRequest.status == STATUS_READY_FOR_PAYMENT
-    )
-    total_approved_not_paid = (
-        approved_not_paid_q.with_entities(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        PaymentRequest.amount_finance,
-                        PaymentRequest.amount,
-                        0.0,
-                    )
-                ),
-                0.0,
-            )
-        ).scalar()
-        or 0.0
-    )
+    total_amount = aggregates.total_amount or 0.0
+    total_paid = aggregates.total_paid or 0.0
+    total_waiting_finance = aggregates.total_waiting_finance or 0.0
+    total_approved_not_paid = aggregates.total_approved_not_paid or 0.0
 
     # -----------------------------
     # مبالغ الدفعات المصروفة هذا الشهر (مالية فعلية)
@@ -269,7 +270,10 @@ def dashboard():
     now = datetime.utcnow()
     start_of_month = datetime(now.year, now.month, 1)
     paid_this_month = (
-        paid_q.filter(PaymentRequest.updated_at >= start_of_month)
+        base_q.filter(
+            PaymentRequest.status == STATUS_PAID,
+            PaymentRequest.updated_at >= start_of_month,
+        )
         .with_entities(
             func.coalesce(
                 func.sum(
