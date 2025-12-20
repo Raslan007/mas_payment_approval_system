@@ -1,0 +1,280 @@
+# blueprints/finance/routes.py
+
+import csv
+import io
+from datetime import timedelta
+
+from flask import Response, render_template, request
+from sqlalchemy import case, func
+
+from permissions import role_required
+from models import PaymentRequest, Project, Supplier
+from blueprints.finance import finance_bp
+from blueprints.payments import routes as payment_routes
+
+STATUS_PENDING_FIN = payment_routes.STATUS_PENDING_FIN
+STATUS_READY_FOR_PAYMENT = payment_routes.STATUS_READY_FOR_PAYMENT
+STATUS_PAID = payment_routes.STATUS_PAID
+
+FINANCE_ALLOWED_STATUSES = (
+    STATUS_PENDING_FIN,
+    STATUS_READY_FOR_PAYMENT,
+    STATUS_PAID,
+)
+
+
+def _safe_float_arg(name: str) -> float | None:
+    raw_value = (request.args.get(name) or "").strip()
+    if not raw_value:
+        return None
+    try:
+        return float(raw_value.replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _finance_workbench_ordering(status_filter: str) -> tuple:
+    if status_filter == STATUS_PAID:
+        return (PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
+    return (PaymentRequest.created_at.asc(), PaymentRequest.id.asc())
+
+
+def _finance_workbench_query():
+    q = PaymentRequest.query.options(*payment_routes.PAYMENT_RELATION_OPTIONS).filter(
+        PaymentRequest.status.in_(FINANCE_ALLOWED_STATUSES)
+    )
+
+    projects = Project.query.order_by(Project.project_name.asc()).all()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    _, request_types, _ = payment_routes._get_filter_lists()
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+
+    filters = {
+        "status": "",
+        "project_id": "",
+        "supplier_id": "",
+        "request_type": "",
+        "date_from": "",
+        "date_to": "",
+        "amount_min": "",
+        "amount_max": "",
+        "finance_amount_min": "",
+        "finance_amount_max": "",
+    }
+
+    status_filter = (request.args.get("tab") or request.args.get("status") or "").strip()
+    if status_filter in FINANCE_ALLOWED_STATUSES:
+        filters["status"] = status_filter
+        q = q.filter(PaymentRequest.status == status_filter)
+    else:
+        filters["status"] = STATUS_PENDING_FIN
+        q = q.filter(PaymentRequest.status == STATUS_PENDING_FIN)
+        status_filter = STATUS_PENDING_FIN
+
+    project_id = payment_routes._safe_int_arg("project_id", None, min_value=1)
+    if project_id:
+        filters["project_id"] = str(project_id)
+        q = q.filter(PaymentRequest.project_id == project_id)
+
+    supplier_id = payment_routes._safe_int_arg("supplier_id", None, min_value=1)
+    if supplier_id:
+        filters["supplier_id"] = str(supplier_id)
+        q = q.filter(PaymentRequest.supplier_id == supplier_id)
+
+    raw_request_type = (request.args.get("request_type") or "").strip()
+    if raw_request_type and raw_request_type in allowed_request_types:
+        filters["request_type"] = raw_request_type
+        q = q.filter(PaymentRequest.request_type == raw_request_type)
+
+    date_from_dt = payment_routes._safe_date_arg("date_from")
+    if date_from_dt:
+        filters["date_from"] = date_from_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at >= date_from_dt)
+
+    date_to_dt = payment_routes._safe_date_arg("date_to")
+    if date_to_dt:
+        filters["date_to"] = date_to_dt.strftime("%Y-%m-%d")
+        q = q.filter(PaymentRequest.created_at < date_to_dt + timedelta(days=1))
+
+    amount_min = _safe_float_arg("amount_min")
+    if amount_min is not None:
+        filters["amount_min"] = (request.args.get("amount_min") or "").strip()
+        q = q.filter(PaymentRequest.amount >= amount_min)
+
+    amount_max = _safe_float_arg("amount_max")
+    if amount_max is not None:
+        filters["amount_max"] = (request.args.get("amount_max") or "").strip()
+        q = q.filter(PaymentRequest.amount <= amount_max)
+
+    finance_amount_min = _safe_float_arg("finance_amount_min")
+    if finance_amount_min is not None:
+        filters["finance_amount_min"] = (request.args.get("finance_amount_min") or "").strip()
+        q = q.filter(PaymentRequest.amount_finance >= finance_amount_min)
+
+    finance_amount_max = _safe_float_arg("finance_amount_max")
+    if finance_amount_max is not None:
+        filters["finance_amount_max"] = (request.args.get("finance_amount_max") or "").strip()
+        q = q.filter(PaymentRequest.amount_finance <= finance_amount_max)
+
+    return q, filters, projects, suppliers, request_types, status_filter, _finance_workbench_ordering(status_filter)
+
+
+def _paginate_finance_query(q, order_clause: tuple):
+    page = payment_routes._safe_int_arg("page", 1, min_value=1) or 1
+    per_page = payment_routes._safe_int_arg("per_page", 20, min_value=1, max_value=100) or 20
+
+    total_count = (
+        q.order_by(None)
+        .with_entities(func.count(PaymentRequest.id))
+        .scalar()
+        or 0
+    )
+
+    ordered_q = q.order_by(*order_clause)
+    pagination = ordered_q.paginate(
+        page=page, per_page=per_page, error_out=False, count=False
+    )
+    pagination.total = total_count
+    return pagination, page, per_page
+
+
+def _finance_workbench_kpis(q) -> dict:
+    base_value = func.coalesce(PaymentRequest.amount_finance, PaymentRequest.amount, 0)
+    aggregates = (
+        q.order_by(None)
+        .with_entities(
+            func.count(PaymentRequest.id),
+            func.coalesce(func.sum(PaymentRequest.amount), 0.0),
+            func.coalesce(func.sum(PaymentRequest.amount_finance), 0.0),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (PaymentRequest.status == STATUS_READY_FOR_PAYMENT, base_value),
+                        else_=0.0,
+                    )
+                ),
+                0.0,
+            ),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (PaymentRequest.status == STATUS_PAID, base_value),
+                        else_=0.0,
+                    )
+                ),
+                0.0,
+            ),
+        )
+        .first()
+    )
+
+    if not aggregates:
+        return {
+            "count": 0,
+            "sum_amount": 0.0,
+            "sum_amount_finance": 0.0,
+            "sum_ready_for_payment": 0.0,
+            "sum_paid": 0.0,
+        }
+
+    return {
+        "count": aggregates[0] or 0,
+        "sum_amount": float(aggregates[1] or 0),
+        "sum_amount_finance": float(aggregates[2] or 0),
+        "sum_ready_for_payment": float(aggregates[3] or 0),
+        "sum_paid": float(aggregates[4] or 0),
+    }
+
+
+def _export_finance_workbench(q, order_clause: tuple):
+    total = payment_routes._count_query(q)
+    if total > payment_routes.EXPORT_ROW_LIMIT:
+        message = (
+            f"عدد النتائج ({total}) يتجاوز الحد الأقصى للتصدير ({payment_routes.EXPORT_ROW_LIMIT}). "
+            "برجاء تضييق الفلاتر قبل التصدير."
+        )
+        return Response(
+            message,
+            status=400,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    rows = q.order_by(*order_clause).limit(payment_routes.EXPORT_ROW_LIMIT).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "id",
+            "project",
+            "supplier",
+            "request_type",
+            "status",
+            "amount",
+            "amount_finance",
+            "created_at",
+        ]
+    )
+    for payment in rows:
+        writer.writerow(
+            [
+                payment.id,
+                payment.project.project_name if payment.project else "",
+                payment.supplier.name if payment.supplier else "",
+                payment.request_type,
+                payment.status,
+                payment.amount,
+                payment.amount_finance if payment.amount_finance is not None else "",
+                payment_routes._format_ts(payment.created_at),
+            ]
+        )
+
+    csv_data = output.getvalue()
+    return Response(
+        csv_data,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="finance_workbench.csv"'},
+    )
+
+
+@finance_bp.route("/workbench")
+@role_required("admin", "finance", "engineering_manager")
+def workbench():
+    q, filters, projects, suppliers, request_types, status_filter, order_clause = _finance_workbench_query()
+    kpis = _finance_workbench_kpis(q)
+    pagination, page, per_page = _paginate_finance_query(q, order_clause)
+
+    query_params = {k: v for k, v in filters.items() if v}
+    query_params["status"] = status_filter
+    query_params["page"] = page
+    query_params["per_page"] = per_page
+
+    export_params = {k: v for k, v in filters.items() if v}
+    export_params["status"] = status_filter
+
+    return render_template(
+        "finance/workbench.html",
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
+        filters=filters,
+        projects=projects,
+        suppliers=suppliers,
+        request_types=request_types,
+        kpis=kpis,
+        status_filter=status_filter,
+        page_title="Finance Workbench",
+        pagination_endpoint="finance.workbench",
+        export_endpoint="finance.export_workbench",
+        export_params=export_params,
+        status_pending=STATUS_PENDING_FIN,
+        status_ready=STATUS_READY_FOR_PAYMENT,
+        status_paid=STATUS_PAID,
+    )
+
+
+@finance_bp.route("/workbench/export")
+@role_required("admin", "finance", "engineering_manager")
+def export_workbench():
+    q, _, _, _, _, status_filter, order_clause = _finance_workbench_query()
+    return _export_finance_workbench(q, order_clause)

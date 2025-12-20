@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Finance Workbench{% endblock %}
+
+{% block content %}
+{% set pagination = pagination or None %}
+{% set query_params = query_params or {} %}
+{% set pagination_endpoint = pagination_endpoint or request.endpoint %}
+{% set pagination_view_args = pagination_view_args or request.view_args or {} %}
+{% set return_to = request.full_path.rstrip('?') %}
+{% set filters = filters or {} %}
+{% set export_endpoint = export_endpoint or None %}
+{% set export_params = export_params or {} %}
+{% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
+{% set current_supplier_id = filters.get('supplier_id') or request.args.get('supplier_id', '') %}
+{% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
+{% set current_date_from = filters.get('date_from') or request.args.get('date_from', '') %}
+{% set current_date_to = filters.get('date_to') or request.args.get('date_to', '') %}
+{% set current_amount_min = filters.get('amount_min') or request.args.get('amount_min', '') %}
+{% set current_amount_max = filters.get('amount_max') or request.args.get('amount_max', '') %}
+{% set current_finance_amount_min = filters.get('finance_amount_min') or request.args.get('finance_amount_min', '') %}
+{% set current_finance_amount_max = filters.get('finance_amount_max') or request.args.get('finance_amount_max', '') %}
+{% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
+{% set current_query_string = request.query_string.decode('utf-8') if request.query_string else '' %}
+{% set current_status = status_filter or filters.get('status') or request.args.get('status', '') %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">Finance Workbench</h1>
+        <p class="text-muted xsmall mb-0">
+            لوحة موحّدة للمالية مع فلاتر، ملخصات، وتصدير CSV دون تغيير أي سلوك حالي.
+        </p>
+    </div>
+    <div class="d-flex flex-column align-items-end gap-2">
+        <div class="d-flex align-items-center gap-2">
+            {% if export_endpoint %}
+                <a href="{{ url_for(export_endpoint, **(export_params or {})) }}"
+                   class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download ms-1"></i>
+                    Export CSV (current filter)
+                </a>
+            {% endif %}
+            <a href="{{ url_for('payments.list_finance_review') }}" class="btn btn-outline-secondary btn-sm">
+                قائمة دفعات المالية
+            </a>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+            <form method="post" action="{{ url_for('payments.create_saved_view') }}" class="d-flex align-items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="endpoint" value="{{ 'finance.workbench' }}">
+                <input type="hidden" name="query_string" value="{{ current_query_string }}">
+                <input type="hidden" name="return_to" value="{{ return_to }}">
+                <input type="text"
+                       name="name"
+                       class="form-control form-control-sm"
+                       placeholder="اسم العرض المحفوظ"
+                       required>
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-bookmark-plus ms-1"></i>
+                    Save this view
+                </button>
+            </form>
+            <a href="{{ url_for('payments.saved_views') }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-collection ms-1"></i>
+                العروض المحفوظة
+            </a>
+        </div>
+    </div>
+</div>
+
+{% set tab_base_params = query_params.copy() %}
+{% set _ = tab_base_params.pop('page', None) %}
+{% set _ = tab_base_params.pop('per_page', None) %}
+{% set _ = tab_base_params.pop('status', None) %}
+{% set _ = tab_base_params.pop('tab', None) %}
+
+<ul class="nav nav-pills nav-fill mb-3">
+    {% set pending_params = tab_base_params.copy() %}
+    {% set _ = pending_params.update({'status': status_pending, 'tab': status_pending}) %}
+    <li class="nav-item">
+        <a class="nav-link {% if current_status == status_pending %}active{% endif %}"
+           href="{{ url_for('finance.workbench', **pending_params) }}">
+            Pending Finance
+        </a>
+    </li>
+    {% set ready_params = tab_base_params.copy() %}
+    {% set _ = ready_params.update({'status': status_ready, 'tab': status_ready}) %}
+    <li class="nav-item">
+        <a class="nav-link {% if current_status == status_ready %}active{% endif %}"
+           href="{{ url_for('finance.workbench', **ready_params) }}">
+            Ready for Payment
+        </a>
+    </li>
+    {% set paid_params = tab_base_params.copy() %}
+    {% set _ = paid_params.update({'status': status_paid, 'tab': status_paid}) %}
+    <li class="nav-item">
+        <a class="nav-link {% if current_status == status_paid %}active{% endif %}"
+           href="{{ url_for('finance.workbench', **paid_params) }}">
+            Paid
+        </a>
+    </li>
+</ul>
+
+<div class="bg-white p-3 rounded-3 shadow-sm mb-3">
+    <div class="row g-3 align-items-end">
+        <form method="get" class="row g-3">
+            <input type="hidden" name="status" value="{{ current_status }}">
+            <input type="hidden" name="tab" value="{{ current_status }}">
+            <input type="hidden" name="per_page" value="{{ current_per_page }}">
+
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label" for="project_id">المشروع</label>
+                <select name="project_id" id="project_id" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for p in projects %}
+                        <option value="{{ p.id }}"
+                            {% if current_project_id and current_project_id|string == p.id|string %}selected{% endif %}>
+                            {{ p.project_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label" for="supplier_id">المورد / المقاول</label>
+                <select name="supplier_id" id="supplier_id" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for s in suppliers %}
+                        <option value="{{ s.id }}"
+                            {% if current_supplier_id and current_supplier_id|string == s.id|string %}selected{% endif %}>
+                            {{ s.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="request_type">نوع الدفعة</label>
+                <select name="request_type" id="request_type" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for rt in request_types %}
+                        <option value="{{ rt }}" {% if current_request_type == rt %}selected{% endif %}>{{ rt }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="date_from">من تاريخ</label>
+                <input type="date" name="date_from" id="date_from" class="form-control form-control-sm"
+                       value="{{ current_date_from }}">
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="date_to">إلى تاريخ</label>
+                <input type="date" name="date_to" id="date_to" class="form-control form-control-sm"
+                       value="{{ current_date_to }}">
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="amount_min">أقل مبلغ (المهندس)</label>
+                <input type="number" step="0.01" name="amount_min" id="amount_min"
+                       class="form-control form-control-sm" value="{{ current_amount_min }}">
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="amount_max">أعلى مبلغ (المهندس)</label>
+                <input type="number" step="0.01" name="amount_max" id="amount_max"
+                       class="form-control form-control-sm" value="{{ current_amount_max }}">
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="finance_amount_min">أقل مبلغ (المالية)</label>
+                <input type="number" step="0.01" name="finance_amount_min" id="finance_amount_min"
+                       class="form-control form-control-sm" value="{{ current_finance_amount_min }}">
+            </div>
+
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="finance_amount_max">أعلى مبلغ (المالية)</label>
+                <input type="number" step="0.01" name="finance_amount_max" id="finance_amount_max"
+                       class="form-control form-control-sm" value="{{ current_finance_amount_max }}">
+            </div>
+
+            <div class="col-12 d-flex justify-content-end gap-2">
+                <a href="{{ url_for('finance.workbench', status=current_status) }}" class="btn btn-outline-secondary btn-sm">
+                    مسح الفلاتر
+                </a>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel ms-1"></i>
+                    تطبيق الفلتر
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="bg-white p-3 rounded-3 shadow-sm h-100">
+            <div class="text-muted xsmall">عدد الطلبات</div>
+            <div class="h5 mb-0">{{ kpis.count }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="bg-white p-3 rounded-3 shadow-sm h-100">
+            <div class="text-muted xsmall">إجمالي مبلغ المهندس</div>
+            <div class="h5 mb-0">{{ kpis.sum_amount | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="bg-white p-3 rounded-3 shadow-sm h-100">
+            <div class="text-muted xsmall">إجمالي مبلغ المالية</div>
+            <div class="h5 mb-0">{{ kpis.sum_amount_finance | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="bg-white p-3 rounded-3 shadow-sm h-100">
+            <div class="text-muted xsmall">مجموع الجاهز للصرف</div>
+            <div class="h5 mb-0">{{ kpis.sum_ready_for_payment | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="bg-white p-3 rounded-3 shadow-sm h-100">
+            <div class="text-muted xsmall">مجموع المصروف</div>
+            <div class="h5 mb-0">{{ kpis.sum_paid | num(2) }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    {% if pagination and pagination.total %}
+        {% set start_item = ((pagination.page - 1) * pagination.per_page) + 1 %}
+        {% set end_item = (pagination.page * pagination.per_page) if (pagination.page * pagination.per_page) < pagination.total else pagination.total %}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 text-muted xsmall">
+            <div>
+                عرض {{ start_item }}–{{ end_item }} من {{ pagination.total }}
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0">
+            <thead>
+            <tr>
+                <th class="text-center" style="width: 60px;">#</th>
+                <th>المشروع</th>
+                <th>المورد</th>
+                <th class="text-nowrap">نوع الطلب</th>
+                <th class="text-center">الحالة</th>
+                <th class="text-end text-nowrap">مبلغ المهندس</th>
+                <th class="text-end text-nowrap">مبلغ المالية</th>
+                <th class="text-center text-nowrap">تاريخ الإنشاء</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if payments %}
+                {% for p in payments %}
+                    <tr>
+                        <td class="text-center text-muted">{{ p.id }}</td>
+                        <td>
+                            {% if p.project %}
+                                <div class="fw-semibold">{{ p.project.project_name }}</div>
+                                {% if p.project.code %}
+                                    <div class="text-muted xsmall">كود: {{ p.project.code }}</div>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted xsmall">غير محدد</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if p.supplier %}
+                                <div class="fw-semibold">{{ p.supplier.name }}</div>
+                                <div class="text-muted xsmall">{{ p.supplier.supplier_type }}</div>
+                            {% else %}
+                                <span class="text-muted xsmall">غير محدد</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border small">{{ p.request_type }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-light text-dark border small">{{ p.status }}</span>
+                        </td>
+                        <td class="text-end fw-semibold">{{ p.amount | num(2) }}</td>
+                        <td class="text-end fw-semibold">
+                            {% if p.amount_finance is not none %}
+                                {{ p.amount_finance | num(2) }}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center xsmall text-muted">
+                            {{ p.created_at.strftime("%Y-%m-%d") if p.created_at else "" }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted xsmall py-4">
+                        لا توجد نتائج مطابقة للفلتر الحالي.
+                    </td>
+                </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pagination and pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الدفعات">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    {% set prev_params = pagination_view_args.copy() %}
+                    {% set _ = prev_params.update(query_params) %}
+                    {% set _ = prev_params.update({'page': pagination.prev_num if pagination.has_prev else 1, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for(pagination_endpoint, **prev_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        {% set page_params = pagination_view_args.copy() %}
+                        {% set _ = page_params.update(query_params) %}
+                        {% set _ = page_params.update({'page': p, 'per_page': pagination.per_page}) %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for(pagination_endpoint, **page_params) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    {% set next_params = pagination_view_args.copy() %}
+                    {% set _ = next_params.update(query_params) %}
+                    {% set _ = next_params.update({'page': pagination.next_num if pagination.has_next else pagination.page, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for(pagination_endpoint, **next_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for(pagination_endpoint, **pagination_view_args) }}" class="d-flex align-items-center gap-2 mb-0">
+                    {% set per_page_params = query_params.copy() %}
+                    {% set _ = per_page_params.pop('per_page', None) %}
+                    {% set _ = per_page_params.pop('page', None) %}
+                    {% for key, value in per_page_params.items() %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for option in [10, 20, 50, 100] %}
+                            <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
+</div>
+{% endblock %}
