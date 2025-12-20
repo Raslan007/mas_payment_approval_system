@@ -76,5 +76,41 @@
             لا يوجد موردين/مقاولين مسجلين حتى الآن.
         </p>
     {% endif %}
+
+    {% if pagination and pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الموردين">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('suppliers.list_suppliers', page=pagination.prev_num if pagination.has_prev else 1, per_page=pagination.per_page) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('suppliers.list_suppliers', page=p, per_page=pagination.per_page) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('suppliers.list_suppliers', page=pagination.next_num if pagination.has_next else pagination.page, per_page=pagination.per_page) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for('suppliers.list_suppliers') }}" class="d-flex align-items-center gap-2 mb-0">
+                    <input type="hidden" name="page" value="1">
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for size in [10, 20, 50, 100] %}
+                            <option value="{{ size }}" {% if pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
 </div>
 {% endblock %}

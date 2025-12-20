@@ -11,8 +11,30 @@ from . import projects_bp
 @projects_bp.route("/list")
 @role_required("admin", "engineering_manager", "dc")
 def list_projects():
-    projects = Project.query.order_by(Project.project_name.asc()).all()
-    return render_template("projects/list.html", projects=projects)
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 20))
+    except (TypeError, ValueError):
+        per_page = 20
+
+    page = max(page, 1)
+    per_page = min(max(per_page, 1), 100)
+
+    pagination = (
+        Project.query.order_by(Project.project_name.asc())
+        .paginate(page=page, per_page=per_page, error_out=False)
+    )
+
+    return render_template(
+        "projects/list.html",
+        projects=pagination.items,
+        pagination=pagination,
+        page=page,
+        per_page=per_page,
+    )
 
 
 @projects_bp.route("/create", methods=["GET", "POST"])

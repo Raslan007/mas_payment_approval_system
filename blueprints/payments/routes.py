@@ -95,6 +95,11 @@ SAVED_VIEWS_ROLES: tuple[str, ...] = (
     "dc",
 )
 
+PAYMENT_RELATION_OPTIONS = (
+    selectinload(PaymentRequest.project),
+    selectinload(PaymentRequest.supplier),
+    selectinload(PaymentRequest.creator),
+)
 
 # خريطة الانتقالات المسموح بها بين الحالات
 # المفتاح: (الحالة_الحالية, الحالة_المطلوبة)
@@ -789,11 +794,7 @@ def _scoped_payments_query_for_listing():
     role_name = _get_role()
     pm_project_ids: list[int] | None = None
 
-    q = PaymentRequest.query.options(
-        selectinload(PaymentRequest.project),
-        selectinload(PaymentRequest.supplier),
-        selectinload(PaymentRequest.creator),
-    )
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     projects, request_types, status_choices = _get_filter_lists()
     allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
@@ -903,11 +904,7 @@ def export_my():
 @payments_bp.route("/all")
 @role_required("admin", "engineering_manager", "chairman")
 def list_all():
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    )
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     projects, request_types, status_choices = _get_filter_lists()
 
@@ -943,11 +940,7 @@ def list_all():
 @payments_bp.route("/all/export")
 @role_required("admin", "engineering_manager", "chairman")
 def export_all():
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    )
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     _, request_types, _ = _get_filter_lists()
     allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
@@ -965,11 +958,7 @@ def export_all():
 @payments_bp.route("/pm_review")
 @role_required("admin", "engineering_manager", "project_manager", "chairman")
 def pm_review():
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    ).filter(PaymentRequest.status == STATUS_PENDING_PM)
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_PM)
 
     pagination, page, per_page = _paginate_payments_query(q)
 
@@ -994,11 +983,7 @@ def pm_review():
 @payments_bp.route("/eng_review")
 @role_required("admin", "engineering_manager", "chairman")
 def eng_review():
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    ).filter(PaymentRequest.status == STATUS_PENDING_ENG)
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_ENG)
 
     pagination, page, per_page = _paginate_payments_query(q)
 
@@ -1030,11 +1015,7 @@ def list_finance_review():
         * جاهزة للصرف
         * تم الصرف
     """
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    ).filter(
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(
         PaymentRequest.status.in_(
             [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
         )
@@ -1060,11 +1041,7 @@ def list_finance_review():
 
 
 def _finance_ready_query():
-    q = PaymentRequest.query.options(
-        joinedload(PaymentRequest.project),
-        joinedload(PaymentRequest.supplier),
-        joinedload(PaymentRequest.creator),
-    ).filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
+    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
