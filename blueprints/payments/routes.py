@@ -601,7 +601,13 @@ def _attachments_enabled() -> bool:
 
 def _attachment_file_path(attachment: PaymentAttachment) -> pathlib.Path:
     stored = (attachment.stored_filename or "").strip()
-    if not stored or os.path.basename(stored) != stored:
+    if not stored:
+        abort(404)
+
+    if ".." in stored or "/" in stored or "\\" in stored:
+        abort(404)
+
+    if os.path.basename(stored) != stored:
         abort(404)
 
     base_path = pathlib.Path(_attachments_base_path())

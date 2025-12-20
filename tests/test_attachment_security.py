@@ -120,3 +120,30 @@ class AttachmentSecurityTestCase(unittest.TestCase):
         response = self.client.get(f"/payments/attachments/{attachment.id}/download")
         self.assertEqual(response.status_code, 302)
         self.assertIn(f"/payments/{payment.id}", response.headers.get("Location", ""))
+
+    def test_download_rejects_path_traversal(self):
+        payment = self._make_payment(created_by=self.users["engineer"].id)
+        attachment = PaymentAttachment(
+            payment_request_id=payment.id,
+            original_filename="evil.txt",
+            stored_filename="../../etc/passwd",
+            mime_type="text/plain",
+            uploaded_by_id=self.users["admin"].id,
+        )
+        db.session.add(attachment)
+        db.session.commit()
+
+        self._login(self.users["engineer"])
+
+        response = self.client.get(f"/payments/attachments/{attachment.id}/download")
+        self.assertIn(response.status_code, (400, 404))
+
+    def test_project_manager_cannot_download_outside_scope(self):
+        payment = self._make_payment(created_by=self.users["engineer"].id)
+        attachment = self._add_attachment(payment)
+
+        pm_other_project = self._create_user("pm_other@example.com", self.roles["project_manager"], project=self.alt_project)
+        self._login(pm_other_project)
+
+        response = self.client.get(f"/payments/attachments/{attachment.id}/download")
+        self.assertEqual(response.status_code, 404)
