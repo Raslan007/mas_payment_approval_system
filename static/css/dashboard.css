@@ -131,15 +131,22 @@ body .app-content {
 }
 
 .tile-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
-    background: rgba(13, 110, 253, 0.12);
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: #e7f1ff;
     color: #0d6efd;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
+    display: grid;
+    place-items: center;
+    align-self: flex-start;
+    font-size: 2rem;
+    transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.tile-card:hover .tile-icon {
+    transform: scale(1.05);
+    background: rgba(13, 110, 253, 0.18);
+    color: #0b5ed7;
 }
 
 .tile-title {

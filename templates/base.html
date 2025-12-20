@@ -73,9 +73,7 @@
                             {% for module in launcher_modules %}
                                 <li>
                                     <a class="dropdown-item d-flex align-items-center gap-2" href="{{ module.url }}">
-                                        {% if module.icon %}
-                                            <i class="{{ module.icon }} text-muted"></i>
-                                        {% endif %}
+                                        <i class="{{ module.icon | default('fa-solid fa-grid-2') }} text-muted" aria-hidden="true"></i>
                                         <span class="flex-grow-1">{{ module.title }}</span>
                                         {% if module.badge %}
                                             <span class="badge bg-secondary rounded-pill">{{ module.badge }}</span>

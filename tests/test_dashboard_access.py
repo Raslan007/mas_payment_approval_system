@@ -107,6 +107,39 @@ def test_dashboard_ui_elements_present(client, user_factory, login):
     assert "user-menu-toggle" in body
 
 
+class _TileIconParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.icons: list[str] = []
+        self._in_tile_icon = False
+
+    def handle_starttag(self, tag, attrs):
+        attr_dict = dict(attrs)
+        class_attr = attr_dict.get("class", "")
+        if tag == "div" and "tile-icon" in class_attr:
+            self._in_tile_icon = True
+            return
+
+        if tag == "i" and self._in_tile_icon:
+            icon_class = attr_dict.get("class", "")
+            if icon_class:
+                self.icons.append(icon_class)
+
+    def handle_endtag(self, tag):
+        if tag == "div" and self._in_tile_icon:
+            self._in_tile_icon = False
+
+
+def test_tiles_render_icon_elements(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+    parser = _TileIconParser()
+    parser.feed(response.get_data(as_text=True))
+
+    assert parser.icons, "Expected at least one tile icon to render"
+    assert all("fa-" in icon for icon in parser.icons)
+
+
 class _TileLinkParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -121,6 +154,30 @@ class _TileLinkParser(HTMLParser):
             href = attr_dict.get("href")
             if href:
                 self.hrefs.append(href)
+
+
+class _DropdownIconParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.icons: list[str] = []
+        self._in_dropdown_item = False
+
+    def handle_starttag(self, tag, attrs):
+        attr_dict = dict(attrs)
+        class_attr = attr_dict.get("class", "")
+
+        if tag == "a" and "dropdown-item" in class_attr:
+            self._in_dropdown_item = True
+            return
+
+        if tag == "i" and self._in_dropdown_item:
+            icon_class = attr_dict.get("class", "")
+            if icon_class:
+                self.icons.append(icon_class)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._in_dropdown_item:
+            self._in_dropdown_item = False
 
 
 def test_tile_links_resolve(client, user_factory, login):
@@ -254,6 +311,16 @@ def test_dropdown_items_respect_roles(app_context, client, user_factory, login):
     assert "لوحة الحسابات" in finance_titles
 
 
+def test_apps_dropdown_renders_icons(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/overview")
+    parser = _DropdownIconParser()
+    parser.feed(response.get_data(as_text=True))
+
+    assert parser.icons, "Expected at least one dropdown icon to render"
+    assert any("fa-" in icon for icon in parser.icons)
+
+
 def test_launcher_modules_skip_missing_endpoints(app_context, monkeypatch, user_factory):
     from blueprints.main import navigation
 
@@ -273,3 +340,27 @@ def test_launcher_modules_skip_missing_endpoints(app_context, monkeypatch, user_
     titles = [module["title"] for module in modules]
 
     assert "مسار مفقود" not in titles
+
+
+def test_launcher_icon_falls_back_to_default(app_context, client, user_factory, login, monkeypatch):
+    from blueprints.main import navigation
+
+    missing_icon_definition = {
+        "key": "missing_icon",
+        "title": "بدون أيقونة",
+        "description": "يجب استخدام الأيقونة الافتراضية",
+        "endpoint": "main.dashboard",
+        "icon": None,
+    }
+
+    monkeypatch.setattr(
+        navigation,
+        "MODULE_DEFINITIONS",
+        navigation.MODULE_DEFINITIONS + [missing_icon_definition],
+    )
+
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+    body = response.get_data(as_text=True)
+
+    assert "fa-solid fa-grid-2" in body
