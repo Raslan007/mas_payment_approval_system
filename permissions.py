@@ -9,7 +9,8 @@ def role_required(*allowed_roles):
     """
     Decorator لتقييد الوصول على حسب الدور.
     - admin: له صلاحية كاملة على كل شيء دائماً (Full Access).
-    - chairman: له صلاحية "قراءة فقط" (GET / HEAD / OPTIONS) على أي راوت.
+    - chairman: له صلاحية "قراءة فقط" (GET / HEAD / OPTIONS) فقط إذا كان الدور
+      مذكورًا ضمن allowed_roles بشكل صريح.
     - باقي الأدوار: يجب أن تكون ضمن allowed_roles حتى يُسمح لها بالدخول.
 
     مثال استخدام:
@@ -32,11 +33,13 @@ def role_required(*allowed_roles):
             if user_role == "admin":
                 return view_func(*args, **kwargs)
 
-            # 2) chairman: قراءة فقط لأي راوت
+            # 2) chairman: قراءة فقط للراوتات التي تسمح به صراحةً
             if user_role == "chairman":
-                if request.method in ("GET", "HEAD", "OPTIONS"):
-                    return view_func(*args, **kwargs)
-                abort(403)
+                if "chairman" not in allowed_roles:
+                    abort(403)
+                if request.method not in ("GET", "HEAD", "OPTIONS"):
+                    abort(403)
+                return view_func(*args, **kwargs)
 
             # 3) لو مفيش دور مربوط بالمستخدم
             if user_role is None:
