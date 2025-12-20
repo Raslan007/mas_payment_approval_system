@@ -188,3 +188,13 @@ def test_tile_launcher_includes_overview_tile(client, user_factory, login):
     parser.feed(response.get_data(as_text=True))
 
     assert "/overview" in parser.hrefs
+
+
+def test_overview_includes_app_launcher_button(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/overview")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'href="/dashboard"' in body
+    assert "لوحة التطبيقات" in body
