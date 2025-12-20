@@ -36,6 +36,13 @@ from models import (
     user_projects,
 )
 from . import payments_bp
+from .inbox_queries import (
+    READY_FOR_PAYMENT_ROLES,
+    build_action_required_query,
+    build_overdue_query,
+    build_ready_for_payment_query,
+    scoped_inbox_base_query,
+)
 
 
 # تعريف ثوابت الحالات المستخدمة في النظام
@@ -361,6 +368,30 @@ def _paginate_payments_query(q, *, default_per_page: int = 20):
     pagination.total = total_count
 
     return pagination, page, per_page
+
+
+def _render_inbox_list(q, *, page_title: str, filters: dict[str, str], pagination_endpoint: str):
+    q = q.options(*PAYMENT_RELATION_OPTIONS)
+    pagination, page, per_page = _paginate_payments_query(q)
+
+    projects, request_types, status_choices = _get_filter_lists()
+
+    query_params = {k: v for k, v in filters.items() if v}
+    query_params["page"] = page
+    query_params["per_page"] = per_page
+
+    return render_template(
+        "payments/list.html",
+        payments=pagination.items,
+        pagination=pagination,
+        query_params=query_params,
+        page_title=page_title,
+        filters=filters,
+        projects=projects,
+        request_types=request_types,
+        status_choices=status_choices,
+        pagination_endpoint=pagination_endpoint,
+    )
 
 
 def _count_query(q):
@@ -833,6 +864,76 @@ def _scoped_payments_query_for_listing():
     )
 
     return q, filters, projects, request_types, status_choices
+
+
+# =========================
+#   قوائم الـ Inbox الجديدة
+# =========================
+
+
+@payments_bp.route("/inbox/action-required")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+)
+def inbox_action_required():
+    base_q, role_name, _ = scoped_inbox_base_query(current_user)
+    inbox_q = build_action_required_query(base_q, role_name)
+    filters = _default_filters()
+    filters["status_group"] = "outstanding"
+
+    return _render_inbox_list(
+        inbox_q,
+        page_title="دفعات مطلوبة لإجراء",
+        filters=filters,
+        pagination_endpoint="payments.inbox_action_required",
+    )
+
+
+@payments_bp.route("/inbox/overdue")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "finance",
+    "chairman",
+)
+def inbox_overdue():
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    inbox_q = build_overdue_query(base_q, config=current_app.config)
+    filters = _default_filters()
+    filters["status_group"] = "outstanding"
+
+    return _render_inbox_list(
+        inbox_q,
+        page_title="دفعات متأخرة عن SLA",
+        filters=filters,
+        pagination_endpoint="payments.inbox_overdue",
+    )
+
+
+@payments_bp.route("/inbox/ready-for-payment")
+@role_required(*READY_FOR_PAYMENT_ROLES)
+def inbox_ready_for_payment():
+    base_q, role_name, _ = scoped_inbox_base_query(current_user)
+    if role_name not in READY_FOR_PAYMENT_ROLES:
+        abort(403)
+
+    inbox_q = build_ready_for_payment_query(base_q)
+    filters = _default_filters()
+    filters["status"] = STATUS_READY_FOR_PAYMENT
+
+    return _render_inbox_list(
+        inbox_q,
+        page_title="دفعات جاهزة للصرف",
+        filters=filters,
+        pagination_endpoint="payments.inbox_ready_for_payment",
+    )
 
 
 # =========================
