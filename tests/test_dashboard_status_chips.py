@@ -128,10 +128,11 @@ def test_dashboard_shows_chip_counts_for_seeded_payments(client, user_factory, l
 
     assert response.status_code == 200
     assert "مطلوب إجراء منك" in body
-    assert 'chip-count">3<' in body
+    assert 'kpi-count kpi-count-danger">3<' in body
     assert "متأخر" in body
-    assert 'chip-count">1<' in body
+    assert 'kpi-count kpi-count-danger">1<' in body
     assert "جاهز للصرف" in body
+    assert 'kpi-count kpi-count-success">1<' in body
 
 
 def test_ready_chip_hidden_for_project_managers(client, user_factory, login, project, supplier):
@@ -146,7 +147,7 @@ def test_ready_chip_hidden_for_project_managers(client, user_factory, login, pro
     assert response.status_code == 200
     assert "جاهز للصرف" not in body
     assert "مطلوب إجراء منك" in body
-    assert 'chip-count">1<' in body
+    assert 'kpi-count kpi-count-danger">1<' in body
 
 
 def test_chips_skip_missing_endpoints(client, user_factory, login, project, supplier, monkeypatch):
@@ -182,12 +183,12 @@ def test_metrics_cached_per_user_and_ttl(client, user_factory, login, project, s
 
     login(admin)
     first = client.get("/dashboard").get_data(as_text=True)
-    assert 'chip-count">1<' in first
+    assert 'kpi-count kpi-count-danger">1<' in first
 
     _create_payment(status="pending_pm", project=project, supplier=supplier, creator=admin)
     second = client.get("/dashboard").get_data(as_text=True)
-    assert 'chip-count">1<' in second  # cached result
+    assert 'kpi-count kpi-count-danger">1<' in second  # cached result
 
     fake_time[0] += 31  # expire cache
     third = client.get("/dashboard").get_data(as_text=True)
-    assert 'chip-count">2<' in third
+    assert 'kpi-count kpi-count-danger">2<' in third

@@ -25,27 +25,44 @@
                         اختر الوحدة المناسبة للمتابعة. صممت هذه الشاشة لتشبه تجربة Odoo للبلاطات السريعة.
                     </p>
                 </div>
-                <div class="status-chips d-flex flex-column align-items-start gap-2 w-100">
+                <div class="status-kpi-wrapper d-flex flex-column align-items-start gap-2 w-100">
                     <div class="text-muted xsmall">مؤشرات سريعة</div>
-                    <div class="d-flex flex-wrap align-items-center gap-2 justify-content-start">
-                        {% for chip in status_chips %}
-                            {% set chip_class = "status-chip d-inline-flex align-items-center gap-2" %}
-                            {% set chip_class = chip_class + (" chip-attention" if chip.count else " chip-muted") %}
-                            {% if chip.url %}
-                                <a href="{{ chip.url }}" class="{{ chip_class }}">
+                    <div class="status-kpi-bar">
+                        <div class="status-kpi-grid">
+                            {% for chip in status_chips %}
+                                {% set count = chip.count or 0 %}
+                                {% set item_class = "status-kpi-item" %}
+                                {% set item_class = item_class + (" is-clickable" if chip.url else "") %}
+                                {% set item_class = item_class + (" is-zero" if not count else "") %}
+                                {% set count_class = ["kpi-count"] %}
+                                {% if not count %}
+                                    {% set count_class = count_class + ["kpi-count-muted"] %}
+                                {% elif chip.key == "overdue" or chip.key == "action_required" %}
+                                    {% set count_class = count_class + ["kpi-count-danger"] %}
+                                {% elif chip.key == "ready_for_payment" %}
+                                    {% set count_class = count_class + ["kpi-count-success"] %}
+                                {% elif chip.key == "notifications" %}
+                                    {% set count_class = count_class + ["kpi-count-info"] %}
+                                {% else %}
+                                    {% set count_class = count_class + ["kpi-count-muted"] %}
+                                {% endif %}
+
+                                {% if chip.url %}
+                                    <a href="{{ chip.url }}" class="{{ item_class }}">
+                                {% else %}
+                                    <div class="{{ item_class }}">
+                                {% endif %}
+                                        <div class="{{ count_class | join(' ') }}">{{ count }}</div>
+                                        <div class="kpi-label">{{ chip.label }}</div>
+                                {% if chip.url %}
+                                    </a>
+                                {% else %}
+                                    </div>
+                                {% endif %}
                             {% else %}
-                                <div class="{{ chip_class }}">
-                            {% endif %}
-                                    <span class="chip-label">{{ chip.label }}</span>
-                                    <span class="chip-count">{{ chip.count or 0 }}</span>
-                            {% if chip.url %}
-                                </a>
-                            {% else %}
-                                </div>
-                            {% endif %}
-                        {% else %}
-                            <div class="text-muted small">لا توجد مؤشرات متاحة.</div>
-                        {% endfor %}
+                                <div class="text-muted small px-2">لا توجد مؤشرات متاحة.</div>
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
             </div>
