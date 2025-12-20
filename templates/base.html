@@ -15,6 +15,13 @@
         rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
+    <!-- Font Awesome 6 -->
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        integrity="sha512-SzlrxWUlpfuzQ+pcUCosxcglQRNAq/DZjVsC0lE40xsADsfeQoEypE+enwcOiGjk/bSuGGKHEyjSoQ1zVisanQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
     <!-- DataTables CSS + Buttons -->
     <link rel="stylesheet"
           href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -23,6 +30,8 @@
 
     <!-- CSS المشروع -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+
+    {% block extra_css %}{% endblock %}
 
     {% block extra_head %}{% endblock %}
 </head>
@@ -505,6 +514,8 @@
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.colVis.min.js"></script>
+
+{% block extra_js %}{% endblock %}
 
 <!-- تهيئة عامة لأي جدول يحمل الكلاس datatable -->
 <script>
