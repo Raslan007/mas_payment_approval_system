@@ -1,0 +1,747 @@
+{% extends "base.html" %}
+{% block title %}لوحة التحكم - نظام اعتماد الدفعات{% endblock %}
+
+{% block content %}
+
+{# -----------------------------------------
+   تحكم في من له صلاحية رؤية لوحة التحكم
+   الأدوار المسموح لها: admin, engineering_manager, finance, chairman
+   عدّل القائمة حسب ما تريده بالضبط
+------------------------------------------ #}
+{% set allowed_roles = ["admin", "engineering_manager", "finance", "chairman"] %}
+
+{% if (not current_user.is_authenticated)
+      or (not current_user.role)
+      or (current_user.role.name not in allowed_roles) %}
+
+    <div class="alert alert-warning small">
+        لا تملك صلاحية عرض لوحة التحكم العامة للدفعات.
+    </div>
+
+{% else %}
+
+{% set page_title = "لوحة التحكم العامة للدفعات" %}
+
+<div class="mb-3">
+    <h1 class="h5 mb-1">{{ page_title }}</h1>
+    <p class="text-muted mb-0">
+        نظرة إجمالية على مبالغ وعدد الدفعات حسب الحالة والمشروعات.
+    </p>
+</div>
+
+{% if dashboard_alerts %}
+    <div class="mb-3">
+        {% for alert in dashboard_alerts %}
+            <div class="alert alert-{{ alert.level }} small mb-2" role="alert">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                {{ alert.text }}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<!-- كروت إجمالية تجمع المؤشرات التشغيلية والمالية -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-6 g-3 mb-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="pending_review" data-kpi-value="{{ kpis.pending_review }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">دفعات قيد المراجعة</span>
+                <i class="bi bi-hourglass-split text-warning"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.pending_review }}</div>
+            <div class="text-muted xsmall">بانتظار تقدمها في دورة الاعتماد.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="overdue_total" data-kpi-value="{{ kpis.overdue_total }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">دفعات متأخرة زمنيًا</span>
+                <i class="bi bi-exclamation-octagon text-danger"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.overdue_total }}</div>
+            <div class="text-muted xsmall">حسب آخر تحديث لكل مرحلة.</div>
+            <div class="d-flex flex-wrap gap-1 mt-2">
+                {% for overdue in overdue_stage_breakdown %}
+                    <span class="badge bg-light text-dark border small" data-overdue-stage="{{ overdue.status }}">
+                        {{ overdue.label }}: {{ overdue.count }}
+                    </span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="action_required" data-kpi-value="{{ kpis.action_required }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">بحاجة لإجراء منك</span>
+                <i class="bi bi-bell text-primary"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.action_required }}</div>
+            <div class="text-muted xsmall">وفق دورك والصلاحيات الحالية.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="outstanding_amount" data-kpi-value="{{ kpis.outstanding_amount }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي الالتزامات (قيد/معتمد)</span>
+                <i class="bi bi-wallet2 text-primary"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ kpis.outstanding_amount|num(2) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">دفعات قيد المراجعة ومعتمدة للصرف.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="paid_this_month" data-kpi-value="{{ kpis.paid_this_month }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">تم صرفه هذا الشهر</span>
+                <i class="bi bi-cash-coin text-success"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ kpis.paid_this_month|num(2) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">مبالغ مالية مسجلة خلال الشهر الحالي.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="ready_amount" data-kpi-value="{{ kpis.ready_amount }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">مبالغ جاهزة للصرف</span>
+                <i class="bi bi-shield-check text-success"></i>
+            </div>
+            <div class="h4 mb-1">
+                {{ kpis.ready_amount|num(2) }} <span class="h6 text-muted">ج.م</span>
+            </div>
+            <div class="text-muted xsmall">دفعات معتمدة ماليًا ولم تُسجل كمدفوعة.</div>
+        </div>
+    </div>
+</div>
+
+<!-- مؤشرات الأعمار الزمنية -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-3 mb-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="oldest_overdue" data-kpi-value="{{ kpis.oldest_overdue }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">أقدم تأخير (أيام)</span>
+                <i class="bi bi-alarm text-danger"></i>
+            </div>
+            <div class="h4 mb-1">{{ kpis.oldest_overdue }}</div>
+            <div class="text-muted xsmall">زمن الانتظار منذ آخر تحديث.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">أكثر مرحلة بها تأخير</span>
+                <i class="bi bi-flag text-warning"></i>
+            </div>
+            <div class="h6 mb-1">
+                {{ aging_kpis.worst_stage_label if aging_kpis.worst_stage_label else "لا يوجد تأخير" }}
+            </div>
+            <div class="text-muted xsmall">يتم التحديث وفق تجاوز SLA.</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">تنبيهات المتأخرات</span>
+                <i class="bi bi-bell-fill text-primary"></i>
+            </div>
+            <div class="h6 mb-1">{{ kpis.overdue_total }} دفعات</div>
+            <div class="text-muted xsmall">ضمن نطاق صلاحيات المستخدم الحالي.</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">عدد الدفعات آخر 30 يومًا</div>
+                    <div class="text-muted xsmall">يعرض حجم العمل اليومي.</div>
+                </div>
+            </div>
+            <canvas id="paymentsDailyChart" height="160" aria-label="رسم بياني لعدد الدفعات اليومية" role="img"></canvas>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">توزيع الدفعات حسب الحالة</div>
+                    <div class="text-muted xsmall">يعكس نسب الحالات الحالية.</div>
+                </div>
+            </div>
+            <canvas id="paymentsStatusChart" height="160" aria-label="رسم بياني لتوزيع حالات الدفعات" role="img"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">مسار الاعتماد</div>
+                    <div class="text-muted xsmall">عدد الدفعات وإجمالي المبالغ في كل مرحلة.</div>
+                </div>
+            </div>
+            <canvas id="workflowFunnelChart" height="190" aria-label="مخطط مسار الاعتماد" role="img"></canvas>
+            <div class="text-muted xsmall mt-2">اضغط على أي مرحلة للانتقال إلى قائمة الدفعات مع تطبيق الفلتر.</div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">اتجاه التدفقات النقدية - آخر 60 يومًا</div>
+                    <div class="text-muted xsmall">خط الالتزامات (قيد/معتمد) مقابل المدفوع.</div>
+                </div>
+            </div>
+            <canvas id="cashFlowChart" height="190" aria-label="اتجاه التدفقات النقدية" role="img"></canvas>
+            <div class="text-muted xsmall mt-2">اضغط على نقطة في أحد الخطين للذهاب للقائمة بتاريخ اليوم نفسه.</div>
+        </div>
+    </div>
+</div>
+
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">إجراءات مطلوبة</div>
+            <div class="text-muted xsmall">دفعات تنتظر إجراءك وفق دورك الحالي.</div>
+        </div>
+    </div>
+    {% if action_required %}
+        <div class="list-group list-group-flush">
+            {% for payment in action_required %}
+                <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
+                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2"
+                   data-payment-id="{{ payment.id }}">
+                    <div>
+                        <div class="fw-semibold small mb-1">
+                            دفعة رقم {{ payment.id }}
+                            {% if payment.project %}
+                                • {{ payment.project.project_name }}
+                            {% endif %}
+                        </div>
+                        <div class="text-muted xsmall">
+                            {{ payment.human_status }}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="fw-semibold">{{ payment.amount|num(2) }} ج.م</div>
+                        <span class="badge bg-{{ payment.status_badge_class }}">تفاصيل</span>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد دفعات تنتظر إجراءك حاليًا.</p>
+    {% endif %}
+</div>
+
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">أعلى الدفعات المتأخرة (SLA)</div>
+            <div class="text-muted xsmall">حسب آخر تحديث ومرحلة العمل الحالية.</div>
+        </div>
+    </div>
+    {% if top_overdue %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width: 70px;">رقم</th>
+                        <th>المشروع</th>
+                        <th class="text-center">المرحلة</th>
+                        <th class="text-center">أيام التأخير</th>
+                        <th class="text-center">حد SLA (أيام)</th>
+                        <th class="text-end" style="width: 120px;">التفاصيل</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in top_overdue %}
+                        <tr>
+                            <td class="text-center small">{{ item.payment.id }}</td>
+                            <td class="small">{{ item.payment.project.project_name if item.payment.project else '-' }}</td>
+                            <td class="text-center small">{{ item.payment.human_status }}</td>
+                            <td class="text-center fw-semibold text-danger">{{ item.days_overdue }}</td>
+                            <td class="text-center text-muted xsmall">{{ item.sla_days }}</td>
+                            <td class="text-end">
+                                <a href="{{ url_for('payments.detail', payment_id=item.payment.id) }}" class="btn btn-sm btn-outline-primary">عرض</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد متأخرات ضمن صلاحياتك حالياً.</p>
+    {% endif %}
+</div>
+
+{% set show_finance_ready = current_user.role and current_user.role.name in ["finance", "admin"] %}
+{% if show_finance_ready %}
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">جاهزة للصرف (مالية)</div>
+            <div class="text-muted xsmall">دفعات معتمدة، مكتملة، ولم تُصرف بعد.</div>
+        </div>
+    </div>
+    {% if ready_for_payment_list %}
+        <div class="list-group list-group-flush">
+            {% for payment in ready_for_payment_list %}
+                <a href="{{ url_for('payments.detail', payment_id=payment.id) }}"
+                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2"
+                   data-ready-payment-id="{{ payment.id }}">
+                    <div>
+                        <div class="fw-semibold small mb-1">
+                            دفعة رقم {{ payment.id }}
+                            {% if payment.project %}• {{ payment.project.project_name }}{% endif %}
+                        </div>
+                        <div class="text-muted xsmall">
+                            {% if payment.supplier %}المورد: {{ payment.supplier.name }}{% else %}مورد غير محدد{% endif %}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="fw-semibold">{{ (payment.amount_finance or payment.amount or 0)|num(2) }} ج.م</div>
+                        <span class="badge bg-info text-dark">التفاصيل</span>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد دفعات جاهزة للصرف حالياً ضمن صلاحياتك.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <div class="fw-semibold small">مؤشرات SLA لكل مرحلة</div>
+            <div class="text-muted xsmall">متوسط زمن الاعتماد (أيام) بناءً على حركات الموافقات.</div>
+        </div>
+    </div>
+    {% if sla_metrics %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th>المرحلة</th>
+                    <th class="text-center">متوسط الأيام</th>
+                    <th class="text-center">عدد العينات</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for metric in sla_metrics %}
+                    <tr>
+                        <td class="small">{{ status_labels.get(metric.stage, metric.stage) if status_labels else metric.stage }}</td>
+                        <td class="text-center fw-semibold">{{ metric.average_days }}</td>
+                        <td class="text-center text-muted xsmall">{{ metric.count }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد بيانات كافية لحساب مؤشرات SLA حالياً.</p>
+    {% endif %}
+</div>
+
+<div class="row g-3">
+    <!-- توزيع حسب الحالة -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">إجمالي مبالغ الدفعات حسب الحالة</div>
+                    <div class="text-muted xsmall">
+                        يساعد على معرفة حجم الالتزامات في كل مرحلة اعتماد.
+                    </div>
+                </div>
+            </div>
+
+            {% if totals_by_status %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>الحالة</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                            <th class="text-center" style="width: 120px;">نسبة من الإجمالي</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for s in totals_by_status %}
+                            {% set ratio = (s.total_amount / (total_amount or 1) * 100)
+                                           if (total_amount or 0) > 0 else 0 %}
+                            <tr>
+                                <td class="small">
+                                    {{ s.label }}
+                                </td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(s.total_amount or 0) }}
+                                </td>
+                                <td class="text-center">
+                                    <div class="text-muted xsmall mb-1">
+                                        {{ ratio|round(0) }}٪
+                                    </div>
+                                    <div class="progress progress-thin">
+                                        <div class="progress-bar"
+                                             role="progressbar"
+                                             style="width: {{ ratio|round(0) }}%;"
+                                             aria-valuenow="{{ ratio|round(0) }}"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد بيانات كافية لعرض التوزيع حسب الحالة.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- توزيع حسب المشروع -->
+    <div class="col-lg-6">
+        <div class="bg-white rounded-3 shadow-sm p-3 card-table h-100">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold small">إجمالي مبالغ الدفعات حسب المشروع</div>
+                    <div class="text-muted xsmall">
+                        يساعد على تقييم حجم الصرف والالتزامات لكل مشروع.
+                    </div>
+                </div>
+            </div>
+
+            {% if totals_by_project %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>المشروع</th>
+                            <th class="text-end">إجمالي المبلغ (ج.م)</th>
+                            <th class="text-center" style="width: 120px;">نسبة من الإجمالي</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for p in totals_by_project %}
+                            {% set ratio = (p.total_amount / (total_amount or 1) * 100)
+                                           if (total_amount or 0) > 0 else 0 %}
+                            <tr>
+                                <td class="small">
+                                    {{ p.project_name }}
+                                </td>
+                                <td class="text-end fw-semibold">
+                                    {{ "%.2f"|format(p.total_amount or 0) }}
+                                </td>
+                                <td class="text-center">
+                                    <div class="text-muted xsmall mb-1">
+                                        {{ ratio|round(0) }}٪
+                                    </div>
+                                    <div class="progress progress-thin">
+                                        <div class="progress-bar"
+                                             role="progressbar"
+                                             style="width: {{ ratio|round(0) }}%;"
+                                             aria-valuenow="{{ ratio|round(0) }}"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">
+                    لا توجد مشروعات مرتبطة بالدفعات حتى الآن.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- قائمة الدفعات مع التصفح -->
+<div class="bg-white rounded-3 shadow-sm p-3 card-table mt-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <div>
+            <div class="fw-semibold small">أحدث الدفعات</div>
+            <div class="text-muted xsmall">يتم تحميل الصفحات تدريجيًا لتحسين الأداء.</div>
+        </div>
+        {% if pagination.total %}
+            {% set start_item = ((pagination.page - 1) * pagination.per_page) + 1 %}
+            {% set end_item = (pagination.page * pagination.per_page) if (pagination.page * pagination.per_page) < pagination.total else pagination.total %}
+            <div class="text-muted xsmall">
+                عرض {{ start_item }}–{{ end_item }} من {{ pagination.total }}
+            </div>
+        {% endif %}
+    </div>
+
+    {% if payments %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th class="text-center" style="width: 80px;">رقم</th>
+                    <th>المشروع</th>
+                    <th class="text-end" style="width: 150px;">المبلغ (ج.م)</th>
+                    <th class="text-center" style="width: 160px;">الحالة</th>
+                    <th class="text-nowrap" style="width: 160px;">تاريخ الإنشاء</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for payment in payments %}
+                    <tr>
+                        <td class="text-center small">{{ payment.id }}</td>
+                        <td class="small">{{ payment.project.project_name if payment.project else '-' }}</td>
+                        <td class="text-end fw-semibold">{{ "%.2f"|format(payment.amount or 0) }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-{{ payment.status_badge_class }}">{{ payment.human_status }}</span>
+                        </td>
+                        <td class="small text-nowrap">
+                            {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else '' }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted small mb-0">لا توجد دفعات لعرضها حالياً.</p>
+    {% endif %}
+
+    {% if pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الدفعات">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    {% set prev_params = query_params.copy() %}
+                    {% set _ = prev_params.update({'page': pagination.prev_num if pagination.has_prev else 1, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for('main.overview', **prev_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        {% set page_params = query_params.copy() %}
+                        {% set _ = page_params.update({'page': p, 'per_page': pagination.per_page}) %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('main.overview', **page_params) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    {% set next_params = query_params.copy() %}
+                    {% set _ = next_params.update({'page': pagination.next_num if pagination.has_next else pagination.page, 'per_page': pagination.per_page}) %}
+                    <a class="page-link" href="{{ url_for('main.overview', **next_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for('main.overview') }}" class="d-flex align-items-center gap-2 mb-0">
+                    {% set per_page_params = query_params.copy() %}
+                    {% set _ = per_page_params.pop('per_page', None) %}
+                    {% set _ = per_page_params.pop('page', None) %}
+                    {% for key, value in per_page_params.items() %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for option in [10, 20, 50, 100] %}
+                            <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
+</div>
+
+{% endif %} {# نهاية شرط الصلاحيات #}
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    (() => {
+        const daily = {{ daily_chart|tojson }};
+        const status = {{ status_chart|tojson }};
+        const workflowFunnel = {{ workflow_funnel|tojson }};
+        const cashFlow = {{ cash_flow_chart|tojson }};
+        const listingBaseUrl = {{ listing_base_url|tojson }};
+        const statusFilters = {{ status_filters|tojson }};
+
+        const buildListingUrl = (params = {}) => {
+            if (!listingBaseUrl) return null;
+            const search = new URLSearchParams(params);
+            return `${listingBaseUrl}?${search.toString()}`;
+        };
+
+        const dailyCtx = document.getElementById('paymentsDailyChart');
+        if (dailyCtx && daily?.labels) {
+            new Chart(dailyCtx, {
+                type: 'line',
+                data: {
+                    labels: daily.labels,
+                    datasets: [{
+                        label: 'عدد الدفعات',
+                        data: daily.values,
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                        tension: 0.25,
+                        fill: true,
+                        pointRadius: 3
+                    }]
+                },
+                options: {
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+        }
+
+        const statusCtx = document.getElementById('paymentsStatusChart');
+        if (statusCtx && status?.labels) {
+            new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: status.labels,
+                    datasets: [{
+                        data: status.values,
+                        backgroundColor: ['#0d6efd', '#ffc107', '#0dcaf0', '#20c997', '#198754', '#6c757d', '#dc3545']
+                    }]
+                },
+                options: {
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        const workflowCtx = document.getElementById('workflowFunnelChart');
+        if (workflowCtx && workflowFunnel?.length) {
+            const funnelChart = new Chart(workflowCtx, {
+                type: 'bar',
+                data: {
+                    labels: workflowFunnel.map(stage => stage.label),
+                    datasets: [
+                        {
+                            label: 'عدد الدفعات',
+                            data: workflowFunnel.map(stage => stage.count),
+                            backgroundColor: 'rgba(13, 110, 253, 0.5)',
+                            borderColor: '#0d6efd',
+                            borderWidth: 1,
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'إجمالي المبلغ (ج.م)',
+                            data: workflowFunnel.map(stage => stage.amount),
+                            backgroundColor: 'rgba(25, 135, 84, 0.35)',
+                            borderColor: '#198754',
+                            borderWidth: 1,
+                            yAxisID: 'y1',
+                        }
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    interaction: { mode: 'nearest', intersect: true },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } },
+                        y1: {
+                            position: 'right',
+                            beginAtZero: true,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                callback: (value) => new Intl.NumberFormat('ar-EG').format(value)
+                            }
+                        }
+                    },
+                    plugins: { legend: { position: 'bottom' } },
+                    onClick: (evt) => {
+                        const points = funnelChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+                        if (!points?.length) return;
+                        const { index } = points[0];
+                        const stage = workflowFunnel[index];
+                        const targetUrl = buildListingUrl({ status: stage.status });
+                        if (targetUrl) {
+                            window.location.href = targetUrl;
+                        }
+                    }
+                },
+            });
+        }
+
+        const cashFlowCtx = document.getElementById('cashFlowChart');
+        if (cashFlowCtx && cashFlow?.labels) {
+            const cashFlowChart = new Chart(cashFlowCtx, {
+                type: 'line',
+                data: {
+                    labels: cashFlow.labels,
+                    datasets: [
+                        {
+                            label: 'الالتزامات (قيد/معتمد)',
+                            data: cashFlow.datasets?.outstanding || [],
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                            tension: 0.25,
+                            fill: true,
+                            pointRadius: 3,
+                        },
+                        {
+                            label: 'مدفوع',
+                            data: cashFlow.datasets?.paid || [],
+                            borderColor: '#198754',
+                            backgroundColor: 'rgba(25, 135, 84, 0.15)',
+                            tension: 0.25,
+                            fill: true,
+                            pointRadius: 3,
+                        },
+                    ],
+                },
+                options: {
+                    plugins: { legend: { position: 'bottom' } },
+                    interaction: { mode: 'nearest', intersect: false },
+                    scales: {
+                        y: { beginAtZero: true }
+                    },
+                    onClick: (evt) => {
+                        const points = cashFlowChart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+                        if (!points?.length) return;
+                        const { index, datasetIndex } = points[0];
+                        const dateLabel = cashFlow.labels[index];
+                        const params = {
+                            date_from: dateLabel,
+                            date_to: dateLabel,
+                        };
+                        if (datasetIndex === 0) {
+                            params.status_group = statusFilters?.outstanding_group || 'outstanding';
+                        } else {
+                            params.status = statusFilters?.paid || 'paid';
+                        }
+                        const targetUrl = buildListingUrl(params);
+                        if (targetUrl) {
+                            window.location.href = targetUrl;
+                        }
+                    },
+                },
+            });
+        }
+    })();
+</script>
+{% endblock %}
