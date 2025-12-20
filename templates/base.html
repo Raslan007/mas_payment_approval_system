@@ -41,10 +41,12 @@
 {% set role_name = current_user.role.name if is_auth and current_user.role else '' %}
 {% set unread_notifications_count = current_user.notifications.filter_by(is_read=False).count() if is_auth else 0 %}
 
-<div class="app-wrapper d-flex">
+{% set hide_sidebar = request.endpoint in ['main.dashboard', 'main.overview'] %}
+
+<div class="app-wrapper d-flex{% if hide_sidebar %} layout--no-sidebar{% endif %}">
 
     {# ======= Sidebar (Desktop) ======= #}
-    {% if is_auth %}
+    {% if is_auth and not hide_sidebar %}
     <aside class="app-sidebar d-none d-md-flex flex-column">
         <div class="app-sidebar-header d-flex align-items-center justify-content-between px-3 py-3">
             <div class="d-flex align-items-center gap-2">
@@ -248,11 +250,13 @@
                         </div>
                     </div>
                 {% else %}
-                    <button class="btn btn-outline-secondary btn-sm d-md-none" type="button"
-                            data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar"
-                            aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
+                    {% if not hide_sidebar %}
+                        <button class="btn btn-outline-secondary btn-sm d-md-none" type="button"
+                                data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar"
+                                aria-controls="mobileSidebar">
+                            <i class="bi bi-list"></i>
+                        </button>
+                    {% endif %}
                     <span class="fw-semibold small d-none d-md-inline">
                         {{ page_title or "لوحة التحكم" }}
                     </span>
@@ -292,7 +296,7 @@
         </header>
 
         {# ======= Sidebar Mobile (Offcanvas) ======= #}
-        {% if is_auth %}
+        {% if is_auth and not hide_sidebar %}
         <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileSidebar">
             <div class="offcanvas-header">
                 <h5 class="offcanvas-title">القائمة الرئيسية</h5>

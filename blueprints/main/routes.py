@@ -107,18 +107,18 @@ def index():
 
     # مدير مشروع → دفعاته
     if role_name == "project_manager":
-        return redirect(url_for("payments.index"))
+        return redirect(url_for("main.dashboard"))
 
     # مهندس → دفعاته
     if role_name == "engineer":
-        return redirect(url_for("payments.index"))
+        return redirect(url_for("main.dashboard"))
 
     # Data Entry (DC) → إدارة المستخدمين
     if role_name == "dc":
-        return redirect(url_for("users.list_users"))
+        return redirect(url_for("main.dashboard"))
 
     if role_name == "payment_notifier":
-        return redirect(url_for("payments.finance_eng_approved"))
+        return redirect(url_for("main.dashboard"))
 
     # admin + engineering_manager + chairman + finance → لوحة التحكم العامة
     if role_name in ("admin", "engineering_manager", "chairman", "finance"):
@@ -154,6 +154,8 @@ def no_role():
     "finance",
     "engineer",
     "project_manager",
+    "payment_notifier",
+    "dc",
 )
 def dashboard():
     role_name = current_user.role.name if current_user.role else ""

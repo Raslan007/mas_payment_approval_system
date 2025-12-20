@@ -61,8 +61,8 @@ class CsrfProtectionTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
-            response.headers.get("Location", "").endswith("/"),
-            "Successful login should redirect to the home page",
+            response.headers.get("Location", "").endswith("/dashboard"),
+            "Successful login should redirect to the dashboard",
         )
 
 

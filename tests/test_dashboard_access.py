@@ -44,6 +44,7 @@ def roles():
         "project_manager",
         "dc",
         "chairman",
+        "payment_notifier",
     ]
     role_objects = {name: Role(name=name) for name in role_names}
     db.session.add_all(role_objects.values())
@@ -82,7 +83,8 @@ def login(client):
         ("engineering_manager", 200),
         ("finance", 200),
         ("chairman", 200),
-        ("dc", 403),
+        ("dc", 200),
+        ("payment_notifier", 200),
     ],
 )
 def test_dashboard_access_matrix(client, user_factory, login, role_name, expected_status):
@@ -198,3 +200,33 @@ def test_overview_includes_app_launcher_button(client, user_factory, login):
     assert response.status_code == 200
     assert 'href="/dashboard"' in body
     assert "لوحة التطبيقات" in body
+
+
+def test_dashboard_hides_sidebar(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "app-sidebar" not in body
+    assert "mobileSidebar" not in body
+
+
+def test_overview_hides_sidebar(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/overview")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "app-sidebar" not in body
+    assert "mobileSidebar" not in body
+
+
+def test_non_launcher_page_shows_sidebar(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/payments/")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "app-sidebar" in body
+    assert "mobileSidebar" in body
