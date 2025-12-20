@@ -19,7 +19,7 @@ def login():
 
         login_user(user)
         flash("تم تسجيل الدخول بنجاح", "success")
-        return redirect(url_for("main.index"))
+        return redirect(url_for("main.dashboard"))
 
     return render_template("auth/login.html")
 

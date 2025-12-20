@@ -116,6 +116,10 @@ body {
     background-color: #f3f4f7;
 }
 
+.layout--no-sidebar .app-main {
+    width: 100%;
+}
+
 .app-footer {
     font-size: 0.78rem;
 }
