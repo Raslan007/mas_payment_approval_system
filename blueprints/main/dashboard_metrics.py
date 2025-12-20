@@ -1,44 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any
 import time
 
 from flask import current_app, url_for
-from sqlalchemy import and_, case, func, inspect
+from sqlalchemy import func, inspect
 from sqlalchemy.exc import OperationalError
 from werkzeug.routing import BuildError
 
 from extensions import db
 from models import PaymentRequest
-from .dashboard_helpers import resolve_sla_thresholds
+from blueprints.payments.inbox_queries import (
+    ACTION_REQUIRED_STATUSES,
+    READY_FOR_PAYMENT_ROLES,
+    build_action_required_query,
+    build_overdue_query,
+    build_ready_for_payment_query,
+)
 
-STATUS_PENDING_PM = "pending_pm"
-STATUS_PENDING_ENG = "pending_eng"
-STATUS_PENDING_FINANCE = "pending_finance"
-STATUS_READY_FOR_PAYMENT = "ready_for_payment"
-
-READY_FOR_PAYMENT_ROLES: set[str] = {"finance", "admin", "engineering_manager"}
-
-ACTION_REQUIRED_STATUSES: dict[str, set[str]] = {
-    "admin": {
-        STATUS_PENDING_PM,
-        STATUS_PENDING_ENG,
-        STATUS_PENDING_FINANCE,
-        STATUS_READY_FOR_PAYMENT,
-    },
-    "engineering_manager": {STATUS_PENDING_PM, STATUS_PENDING_ENG},
-    "project_manager": {STATUS_PENDING_PM},
-    "finance": {STATUS_PENDING_FINANCE, STATUS_READY_FOR_PAYMENT},
-}
-
-ACTION_ENDPOINTS: dict[str, str] = {
-    "admin": "payments.list_all",
-    "engineering_manager": "payments.eng_review",
-    "project_manager": "payments.pm_review",
-    "finance": "payments.list_finance_review",
-}
-READY_ENDPOINT = "payments.finance_eng_approved"
+ACTION_ENDPOINT = "payments.inbox_action_required"
+OVERDUE_ENDPOINT = "payments.inbox_overdue"
+READY_ENDPOINT = "payments.inbox_ready_for_payment"
 DEFAULT_LISTING_ENDPOINT = "payments.index"
 _CACHE_TTL_SECONDS = 30
 _STATUS_CACHE: dict[tuple[int | None, str, bool], dict[str, Any]] = {}
@@ -62,54 +44,13 @@ def _safe_url(endpoint: str | None) -> str | None:
         return None
 
 
-def _count_for_statuses(base_query, statuses: set[str]) -> int:
-    if not statuses:
-        return 0
-
+def _count_from_query(q) -> int:
     return (
-        base_query.filter(PaymentRequest.status.in_(statuses))
+        q.order_by(None)
         .with_entities(func.count(PaymentRequest.id))
         .scalar()
         or 0
     )
-
-
-def _compute_overdue_count(base_query) -> int:
-    sla_thresholds = resolve_sla_thresholds(current_app.config)
-    timestamp_column = func.coalesce(
-        PaymentRequest.updated_at, PaymentRequest.created_at, func.now()
-    )
-
-    overdue_expr = None
-    now = datetime.utcnow()
-    for stage, days in sla_thresholds.items():
-        try:
-            days_int = int(days)
-        except (TypeError, ValueError):
-            continue
-
-        if days_int <= 0:
-            continue
-
-        cutoff = now - timedelta(days=days_int)
-        stage_expr = func.sum(
-            case(
-                (
-                    and_(
-                        PaymentRequest.status == stage,
-                        timestamp_column < cutoff,
-                    ),
-                    1,
-                ),
-                else_=0,
-            )
-        )
-        overdue_expr = stage_expr if overdue_expr is None else overdue_expr + stage_expr
-
-    if overdue_expr is None:
-        return 0
-
-    return base_query.with_entities(func.coalesce(overdue_expr, 0)).scalar() or 0
 
 
 def build_status_chips(
@@ -134,19 +75,29 @@ def build_status_chips(
 
     working_query = base_query.order_by(None)
 
-    action_required_statuses = ACTION_REQUIRED_STATUSES.get(role_name, set())
-    action_required_count = _count_for_statuses(working_query, action_required_statuses)
+    action_required_q = build_action_required_query(working_query, role_name)
+    action_required_count = _count_from_query(action_required_q)
 
     ready_for_payment_count = 0
     if role_name in READY_FOR_PAYMENT_ROLES:
-        ready_for_payment_count = _count_for_statuses(
-            working_query, {STATUS_READY_FOR_PAYMENT}
+        ready_for_payment_count = _count_from_query(
+            build_ready_for_payment_query(working_query)
         )
 
-    overdue_count = _compute_overdue_count(working_query)
+    overdue_count = _count_from_query(
+        build_overdue_query(
+            working_query,
+            config=current_app.config,
+        )
+    )
 
-    action_endpoint = _safe_url(ACTION_ENDPOINTS.get(role_name) or DEFAULT_LISTING_ENDPOINT)
+    action_endpoint = (
+        _safe_url(ACTION_ENDPOINT)
+        if ACTION_REQUIRED_STATUSES.get(role_name)
+        else None
+    )
     ready_endpoint = _safe_url(READY_ENDPOINT) if ready_for_payment_count else None
+    overdue_endpoint = _safe_url(OVERDUE_ENDPOINT)
 
     chips: list[dict[str, Any]] = [
         {
@@ -159,7 +110,7 @@ def build_status_chips(
             "key": "overdue",
             "label": "متأخر",
             "count": overdue_count,
-            "url": _safe_url(DEFAULT_LISTING_ENDPOINT),
+            "url": overdue_endpoint or _safe_url(DEFAULT_LISTING_ENDPOINT),
         },
     ]
 

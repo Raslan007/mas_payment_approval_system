@@ -4,20 +4,21 @@ from datetime import datetime, timedelta
 
 from flask import redirect, url_for, render_template, request, flash, current_app, g
 from flask_login import login_required, current_user
-from sqlalchemy import case, func, false, inspect
+from sqlalchemy import case, func
 from sqlalchemy.orm import selectinload
 
 from extensions import db
 from permissions import role_required
 from . import main_bp
 from .dashboard_metrics import build_status_chips
-from models import PaymentRequest, Project, PaymentApproval, user_projects
+from models import PaymentRequest, Project, PaymentApproval
 from .navigation import get_launcher_modules
 from .dashboard_helpers import (
     compute_overdue_items,
     compute_stage_sla_metrics,
     resolve_sla_thresholds,
 )
+from blueprints.payments.inbox_queries import scoped_inbox_base_query
 
 # تعريف الحالات مثل ملف payments.routes
 STATUS_DRAFT = "draft"
@@ -54,39 +55,7 @@ def _scoped_dashboard_query():
     Build a base query for dashboard data respecting the current user's role and project access.
     """
 
-    role_name = current_user.role.name if current_user.role else None
-    query = PaymentRequest.query
-    scoped_project_ids: list[int] = []
-
-    def _project_ids_from_link_table() -> list[int]:
-        try:
-            inspector = inspect(db.engine)
-            if not inspector.has_table("user_projects"):
-                return []
-        except Exception:
-            return []
-
-        rows = (
-            db.session.query(user_projects.c.project_id)
-            .filter(user_projects.c.user_id == current_user.id)
-            .all()
-        )
-        return [row.project_id for row in rows]
-
-    if role_name == "project_manager":
-        scoped_project_ids = _project_ids_from_link_table()
-        if current_user.project_id:
-            scoped_project_ids.append(current_user.project_id)
-        scoped_project_ids = list({pid for pid in scoped_project_ids if pid})
-        if scoped_project_ids:
-            query = query.filter(PaymentRequest.project_id.in_(scoped_project_ids))
-        else:
-            query = query.filter(false())
-    elif role_name == "engineer":
-        query = query.filter(PaymentRequest.created_by == current_user.id)
-    elif role_name == "dc":
-        query = query.filter(false())
-
+    query, role_name, scoped_project_ids = scoped_inbox_base_query(current_user)
     return query, role_name, scoped_project_ids
 
 
