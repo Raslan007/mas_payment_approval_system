@@ -28,13 +28,14 @@ def role_required(*allowed_roles):
                 abort(401)
 
             user_role = current_user.role.name if current_user.role else None
+            effective_role = "engineer" if user_role == "project_engineer" else user_role
 
             # 1) admin: صلاحيات كاملة دائماً
-            if user_role == "admin":
+            if effective_role == "admin":
                 return view_func(*args, **kwargs)
 
             # 2) chairman: قراءة فقط للراوتات التي تسمح به صراحةً
-            if user_role == "chairman":
+            if effective_role == "chairman":
                 if "chairman" not in allowed_roles:
                     abort(403)
                 if request.method not in ("GET", "HEAD", "OPTIONS"):
@@ -47,7 +48,7 @@ def role_required(*allowed_roles):
 
             # 4) لو تم تمرير أدوار مسموح بها، يجب أن يكون دور المستخدم ضمنها
             if allowed_roles:
-                if user_role not in allowed_roles:
+                if effective_role not in allowed_roles and user_role not in allowed_roles:
                     abort(403)
 
             # 5) لو وصلنا هنا، إذن الدور مسموح له بالدخول

@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}تعيينات المشاريع - لوحة الإدارة{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 col-lg-10 col-xl-8 mx-auto">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title mb-3">تعيينات المشاريع</h5>
+                <p class="text-muted small mb-4">
+                    هذه التعيينات تتحكم في نطاق رؤية الدفعات واللوحات.
+                </p>
+                {% if not has_mapping_table %}
+                    <div class="alert alert-warning">
+                        جدول ربط المستخدمين بالمشروعات غير متاح حالياً. برجاء التأكد من تشغيل التهيئة أو الترقيات اللازمة.
+                    </div>
+                {% endif %}
+
+                <form method="post" action="{{ url_for('admin.project_assignments') }}" class="d-grid gap-4">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="d-grid gap-2">
+                        <label class="form-label fw-semibold">١) اختيار المستخدم</label>
+                        <select name="user_id" class="form-select" required>
+                            <option value="">اختر مستخدمًا...</option>
+                            {% for user in users %}
+                                <option value="{{ user.id }}" {% if selected_user and selected_user.id == user.id %}selected{% endif %}>
+                                    {{ user.full_name }} ({{ user.email }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <label class="form-label fw-semibold">٢) اختيار الدور</label>
+                        <select name="scoped_role" class="form-select" required>
+                            {% for role in allowed_roles %}
+                                <option value="{{ role }}" {% if selected_role == role %}selected{% endif %}>
+                                    {% if role == 'project_manager' %}مدير مشروع{% elif role == 'project_engineer' %}مهندس مشروع{% else %}{{ role }}{% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <label class="form-label fw-semibold mb-0">٣) قائمة المشاريع</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="select-all-projects" {% if not has_mapping_table %}disabled{% endif %}>تحديد الكل</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-projects" {% if not has_mapping_table %}disabled{% endif %}>مسح الكل</button>
+                            </div>
+                        </div>
+                        <div class="border rounded p-3 bg-light">
+                            <div class="row g-2">
+                                {% for project in projects %}
+                                    <div class="col-12 col-md-6">
+                                        <div class="form-check">
+                                            <input
+                                                class="form-check-input project-checkbox"
+                                                type="checkbox"
+                                                name="project_ids"
+                                                value="{{ project.id }}"
+                                                id="project-{{ project.id }}"
+                                                {% if selected_project_ids and project.id in selected_project_ids %}checked{% endif %}
+                                                {% if not selected_user or not has_mapping_table %}disabled{% endif %}
+                                            >
+                                            <label class="form-check-label" for="project-{{ project.id }}">
+                                                {{ project.project_name }}
+                                            </label>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="small text-muted">
+                            المشاريع المسندة: <span id="assigned-count">{{ selected_project_ids|length }}</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end">
+                        <button type="submit" class="btn btn-primary" {% if not selected_user or not has_mapping_table %}disabled{% endif %}>
+                            حفظ التعيينات
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const projectCheckboxes = Array.from(document.querySelectorAll(".project-checkbox"));
+        const assignedCountEl = document.getElementById("assigned-count");
+        const selectAllBtn = document.getElementById("select-all-projects");
+        const clearBtn = document.getElementById("clear-projects");
+        const userSelect = document.querySelector("select[name='user_id']");
+        const roleSelect = document.querySelector("select[name='scoped_role']");
+        const form = document.querySelector("form");
+        const baseUrl = "{{ url_for('admin.project_assignments') }}";
+
+        function updateCount() {
+            const count = projectCheckboxes.filter((cb) => cb.checked && !cb.disabled).length;
+            assignedCountEl.textContent = count;
+        }
+
+        projectCheckboxes.forEach((cb) => cb.addEventListener("change", updateCount));
+
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener("click", function () {
+                projectCheckboxes.forEach((cb) => {
+                    if (!cb.disabled) {
+                        cb.checked = true;
+                    }
+                });
+                updateCount();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener("click", function () {
+                projectCheckboxes.forEach((cb) => {
+                    if (!cb.disabled) {
+                        cb.checked = false;
+                    }
+                });
+                updateCount();
+            });
+        }
+
+        [userSelect, roleSelect].forEach((selectEl) => {
+            selectEl?.addEventListener("change", function () {
+                const params = new URLSearchParams();
+                if (userSelect?.value) {
+                    params.set("user_id", userSelect.value);
+                }
+                if (roleSelect?.value) {
+                    params.set("scoped_role", roleSelect.value);
+                }
+                const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+                window.location.href = url;
+            });
+        });
+
+        updateCount();
+    });
+</script>
+{% endblock %}
