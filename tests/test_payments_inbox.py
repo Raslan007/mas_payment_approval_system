@@ -5,6 +5,7 @@ from app import create_app
 from config import Config
 from extensions import db
 from models import PaymentRequest, Project, Supplier, Role, User
+from project_scopes import get_scoped_project_ids
 from blueprints.payments import routes as payment_routes
 
 
@@ -63,6 +64,18 @@ class PaymentsInboxTestCase(unittest.TestCase):
         db.session.add(user)
         db.session.commit()
         return user
+
+    def _assign_projects(self, user: User, projects: list[Project]):
+        user.projects = projects
+        if projects:
+            user.project_id = projects[0].id
+        db.session.commit()
+
+    def _assign_projects(self, user: User, projects: list[Project]):
+        user.projects = projects
+        if projects:
+            user.project_id = projects[0].id
+        db.session.commit()
 
     def _login(self, user: User):
         with self.client.session_transaction() as sess:
@@ -137,6 +150,100 @@ class PaymentsInboxTestCase(unittest.TestCase):
         self._login(pm_user)
         response = self.client.get("/payments/inbox/ready-for-payment")
         self.assertEqual(response.status_code, 403)
+
+    def test_engineer_inbox_respects_multiple_projects(self):
+        engineer = self.users["engineer"]
+
+        other_project = Project(project_name="Inbox Project 2")
+        third_project = Project(project_name="Inbox Project 3")
+        db.session.add_all([other_project, third_project])
+        db.session.commit()
+
+        self._assign_projects(engineer, [self.project, other_project])
+
+        # payments across projects the engineer should see
+        in_scope_action = self._make_payment(payment_routes.STATUS_PENDING_PM, created_by=engineer.id)
+        in_scope_overdue = self._make_payment(
+            payment_routes.STATUS_PENDING_PM,
+            created_by=engineer.id,
+            updated_at=datetime.utcnow() - timedelta(days=10),
+        )
+
+        # payment in third project (not assigned) should be hidden
+        out_of_scope_payment = PaymentRequest(
+            project=third_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=123,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=engineer.id,
+        )
+        db.session.add(out_of_scope_payment)
+        db.session.commit()
+
+        self._login(engineer)
+
+        action_resp = self.client.get("/payments/inbox/action-required")
+        action_body = action_resp.get_data(as_text=True)
+        self.assertEqual(action_resp.status_code, 200)
+        self.assertIn(f'data-payment-id="{in_scope_action.id}"', action_body)
+        self.assertNotIn(f'data-payment-id="{out_of_scope_payment.id}"', action_body)
+
+        overdue_resp = self.client.get("/payments/inbox/overdue")
+        overdue_body = overdue_resp.get_data(as_text=True)
+        self.assertEqual(overdue_resp.status_code, 200)
+        self.assertIn(f'data-payment-id="{in_scope_overdue.id}"', overdue_body)
+        self.assertNotIn(f'data-payment-id="{out_of_scope_payment.id}"', overdue_body)
+
+        scoped_ids = get_scoped_project_ids(engineer, role_name="engineer")
+        self.assertEqual(set(scoped_ids), {self.project.id, other_project.id})
+
+    def test_engineer_inbox_respects_multiple_projects(self):
+        engineer = self.users["engineer"]
+
+        other_project = Project(project_name="Inbox Project 2")
+        third_project = Project(project_name="Inbox Project 3")
+        db.session.add_all([other_project, third_project])
+        db.session.commit()
+
+        self._assign_projects(engineer, [self.project, other_project])
+
+        # payments across projects the engineer should see
+        in_scope_action = self._make_payment(payment_routes.STATUS_PENDING_PM, created_by=engineer.id)
+        in_scope_overdue = self._make_payment(
+            payment_routes.STATUS_PENDING_PM,
+            created_by=engineer.id,
+            updated_at=datetime.utcnow() - timedelta(days=10),
+        )
+
+        # payment in third project (not assigned) should be hidden
+        out_of_scope_payment = PaymentRequest(
+            project=third_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=123,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=engineer.id,
+        )
+        db.session.add(out_of_scope_payment)
+        db.session.commit()
+
+        self._login(engineer)
+
+        action_resp = self.client.get("/payments/inbox/action-required")
+        action_body = action_resp.get_data(as_text=True)
+        self.assertEqual(action_resp.status_code, 200)
+        self.assertIn(f'data-payment-id="{in_scope_action.id}"', action_body)
+        self.assertNotIn(f'data-payment-id="{out_of_scope_payment.id}"', action_body)
+
+        overdue_resp = self.client.get("/payments/inbox/overdue")
+        overdue_body = overdue_resp.get_data(as_text=True)
+        self.assertEqual(overdue_resp.status_code, 200)
+        self.assertIn(f'data-payment-id="{in_scope_overdue.id}"', overdue_body)
+        self.assertNotIn(f'data-payment-id="{out_of_scope_payment.id}"', overdue_body)
+
+        scoped_ids = get_scoped_project_ids(engineer, role_name="engineer")
+        self.assertEqual(set(scoped_ids), {self.project.id, other_project.id})
 
     def test_dashboard_links_point_to_inbox_routes(self):
         admin = self.users["admin"]

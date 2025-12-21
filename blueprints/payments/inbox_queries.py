@@ -8,6 +8,7 @@ from sqlalchemy import and_, false, func, inspect, or_
 
 from extensions import db
 from models import PaymentRequest, user_projects
+from project_scopes import get_scoped_project_ids
 from blueprints.main.dashboard_helpers import resolve_sla_thresholds
 
 
@@ -28,6 +29,7 @@ ACTION_REQUIRED_STATUSES: dict[str, set[str]] = {
     },
     "engineering_manager": {STATUS_PENDING_PM, STATUS_PENDING_ENG},
     "project_manager": {STATUS_PENDING_PM},
+    "engineer": {STATUS_PENDING_PM},
     "finance": {STATUS_PENDING_FINANCE, STATUS_READY_FOR_PAYMENT},
 }
 
@@ -43,32 +45,14 @@ def scoped_inbox_base_query(user) -> tuple:
     query = PaymentRequest.query
     scoped_project_ids: list[int] = []
 
-    def _project_ids_from_link_table() -> list[int]:
-        try:
-            inspector = inspect(db.engine)
-            if not inspector.has_table("user_projects"):
-                return []
-        except Exception:
-            return []
-
-        rows = (
-            db.session.query(user_projects.c.project_id)
-            .filter(user_projects.c.user_id == user.id)
-            .all()
-        )
-        return [row.project_id for row in rows]
-
-    if role_name == "project_manager":
-        scoped_project_ids = _project_ids_from_link_table()
-        if getattr(user, "project_id", None):
-            scoped_project_ids.append(user.project_id)
-        scoped_project_ids = list({pid for pid in scoped_project_ids if pid})
-        if scoped_project_ids:
+    if role_name in {"project_manager", "engineer"}:
+        scoped_project_ids = get_scoped_project_ids(user, role_name=role_name)
+        if role_name == "engineer" and not scoped_project_ids:
+            query = query.filter(PaymentRequest.created_by == getattr(user, "id", None))
+        elif scoped_project_ids:
             query = query.filter(PaymentRequest.project_id.in_(scoped_project_ids))
         else:
             query = query.filter(false())
-    elif role_name == "engineer":
-        query = query.filter(PaymentRequest.created_by == getattr(user, "id", None))
     elif role_name == "dc":
         query = query.filter(false())
 
