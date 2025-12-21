@@ -35,6 +35,7 @@ from models import (
     SavedView,
     user_projects,
 )
+from project_scopes import get_scoped_project_ids, project_access_allowed
 from . import payments_bp
 from .inbox_queries import (
     READY_FOR_PAYMENT_ROLES,
@@ -215,18 +216,7 @@ def _project_manager_project_ids() -> list[int] | None:
     if not current_user.is_authenticated:
         return None
 
-    if _user_projects_table_exists():
-        return [
-            row.project_id
-            for row in db.session.query(user_projects.c.project_id)
-            .filter(user_projects.c.user_id == current_user.id)
-            .all()
-        ]
-
-    if current_user.project_id:
-        return [current_user.project_id]
-
-    return []
+    return get_scoped_project_ids(current_user, role_name="project_manager")
 
 
 def _safe_int_arg(name: str, default: int | None, *, min_value: int | None = None, max_value: int | None = None) -> int | None:
@@ -510,8 +500,11 @@ def _can_view_payment(p: PaymentRequest) -> bool:
             return False
         return p.project_id in pm_project_ids
 
-    # المهندس يشوف فقط الدفعات التي أنشأها (لا نقوم بتوسيع الصلاحيات هنا)
+    # المهندس يشوف فقط دفعات مشاريعه المرتبطة أو التي أنشأها (في حال عدم وجود ربط متعدد)
     if role_name == "engineer":
+        scoped_projects = get_scoped_project_ids(current_user, role_name="engineer")
+        if scoped_projects:
+            return p.project_id in scoped_projects
         return p.created_by == current_user.id
 
     # DC حالياً لا يشوف الدفعات
@@ -825,6 +818,7 @@ def open_saved_view(view_id: int):
 def _scoped_payments_query_for_listing():
     role_name = _get_role()
     pm_project_ids: list[int] | None = None
+    engineer_project_ids: list[int] | None = None
 
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
@@ -850,7 +844,11 @@ def _scoped_payments_query_for_listing():
         else:
             q = q.filter(false())
     elif role_name == "engineer":
-        q = q.filter(PaymentRequest.created_by == current_user.id)
+        engineer_project_ids = get_scoped_project_ids(current_user, role_name="engineer")
+        if engineer_project_ids:
+            q = q.filter(PaymentRequest.project_id.in_(engineer_project_ids))
+        else:
+            q = q.filter(PaymentRequest.created_by == current_user.id)
     elif role_name == "dc":
         q = q.filter(false())
     else:
@@ -1267,7 +1265,9 @@ def create_payment():
             return redirect(url_for("payments.create_payment"))
 
         role_name = _get_role()
-        if role_name == "engineer" and current_user.project_id != project_id_value:
+        if role_name == "engineer" and not project_access_allowed(
+            current_user, project_id_value, role_name="engineer"
+        ):
             abort(403)
         if role_name == "project_manager":
             pm_project_ids = _project_manager_project_ids() or []
