@@ -76,6 +76,7 @@ def index():
     """
 
     role_name = current_user.role.name if current_user.role else None
+    normalized_role = "engineer" if role_name == "project_engineer" else role_name
 
     # في حال لم يتم تعيين دور للمستخدم بعد
     if role_name is None:
@@ -86,22 +87,22 @@ def index():
         return redirect(url_for("main.no_role"))
 
     # مدير مشروع → دفعاته
-    if role_name == "project_manager":
+    if normalized_role == "project_manager":
         return redirect(url_for("main.dashboard"))
 
     # مهندس → دفعاته
-    if role_name == "engineer":
+    if normalized_role == "engineer":
         return redirect(url_for("main.dashboard"))
 
     # Data Entry (DC) → إدارة المستخدمين
-    if role_name == "dc":
+    if normalized_role == "dc":
         return redirect(url_for("main.dashboard"))
 
-    if role_name == "payment_notifier":
+    if normalized_role == "payment_notifier":
         return redirect(url_for("main.dashboard"))
 
     # admin + engineering_manager + chairman + finance → لوحة التحكم العامة
-    if role_name in ("admin", "engineering_manager", "chairman", "finance"):
+    if normalized_role in ("admin", "engineering_manager", "chairman", "finance"):
         return redirect(url_for("main.dashboard"))
 
     # fallback لأدوار غير معروفة

@@ -165,7 +165,10 @@ def _status_label(status: str) -> str:
 def _get_role():
     if not current_user.is_authenticated or not current_user.role:
         return None
-    return current_user.role.name
+    role_name = current_user.role.name
+    if role_name == "project_engineer":
+        return "engineer"
+    return role_name
 
 
 def _normalize_return_to(target: str | None) -> str | None:

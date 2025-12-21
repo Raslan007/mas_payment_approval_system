@@ -77,6 +77,14 @@ MODULE_DEFINITIONS: list[dict[str, Any]] = [
         "roles": {"admin", "dc"},
     },
     {
+        "key": "project_assignments",
+        "title": "تعيينات المشروعات",
+        "description": "ربط المستخدمين بالمشروعات حسب الدور",
+        "icon": "fa-solid fa-diagram-project",
+        "endpoint": "admin.project_assignments",
+        "roles": {"admin"},
+    },
+    {
         "key": "finance_workbench",
         "title": "لوحة الحسابات",
         "description": "تصدير بيانات وتقارير سريعة",

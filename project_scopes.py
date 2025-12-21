@@ -15,6 +15,13 @@ from sqlalchemy import inspect
 from extensions import db
 from models import user_projects
 
+# Cache a reflected version of ``user_projects`` when a role column exists so we
+# can respect per-role assignments without forcing a schema change when the
+# column is absent.
+_reflected_user_projects_with_role = None
+
+ALLOWED_SCOPED_ROLES = {"project_manager", "engineer", "project_engineer"}
+
 
 def _has_user_projects_table() -> bool:
     try:
@@ -22,6 +29,33 @@ def _has_user_projects_table() -> bool:
         return inspector.has_table("user_projects")
     except Exception:
         return False
+
+
+def _user_projects_table_with_role():
+    global _reflected_user_projects_with_role
+
+    if _reflected_user_projects_with_role is not None:
+        return _reflected_user_projects_with_role
+
+    try:
+        inspector = inspect(db.engine)
+        columns = {col["name"] for col in inspector.get_columns("user_projects")}
+    except Exception:
+        return None
+
+    if "scoped_role" not in columns:
+        return None
+
+    try:
+        _reflected_user_projects_with_role = db.Table(
+            "user_projects",
+            db.MetaData(),
+            autoload_with=db.engine,
+        )
+    except Exception:
+        _reflected_user_projects_with_role = None
+
+    return _reflected_user_projects_with_role
 
 
 def _dedupe_ints(values: Iterable[int | None]) -> list[int]:
@@ -37,6 +71,30 @@ def _dedupe_ints(values: Iterable[int | None]) -> list[int]:
     return unique
 
 
+def _normalize_role(role_name: str | None) -> str | None:
+    if role_name == "project_engineer":
+        return "engineer"
+    return role_name
+
+
+def _current_user_projects_table():
+    """
+    Return (table, has_role_column) for the ``user_projects`` link table.
+
+    When a role column exists, a reflected table with the ``scoped_role`` column
+    is returned; otherwise the declarative ``user_projects`` table is used.
+    """
+
+    if not _has_user_projects_table():
+        return None, False
+
+    table_with_role = _user_projects_table_with_role()
+    if table_with_role is not None and "scoped_role" in table_with_role.c:
+        return table_with_role, True
+
+    return user_projects, False
+
+
 def get_scoped_project_ids(user, *, role_name: str | None = None) -> list[int]:
     """
     Return the list of project IDs the given user can access for the provided role.
@@ -45,25 +103,26 @@ def get_scoped_project_ids(user, *, role_name: str | None = None) -> list[int]:
     - Falls back to the user's primary ``project_id`` when no linked projects are
       found (supports legacy single-project setups).
     - Currently supports project-based scoping for project managers and
-      engineers only; other roles receive an empty list.
+      engineers (including the project_engineer alias) only; other roles
+      receive an empty list.
     """
 
     if not getattr(user, "id", None):
         return []
 
-    resolved_role = role_name or (user.role.name if getattr(user, "role", None) else None)
+    resolved_role = _normalize_role(role_name or (user.role.name if getattr(user, "role", None) else None))
     if resolved_role not in {"project_manager", "engineer"}:
         return []
 
     project_ids: list[int] = []
 
-    if _has_user_projects_table():
+    table, has_role_column = _current_user_projects_table()
+    if table is not None:
         try:
-            rows = (
-                db.session.query(user_projects.c.project_id)
-                .filter(user_projects.c.user_id == user.id)
-                .all()
-            )
+            query = db.session.query(table.c.project_id).filter(table.c.user_id == user.id)
+            if has_role_column and role_name:
+                query = query.filter(table.c.scoped_role == role_name)
+            rows = query.all()
             project_ids = [row.project_id for row in rows if row.project_id]
         except Exception:
             project_ids = []

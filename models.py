@@ -314,6 +314,7 @@ REQUIRED_ROLES: tuple[tuple[str, str], ...] = (
     ("admin", "مدير النظام"),
     ("engineering_manager", "مدير الإدارة الهندسية"),
     ("project_manager", "مدير مشروع"),
+    ("project_engineer", "مهندس مشروع"),
     ("engineer", "مهندس موقع"),
     ("finance", "المالية"),
     ("chairman", "رئيس مجلس الإدارة"),
