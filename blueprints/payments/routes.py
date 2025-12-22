@@ -54,6 +54,10 @@ STATUS_PENDING_FIN = "pending_finance"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_PAID = "paid"
 STATUS_REJECTED = "rejected"
+FINANCE_AMOUNT_EDITABLE_STATUSES: set[str] = {
+    STATUS_PENDING_FIN,
+    "waiting_finance",
+}
 STATUS_GROUPS: dict[str, set[str]] = {
     "outstanding": {
         STATUS_PENDING_PM,
@@ -1778,4 +1782,56 @@ def mark_paid(payment_id):
     db.session.commit()
 
     flash("تم تسجيل أن الدفعة تم صرفها وحفظ مبلغ المالية الفعلي.", "success")
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+
+@payments_bp.route("/<int:payment_id>/finance-amount", methods=["POST"])
+@role_required("finance")
+def update_finance_amount(payment_id: int):
+    """
+    تعديل مبلغ المالية فقط بواسطة دور المالية أثناء المراجعة.
+    - يسمح بالعمل في حالات انتظار المالية فقط.
+    - يسجل تغييرًا في سجلات الاعتماد.
+    """
+    payment = _get_payment_or_404(payment_id)
+
+    if payment.status not in FINANCE_AMOUNT_EDITABLE_STATUSES:
+        flash("لا يمكن تعديل مبلغ المالية في الحالة الحالية للدفعة.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    raw_amount = (request.form.get("amount_finance") or "").strip()
+    if not raw_amount:
+        flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    try:
+        amount_finance = float(raw_amount.replace(",", ""))
+    except ValueError:
+        flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if not math.isfinite(amount_finance) or amount_finance < 0:
+        flash("المبلغ المالي يجب أن يكون رقمًا صالحًا أكبر من أو يساوي صفر.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if amount_finance > 1_000_000_000:
+        flash("المبلغ المدخل كبير جدًا، يرجى التحقق ثم المحاولة مرة أخرى.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    old_amount = payment.amount_finance
+    payment.amount_finance = amount_finance
+    payment.updated_at = datetime.utcnow()
+
+    _add_approval_log(
+        payment,
+        step="finance",
+        action="update_amount",
+        old_status=payment.status,
+        new_status=payment.status,
+        comment=f"amount_finance: {old_amount} -> {amount_finance}",
+    )
+
+    db.session.commit()
+
+    flash("تم تحديث مبلغ المالية بنجاح.", "success")
     return _redirect_with_return_to("payments.detail", payment_id=payment.id)
