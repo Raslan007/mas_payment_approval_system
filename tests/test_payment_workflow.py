@@ -547,6 +547,53 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(final.status, payment_routes.STATUS_PAID)
         self.assertEqual(final.amount_finance, 1000.0)
 
+    def test_finance_can_update_amount_only(self):
+        payment = self._make_payment(payment_routes.STATUS_PENDING_FIN)
+        original_amount = payment.amount
+        self._login(self.users["finance"])
+
+        resp = self.client.post(
+            f"/payments/{payment.id}/finance-amount",
+            data={
+                "amount_finance": "1500.75",
+                "amount": "99999",  # should be ignored
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+
+        updated = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(updated.amount_finance, 1500.75)
+        self.assertEqual(updated.amount, original_amount)
+        self.assertEqual(updated.status, payment_routes.STATUS_PENDING_FIN)
+
+    def test_finance_cannot_update_amount_in_final_states(self):
+        for status in (payment_routes.STATUS_READY_FOR_PAYMENT, payment_routes.STATUS_PAID):
+            payment = self._make_payment(status)
+            self._login(self.users["finance"])
+
+            resp = self.client.post(
+                f"/payments/{payment.id}/finance-amount",
+                data={"amount_finance": "1200"},
+            )
+            self.assertEqual(resp.status_code, 302)
+
+            refreshed = db.session.get(PaymentRequest, payment.id)
+            self.assertIsNone(refreshed.amount_finance)
+            self.assertEqual(refreshed.status, status)
+
+    def test_non_finance_cannot_update_finance_amount(self):
+        payment = self._make_payment(payment_routes.STATUS_PENDING_FIN)
+        self._login(self.users["engineer"])
+
+        resp = self.client.post(
+            f"/payments/{payment.id}/finance-amount",
+            data={"amount_finance": "1000"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        refreshed = db.session.get(PaymentRequest, payment.id)
+        self.assertIsNone(refreshed.amount_finance)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -358,6 +358,39 @@
             </div>
         </div>
 
+        {# تعديل مبلغ المالية - متاح فقط لدور المالية أثناء المراجعة #}
+        {% if role_name == 'finance' and payment.status in ['pending_finance', 'waiting_finance'] %}
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold">تعديل مبلغ المالية</span>
+                    <span class="badge bg-warning text-dark">للاستخدام المالي فقط</span>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('payments.update_finance_amount', payment_id=payment.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="return_to" value="{{ return_to }}">
+                        <div class="mb-2">
+                            <label class="form-label xsmall mb-1">المبلغ المالي (ج.م)</label>
+                            <input type="number"
+                                   name="amount_finance"
+                                   class="form-control form-control-sm"
+                                   step="0.01"
+                                   min="0"
+                                   required
+                                   value="{{ payment.amount_finance if payment.amount_finance is not none else '' }}">
+                            <div class="form-text xsmall">
+                                يمكن تعديل مبلغ المالية أثناء مرحلة مراجعة المالية فقط.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-pencil-square ms-1"></i>
+                            حفظ مبلغ المالية
+                        </button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
         {# المرفقات #}
         <div class="card mb-3 shadow-sm">
             <div class="card-header">
