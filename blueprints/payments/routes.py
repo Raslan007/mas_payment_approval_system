@@ -392,6 +392,7 @@ def _render_inbox_list(q, *, page_title: str, filters: dict[str, str], paginatio
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 
@@ -533,6 +534,31 @@ def _can_create_payment() -> bool:
 def _can_export_payments(allowed_roles: set[str]) -> bool:
     role_name = _get_role()
     return role_name in allowed_roles
+
+
+def _can_take_action(p: PaymentRequest) -> bool:
+    role_name = _get_role()
+    if role_name is None:
+        return False
+
+    if _can_edit_payment(p) or _can_delete_payment(p):
+        return True
+
+    transition_targets = (
+        STATUS_PENDING_PM,
+        STATUS_PENDING_ENG,
+        STATUS_PENDING_FIN,
+        STATUS_READY_FOR_PAYMENT,
+        STATUS_PAID,
+        STATUS_REJECTED,
+    )
+    if any(_can_transition(p, target) for target in transition_targets):
+        return True
+
+    return (
+        role_name == "finance"
+        and p.status in FINANCE_AMOUNT_EDITABLE_STATUSES
+    )
 
 
 def _can_transition(payment: PaymentRequest, target_status: str) -> bool:
@@ -1025,6 +1051,7 @@ def index():
             }
         ),
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 
@@ -1087,6 +1114,7 @@ def list_all():
             }
         ),
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 
@@ -1133,6 +1161,7 @@ def pm_review():
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 
@@ -1161,6 +1190,7 @@ def eng_review():
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 
@@ -1199,6 +1229,7 @@ def list_finance_review():
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
+        can_take_action=_can_take_action,
     )
 
 

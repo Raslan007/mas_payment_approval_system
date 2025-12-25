@@ -14,6 +14,7 @@
 {% set can_create_payment = can_create_payment or False %}
 {% set can_export_payments = can_export_payments or False %}
 {% set can_edit_payment = can_edit_payment if can_edit_payment is not none else None %}
+{% set can_take_action = can_take_action if can_take_action is not none else None %}
 {% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
 {% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
 {% set current_status = filters.get('status') or request.args.get('status', '') %}
@@ -172,6 +173,7 @@
                 {% if payments %}
                     {% for p in payments %}
                         {% set can_edit = can_edit_payment(p) if can_edit_payment else False %}
+                        {% set can_act = can_take_action(p) if can_take_action else False %}
 
                         <tr data-payment-id="{{ p.id }}">
                             <!-- رقم الدفعة -->
@@ -253,7 +255,7 @@
                                     <a href="{{ url_for('payments.detail', payment_id=p.id, return_to=return_to) }}"
                                        class="btn btn-sm btn-outline-primary btn-sm-icon">
                                         <i class="bi bi-eye ms-1"></i>
-                                        عرض / اعتماد
+                                        {{ "عرض / اعتماد" if can_act else "عرض" }}
                                     </a>
                                     {% if can_edit %}
                                         <a href="{{ url_for('payments.edit_payment', payment_id=p.id) }}
