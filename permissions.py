@@ -11,6 +11,8 @@ def role_required(*allowed_roles):
     - admin: له صلاحية كاملة على كل شيء دائماً (Full Access).
     - chairman: له صلاحية "قراءة فقط" (GET / HEAD / OPTIONS) فقط إذا كان الدور
       مذكورًا ضمن allowed_roles بشكل صريح.
+    - planning: له صلاحية "قراءة فقط" (GET / HEAD / OPTIONS) فقط إذا كان الدور
+      مذكورًا ضمن allowed_roles بشكل صريح.
     - باقي الأدوار: يجب أن تكون ضمن allowed_roles حتى يُسمح لها بالدخول.
 
     مثال استخدام:
@@ -37,6 +39,14 @@ def role_required(*allowed_roles):
             # 2) chairman: قراءة فقط للراوتات التي تسمح به صراحةً
             if effective_role == "chairman":
                 if "chairman" not in allowed_roles:
+                    abort(403)
+                if request.method not in ("GET", "HEAD", "OPTIONS"):
+                    abort(403)
+                return view_func(*args, **kwargs)
+
+            # 2.1) planning: قراءة فقط للراوتات التي تسمح به صراحةً
+            if effective_role == "planning":
+                if "planning" not in allowed_roles:
                     abort(403)
                 if request.method not in ("GET", "HEAD", "OPTIONS"):
                     abort(403)

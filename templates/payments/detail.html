@@ -90,7 +90,6 @@
 
 {% block content %}
 {% set page_title = "تفاصيل الدفعة رقم " ~ payment.id %}
-{% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
 
 {# تحديد المرحلة الحالية رقمياً لاستخدامها في التايملاين #}
 {% if payment.status == 'draft' %}
@@ -113,42 +112,19 @@
 {% set is_rejected = (payment.status == 'rejected') %}
 
 {# صلاحيات #}
-{% set can_edit = False %}
-{% if role_name in ['admin', 'engineering_manager'] %}
-    {% set can_edit = True %}
-{% elif role_name == 'engineer' and payment.status == 'draft' and payment.created_by == current_user.id %}
-    {% set can_edit = True %}
-{% elif role_name == 'project_manager' and payment.status in ['draft', 'pending_pm'] and payment.created_by == current_user.id %}
-    {% set can_edit = True %}
-{% endif %}
-
-{% set can_delete = (role_name in ['admin', 'engineering_manager']) %}
-
-{% set can_submit_to_pm = (payment.status == 'draft' and role_name in ['admin', 'engineering_manager', 'project_manager', 'engineer']) %}
-{% set can_pm_approve = (payment.status == 'pending_pm' and role_name in ['admin', 'engineering_manager', 'project_manager']) %}
-{% set can_pm_reject = can_pm_approve %}
-{% set can_eng_approve = (payment.status == 'pending_eng' and role_name in ['admin', 'engineering_manager']) %}
-{% set can_eng_reject = can_eng_approve %}
-{% set can_fin_approve = (payment.status == 'pending_finance' and role_name in ['admin', 'finance']) %}
-{% set can_fin_reject = can_fin_approve %}
-{% set can_mark_paid = (payment.status == 'ready_for_payment' and role_name in ['admin', 'finance']) %}
-{% set can_add_notification_note = (role_name == 'payment_notifier' and payment.status in ['ready_for_payment', 'paid']) %}
-
-{% if role_name in ['chairman', 'dc', 'payment_notifier'] %}
-    {% set can_submit_to_pm = False %}
-    {% set can_pm_approve = False %}
-    {% set can_pm_reject = False %}
-    {% set can_eng_approve = False %}
-    {% set can_eng_reject = False %}
-    {% set can_fin_approve = False %}
-    {% set can_fin_reject = False %}
-    {% set can_mark_paid = False %}
-    {% set can_edit = False %}
-    {% set can_delete = False %}
-    {% if role_name != 'payment_notifier' %}
-        {% set can_add_notification_note = False %}
-    {% endif %}
-{% endif %}
+{% set can_edit = can_edit|default(false) %}
+{% set can_delete = can_delete|default(false) %}
+{% set can_submit_to_pm = can_submit_to_pm|default(false) %}
+{% set can_pm_approve = can_pm_approve|default(false) %}
+{% set can_pm_reject = can_pm_reject|default(false) %}
+{% set can_eng_approve = can_eng_approve|default(false) %}
+{% set can_eng_reject = can_eng_reject|default(false) %}
+{% set can_fin_approve = can_fin_approve|default(false) %}
+{% set can_fin_reject = can_fin_reject|default(false) %}
+{% set can_mark_paid = can_mark_paid|default(false) %}
+{% set can_add_notification_note = can_add_notification_note|default(false) %}
+{% set can_update_finance_amount = can_update_finance_amount|default(false) %}
+{% set can_view_rejection_details = can_view_rejection_details|default(false) %}
 
 {% set return_to = return_to or request.referrer or url_for('payments.index') %}
 
@@ -225,7 +201,7 @@
             <div class="card-body">
 
                 {# تنبيه يظهر لمن هو admin أو المدير الهندسي في حالة الرفض مع اسم من رفض #}
-                {% if is_rejected and rejection_log and role_name in ['engineering_manager', 'admin'] %}
+                {% if is_rejected and rejection_log and can_view_rejection_details %}
                     <div class="alert alert-warning xsmall mb-3">
                         تم رفض هذه الدفعة بواسطة:
                         <span class="fw-semibold">
@@ -359,7 +335,7 @@
         </div>
 
         {# تعديل مبلغ المالية - متاح فقط لدور المالية أثناء المراجعة #}
-        {% if role_name == 'finance' and payment.status in ['pending_finance', 'waiting_finance'] %}
+        {% if can_update_finance_amount %}
             <div class="card mb-3 shadow-sm">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="fw-semibold">تعديل مبلغ المالية</span>

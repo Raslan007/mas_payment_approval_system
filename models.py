@@ -313,6 +313,7 @@ class Notification(db.Model):
 REQUIRED_ROLES: tuple[tuple[str, str], ...] = (
     ("admin", "مدير النظام"),
     ("engineering_manager", "مدير الإدارة الهندسية"),
+    ("planning", "مهندس تخطيط"),
     ("project_manager", "مدير مشروع"),
     ("project_engineer", "مهندس مشروع"),
     ("engineer", "مهندس موقع"),
