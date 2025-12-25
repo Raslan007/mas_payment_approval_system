@@ -91,6 +91,12 @@ class PlanningRoleAccessTestCase(unittest.TestCase):
         detail_response = self.client.get(f"/payments/{self.payment.id}")
         self.assertEqual(detail_response.status_code, 200)
 
+    def test_planning_can_view_dashboard(self):
+        self._login(self.planning_user)
+
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+
     def test_planning_cannot_mutate_payments(self):
         self._login(self.planning_user)
 
