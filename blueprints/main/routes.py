@@ -137,6 +137,7 @@ def no_role():
     "project_manager",
     "payment_notifier",
     "dc",
+    "planning",
 )
 def dashboard():
     base_q, role_name, _ = _scoped_dashboard_query()
