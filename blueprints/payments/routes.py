@@ -100,6 +100,7 @@ ALLOWED_SAVED_VIEW_ENDPOINTS: set[str] = {
 SAVED_VIEWS_ROLES: tuple[str, ...] = (
     "admin",
     "engineering_manager",
+    "planning",
     "project_manager",
     "engineer",
     "finance",
@@ -388,6 +389,9 @@ def _render_inbox_list(q, *, page_title: str, filters: dict[str, str], paginatio
         request_types=request_types,
         status_choices=status_choices,
         pagination_endpoint=pagination_endpoint,
+        can_create_payment=_can_create_payment(),
+        can_export_payments=False,
+        can_edit_payment=_can_edit_payment,
     )
 
 
@@ -493,7 +497,7 @@ def _can_view_payment(p: PaymentRequest) -> bool:
         return p.status in NOTIFIER_ALLOWED_STATUSES
 
     # admin + المدير الهندسي + رئيس مجلس الإدارة يشوفوا الكل
-    if role_name in ("admin", "engineering_manager", "chairman"):
+    if role_name in ("admin", "engineering_manager", "chairman", "planning"):
         return True
 
     # المالية تشوف كل الدفعات
@@ -519,6 +523,24 @@ def _can_view_payment(p: PaymentRequest) -> bool:
         return False
 
     return False
+
+
+def _can_create_payment() -> bool:
+    role_name = _get_role()
+    return role_name in ("admin", "engineering_manager", "project_manager", "engineer")
+
+
+def _can_export_payments(allowed_roles: set[str]) -> bool:
+    role_name = _get_role()
+    return role_name in allowed_roles
+
+
+def _can_transition(payment: PaymentRequest, target_status: str) -> bool:
+    role_name = _get_role()
+    allowed_roles = WORKFLOW_TRANSITIONS.get((payment.status, target_status))
+    if role_name is None or not allowed_roles:
+        return False
+    return role_name in allowed_roles
 
 
 def _require_transition(payment: PaymentRequest, target_status: str) -> bool:
@@ -840,7 +862,7 @@ def _scoped_payments_query_for_listing():
         ]
 
     # صلاحيات العرض الأساسية
-    if role_name in ("admin", "engineering_manager", "chairman", "finance"):
+    if role_name in ("admin", "engineering_manager", "chairman", "finance", "planning"):
         pass
     elif role_name == "payment_notifier":
         q = q.filter(PaymentRequest.status.in_(NOTIFIER_ALLOWED_STATUSES))
@@ -950,6 +972,7 @@ def inbox_ready_for_payment():
 @role_required(
     "admin",
     "engineering_manager",
+    "planning",
     "project_manager",
     "engineer",
     "finance",
@@ -988,6 +1011,20 @@ def index():
         status_choices=status_choices,
         export_endpoint="payments.export_my",
         export_params={k: v for k, v in filters.items() if v},
+        can_create_payment=_can_create_payment(),
+        can_export_payments=_can_export_payments(
+            {
+                "admin",
+                "engineering_manager",
+                "project_manager",
+                "engineer",
+                "finance",
+                "chairman",
+                "payment_notifier",
+                "dc",
+            }
+        ),
+        can_edit_payment=_can_edit_payment,
     )
 
 
@@ -1009,7 +1046,7 @@ def export_my():
 
 
 @payments_bp.route("/all")
-@role_required("admin", "engineering_manager", "chairman")
+@role_required("admin", "engineering_manager", "chairman", "planning")
 def list_all():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
@@ -1041,6 +1078,15 @@ def list_all():
         status_choices=status_choices,
         export_endpoint="payments.export_all",
         export_params={k: v for k, v in filters.items() if v},
+        can_create_payment=_can_create_payment(),
+        can_export_payments=_can_export_payments(
+            {
+                "admin",
+                "engineering_manager",
+                "chairman",
+            }
+        ),
+        can_edit_payment=_can_edit_payment,
     )
 
 
@@ -1063,7 +1109,7 @@ def export_all():
 
 
 @payments_bp.route("/pm_review")
-@role_required("admin", "engineering_manager", "project_manager", "chairman")
+@role_required("admin", "engineering_manager", "project_manager", "chairman", "planning")
 def pm_review():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_PM)
 
@@ -1084,11 +1130,14 @@ def pm_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        can_create_payment=_can_create_payment(),
+        can_export_payments=False,
+        can_edit_payment=_can_edit_payment,
     )
 
 
 @payments_bp.route("/eng_review")
-@role_required("admin", "engineering_manager", "chairman")
+@role_required("admin", "engineering_manager", "chairman", "planning")
 def eng_review():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_ENG)
 
@@ -1109,11 +1158,14 @@ def eng_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        can_create_payment=_can_create_payment(),
+        can_export_payments=False,
+        can_edit_payment=_can_edit_payment,
     )
 
 
 @payments_bp.route("/finance_review")
-@role_required("admin", "engineering_manager", "finance", "chairman")
+@role_required("admin", "engineering_manager", "finance", "chairman", "planning")
 def list_finance_review():
     """
     قائمة الدفعات الخاصة بالإدارة المالية:
@@ -1144,6 +1196,9 @@ def list_finance_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        can_create_payment=_can_create_payment(),
+        can_export_payments=False,
+        can_edit_payment=_can_edit_payment,
     )
 
 
@@ -1192,6 +1247,7 @@ def _finance_ready_query():
     "finance",
     "chairman",
     "payment_notifier",
+    "planning",
 )
 def finance_eng_approved():
     """
@@ -1319,6 +1375,7 @@ def create_payment():
 @role_required(
     "admin",
     "engineering_manager",
+    "planning",
     "project_manager",
     "engineer",
     "finance",
@@ -1372,6 +1429,7 @@ def detail(payment_id):
     paid_log = _latest_step("finance", ["mark_paid"])
 
     return_to = _get_return_to()
+    role_name = _get_role()
 
     return render_template(
         "payments/detail.html",
@@ -1384,6 +1442,24 @@ def detail(payment_id):
         finance_ready_log=finance_ready_log,
         paid_log=paid_log,
         return_to=return_to,
+        can_edit=_can_edit_payment(payment),
+        can_delete=_can_delete_payment(payment),
+        can_submit_to_pm=_can_transition(payment, STATUS_PENDING_PM),
+        can_pm_approve=_can_transition(payment, STATUS_PENDING_ENG),
+        can_pm_reject=_can_transition(payment, STATUS_REJECTED),
+        can_eng_approve=_can_transition(payment, STATUS_PENDING_FIN),
+        can_eng_reject=_can_transition(payment, STATUS_REJECTED),
+        can_fin_approve=_can_transition(payment, STATUS_READY_FOR_PAYMENT),
+        can_fin_reject=_can_transition(payment, STATUS_REJECTED),
+        can_mark_paid=_can_transition(payment, STATUS_PAID),
+        can_add_notification_note=(
+            role_name == "payment_notifier" and payment.status in NOTIFIER_ALLOWED_STATUSES
+        ),
+        can_update_finance_amount=(
+            role_name == "finance"
+            and payment.status in FINANCE_AMOUNT_EDITABLE_STATUSES
+        ),
+        can_view_rejection_details=role_name in ("engineering_manager", "admin"),
     )
 
 
@@ -1417,6 +1493,7 @@ def add_notification_note(payment_id: int):
 @role_required(
     "admin",
     "engineering_manager",
+    "planning",
     "project_manager",
     "engineer",
     "finance",

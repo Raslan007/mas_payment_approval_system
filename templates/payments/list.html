@@ -7,11 +7,13 @@
 {% set query_params = query_params or {} %}
 {% set pagination_endpoint = pagination_endpoint or request.endpoint %}
 {% set pagination_view_args = pagination_view_args or request.view_args or {} %}
-{% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
 {% set return_to = request.full_path.rstrip('?') %}
 {% set filters = filters or {} %}
 {% set export_endpoint = export_endpoint or None %}
 {% set export_params = export_params or {} %}
+{% set can_create_payment = can_create_payment or False %}
+{% set can_export_payments = can_export_payments or False %}
+{% set can_edit_payment = can_edit_payment if can_edit_payment is not none else None %}
 {% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
 {% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
 {% set current_status = filters.get('status') or request.args.get('status', '') %}
@@ -27,19 +29,21 @@
         </div>
     </div>
     <div class="d-flex flex-column align-items-end gap-2">
-        {% if role_name not in ['payment_notifier', 'dc'] %}
+        {% if (export_endpoint and can_export_payments) or can_create_payment %}
             <div class="d-flex align-items-center gap-2">
-                {% if export_endpoint %}
+                {% if export_endpoint and can_export_payments %}
                     <a href="{{ url_for(export_endpoint, **(export_params or {})) }}"
                        class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-download ms-1"></i>
                         تصدير CSV
                     </a>
                 {% endif %}
-                <a href="{{ url_for('payments.create_payment') }}" class="btn btn-primary btn-sm">
-                    <i class="bi bi-plus-circle ms-1"></i>
-                    إضافة دفعة جديدة
-                </a>
+                {% if can_create_payment %}
+                    <a href="{{ url_for('payments.create_payment') }}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-circle ms-1"></i>
+                        إضافة دفعة جديدة
+                    </a>
+                {% endif %}
             </div>
         {% endif %}
         <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
@@ -167,9 +171,7 @@
                 <tbody>
                 {% if payments %}
                     {% for p in payments %}
-                        {% set role_name = current_user.role.name if current_user.is_authenticated and current_user.role else '' %}
-                        {% set can_edit = (role_name in ['engineering_manager', 'admin']) or
-                            (current_user.is_authenticated and p.status == 'draft' and p.created_by == current_user.id) %}
+                        {% set can_edit = can_edit_payment(p) if can_edit_payment else False %}
 
                         <tr data-payment-id="{{ p.id }}">
                             <!-- رقم الدفعة -->

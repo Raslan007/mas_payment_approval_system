@@ -13,6 +13,7 @@ def init_data():
         default_roles = [
             "admin",
             "engineering_manager",
+            "planning",
             "project_manager",
             "engineer",
             "finance",
