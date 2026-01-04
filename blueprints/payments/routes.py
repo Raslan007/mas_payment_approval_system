@@ -1358,6 +1358,16 @@ def create_payment():
             flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
             return redirect(url_for("payments.create_payment"))
 
+        project = db.session.get(Project, project_id_value)
+        if project is None:
+            flash("برجاء اختيار مشروع صحيح.", "danger")
+            return redirect(url_for("payments.create_payment"))
+
+        supplier = db.session.get(Supplier, supplier_id_value)
+        if supplier is None:
+            flash("برجاء اختيار مورد صحيح.", "danger")
+            return redirect(url_for("payments.create_payment"))
+
         role_name = _get_role()
         if role_name == "engineer" and not project_access_allowed(
             current_user, project_id_value, role_name="engineer"
@@ -1376,9 +1386,13 @@ def create_payment():
             flash("برجاء إدخال مبلغ صحيح.", "danger")
             return redirect(url_for("payments.create_payment"))
 
+        if not math.isfinite(amount) or amount <= 0:
+            flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
+            return redirect(url_for("payments.create_payment"))
+
         payment = PaymentRequest(
-            project_id=project_id_value,
-            supplier_id=supplier_id_value,
+            project_id=project.id,
+            supplier_id=supplier.id,
             request_type=request_type,
             amount=amount,
             description=description,
@@ -1586,6 +1600,39 @@ def edit_payment(payment_id):
             )
 
         try:
+            project_id_value = int(project_id)
+            supplier_id_value = int(supplier_id)
+        except (TypeError, ValueError):
+            flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
+            return redirect(
+                url_for("payments.edit_payment", payment_id=payment.id)
+            )
+
+        project = db.session.get(Project, project_id_value)
+        if project is None:
+            flash("برجاء اختيار مشروع صحيح.", "danger")
+            return redirect(
+                url_for("payments.edit_payment", payment_id=payment.id)
+            )
+
+        supplier = db.session.get(Supplier, supplier_id_value)
+        if supplier is None:
+            flash("برجاء اختيار مورد صحيح.", "danger")
+            return redirect(
+                url_for("payments.edit_payment", payment_id=payment.id)
+            )
+
+        role_name = _get_role()
+        if role_name == "engineer" and not project_access_allowed(
+            current_user, project_id_value, role_name="engineer"
+        ):
+            abort(403)
+        if role_name == "project_manager":
+            pm_project_ids = _project_manager_project_ids() or []
+            if project_id_value not in pm_project_ids:
+                abort(403)
+
+        try:
             amount = float(amount_str.replace(",", ""))
         except ValueError:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
@@ -1593,8 +1640,14 @@ def edit_payment(payment_id):
                 url_for("payments.edit_payment", payment_id=payment.id)
             )
 
-        payment.project_id = int(project_id)
-        payment.supplier_id = int(supplier_id)
+        if not math.isfinite(amount) or amount <= 0:
+            flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
+            return redirect(
+                url_for("payments.edit_payment", payment_id=payment.id)
+            )
+
+        payment.project_id = project.id
+        payment.supplier_id = supplier.id
         payment.request_type = request_type
         payment.amount = amount
         payment.description = description

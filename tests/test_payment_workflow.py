@@ -247,6 +247,104 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         created_payment = PaymentRequest.query.order_by(PaymentRequest.id.desc()).first()
         self.assertEqual(created_payment.project_id, self.alt_project.id)
 
+    def test_create_payment_rejects_invalid_project_or_supplier(self):
+        self._login(self.users["admin"])
+        initial_count = PaymentRequest.query.count()
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": 9999,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "1200",
+                "description": "bad project",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+        response_missing_supplier = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": 9999,
+                "request_type": "contractor",
+                "amount": "1200",
+                "description": "bad supplier",
+            },
+        )
+        self.assertEqual(response_missing_supplier.status_code, 302)
+        self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_create_payment_rejects_non_positive_amount(self):
+        self._login(self.users["admin"])
+        initial_count = PaymentRequest.query.count()
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "-10",
+                "description": "invalid amount",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_engineer_cannot_edit_payment_to_other_project(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
+        self._login(self.users["engineer"])
+
+        response = self.client.post(
+            f"/payments/{payment.id}/edit",
+            data={
+                "project_id": self.alt_project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "950",
+                "description": "attempt",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        refreshed = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed.project_id, self.project.id)
+
+    def test_edit_payment_rejects_invalid_project_or_supplier(self):
+        payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["admin"].id)
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            f"/payments/{payment.id}/edit",
+            data={
+                "project_id": 9999,
+                "supplier_id": self.supplier.id,
+                "request_type": "contractor",
+                "amount": "1100",
+                "description": "bad project",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        refreshed = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed.project_id, self.project.id)
+
+        response_missing_supplier = self.client.post(
+            f"/payments/{payment.id}/edit",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": 9999,
+                "request_type": "contractor",
+                "amount": "1100",
+                "description": "bad supplier",
+            },
+        )
+        self.assertEqual(response_missing_supplier.status_code, 302)
+        refreshed_again = db.session.get(PaymentRequest, payment.id)
+        self.assertEqual(refreshed_again.supplier_id, self.supplier.id)
+
     def test_finance_review_is_paginated(self):
         payments = [self._make_payment(payment_routes.STATUS_READY_FOR_PAYMENT) for _ in range(3)]
         expected_desc_ids = sorted([p.id for p in payments], reverse=True)

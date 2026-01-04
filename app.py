@@ -119,6 +119,12 @@ def create_app(config_class=Config) -> Flask:
     def _log_request_summary(status_code: int) -> None:
         request_id = getattr(g, "request_id", None)
         start_time = getattr(g, "request_start_time", None)
+        user_id = current_user.id if current_user.is_authenticated else None
+        user_role = (
+            current_user.role.name
+            if current_user.is_authenticated and current_user.role
+            else None
+        )
 
         duration_ms = None
         if start_time is not None:
@@ -130,6 +136,11 @@ def create_app(config_class=Config) -> Flask:
                 "request_id": request_id,
                 "status_code": status_code,
                 "duration_ms": int(duration_ms) if duration_ms is not None else None,
+                "user_id": user_id,
+                "user_role": user_role,
+                "endpoint": request.endpoint,
+                "method": request.method,
+                "path": request.path,
             },
         )
 
