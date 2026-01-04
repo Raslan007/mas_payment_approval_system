@@ -3,6 +3,7 @@ import unittest
 from app import create_app
 from config import Config
 from extensions import db
+from models import Role, User
 
 
 class LoggingTestConfig(Config):
@@ -45,6 +46,42 @@ class LoggingIntegrationTestCase(unittest.TestCase):
             logged_request_ids,
             "Request log entry should include the generated request ID",
         )
+
+        summary_records = [
+            record
+            for record in captured.records
+            if record.getMessage() == "request completed"
+        ]
+        self.assertTrue(summary_records, "Expected request summary log record")
+        summary = summary_records[-1]
+        self.assertEqual(getattr(summary, "endpoint", None), "auth.login")
+        self.assertEqual(getattr(summary, "method", None), "GET")
+        self.assertEqual(getattr(summary, "path", None), "/auth/login")
+
+    def test_request_logging_includes_user_metadata(self):
+        role = Role(name="admin")
+        user = User(full_name="Admin User", email="admin@example.com", role=role)
+        user.set_password("password")
+        db.session.add_all([role, user])
+        db.session.commit()
+
+        with self.client.session_transaction() as sess:
+            sess["_user_id"] = str(user.id)
+            sess["_fresh"] = True
+
+        with self.assertLogs(self.app.logger.name, level="INFO") as captured:
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 302)
+        summary_records = [
+            record
+            for record in captured.records
+            if record.getMessage() == "request completed"
+        ]
+        self.assertTrue(summary_records, "Expected request summary log record")
+        summary = summary_records[-1]
+        self.assertEqual(getattr(summary, "user_id", None), user.id)
+        self.assertEqual(getattr(summary, "user_role", None), "admin")
 
 
 if __name__ == "__main__":
