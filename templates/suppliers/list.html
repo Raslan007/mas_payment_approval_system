@@ -20,8 +20,20 @@
 </div>
 
 <div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    <div class="d-flex justify-content-end mb-2">
+        <div class="input-group input-group-sm w-auto">
+            <span class="input-group-text">
+                <i class="bi bi-search"></i>
+            </span>
+            <input
+                type="search"
+                id="suppliersSearch"
+                class="form-control"
+                placeholder="ابحث عن مورد أو مقاول">
+        </div>
+    </div>
     <div class="table-responsive">
-        <table class="table table-striped align-middle mb-0 datatable">
+        <table class="table table-striped align-middle mb-0 datatable" id="suppliersTable">
             <thead>
             <tr>
                 <th class="text-center" style="width: 70px;">#</th>
@@ -113,4 +125,66 @@
         </nav>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        if (!window.jQuery || !$.fn.DataTable) {
+            return;
+        }
+
+        const $table = $("#suppliersTable");
+        if (!$table.length) {
+            return;
+        }
+
+        const dataTable = $.fn.DataTable.isDataTable($table)
+            ? $table.DataTable()
+            : $table.DataTable({
+                paging: true,
+                pageLength: 10,
+                lengthMenu: [[10, 25, 50, -1], [10, 25, 50, 'الكل']],
+                ordering: true,
+                searching: true,
+                autoWidth: false,
+                language: {
+                    url: "https://cdn.datatables.net/plug-ins/1.13.6/i18n/ar.json"
+                },
+                dom: "<'row mb-2'<'col-sm-12 col-md-6 d-flex align-items-center'lB><'col-sm-12 col-md-6'>>" +
+                     "<'row'<'col-sm-12'tr>>" +
+                     "<'row mt-2'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+                buttons: [
+                    {
+                        extend: 'excelHtml5',
+                        text: 'تصدير Excel',
+                        exportOptions: { columns: ':visible' }
+                    },
+                    {
+                        extend: 'pdfHtml5',
+                        text: 'تصدير PDF',
+                        exportOptions: { columns: ':visible' },
+                        orientation: 'landscape',
+                        pageSize: 'A4'
+                    },
+                    {
+                        extend: 'print',
+                        text: 'طباعة',
+                        exportOptions: { columns: ':visible' }
+                    },
+                    {
+                        extend: 'colvis',
+                        text: 'إظهار/إخفاء الأعمدة'
+                    }
+                ]
+            });
+
+        const $search = $("#suppliersSearch");
+        if ($search.length) {
+            $search.on("input", function () {
+                dataTable.search(this.value).draw();
+            });
+        }
+    });
+</script>
 {% endblock %}
