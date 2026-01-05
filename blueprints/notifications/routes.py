@@ -1,11 +1,15 @@
 # blueprints/notifications/routes.py
 
+import logging
+
 from flask import render_template, redirect, url_for, abort
 from flask_login import login_required, current_user
 
 from . import notifications_bp
 from extensions import db
 from models import Notification
+
+logger = logging.getLogger(__name__)
 
 
 @notifications_bp.route("/")
@@ -20,6 +24,11 @@ def list_notifications():
         .filter_by(user_id=current_user.id)
         .order_by(Notification.created_at.desc())
         .all()
+    )
+    logger.info(
+        "Retrieved %s notifications for user %s",
+        len(notifications),
+        current_user.id,
     )
     return render_template("notifications/list.html", notifications=notifications)
 
@@ -37,6 +46,11 @@ def read_notification(notification_id):
 
     notification.is_read = True
     db.session.commit()
+    logger.info(
+        "Marked notification %s as read for user %s",
+        notification.id,
+        current_user.id,
+    )
 
     if notification.url:
         return redirect(notification.url)
@@ -50,8 +64,13 @@ def mark_all_read():
     """
     تعليم كل إشعارات المستخدم الحالي كمقروءة.
     """
-    Notification.query.filter_by(user_id=current_user.id, is_read=False).update(
+    updated = Notification.query.filter_by(user_id=current_user.id, is_read=False).update(
         {"is_read": True}
     )
     db.session.commit()
+    logger.info(
+        "Marked %s notifications as read for user %s",
+        updated,
+        current_user.id,
+    )
     return redirect(url_for("notifications.list_notifications"))
