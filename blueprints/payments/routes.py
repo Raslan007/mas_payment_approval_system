@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, date
 import math
 import os
 import pathlib
+import logging
 from urllib.parse import urljoin, urlparse
 
 from flask import (
@@ -32,6 +33,9 @@ from models import (
     PaymentApproval,
     PaymentAttachment,
     PaymentNotificationNote,
+    Notification,
+    Role,
+    User,
     SavedView,
     user_projects,
 )
@@ -44,6 +48,8 @@ from .inbox_queries import (
     build_ready_for_payment_query,
     scoped_inbox_base_query,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # تعريف ثوابت الحالات المستخدمة في النظام
@@ -217,6 +223,106 @@ def _user_projects_table_exists() -> bool:
     except Exception:
         # على بيئات الإنتاج القديمة قد لا يكون الجدول موجودًا أو تكون قاعدة البيانات غير مُهيأة بعد
         return False
+
+
+def _users_with_role(role_name: str) -> list[User]:
+    return (
+        User.query.join(Role)
+        .filter(Role.name == role_name)
+        .all()
+    )
+
+
+def _filter_project_scoped_users(
+    users: list[User],
+    project_id: int,
+    role_name: str,
+) -> list[User]:
+    scoped: list[User] = []
+    for user in users:
+        if project_access_allowed(user, project_id, role_name=role_name):
+            scoped.append(user)
+            continue
+        if getattr(user, "project_id", None) == project_id:
+            scoped.append(user)
+    return scoped
+
+
+def _notification_recipients(
+    payment: PaymentRequest,
+    roles: tuple[str, ...],
+    *,
+    include_creator: bool = True,
+) -> list[User]:
+    recipient_ids: set[int] = set()
+    recipients: list[User] = []
+
+    if include_creator and payment.created_by:
+        creator = db.session.get(User, payment.created_by)
+        if creator:
+            recipient_ids.add(creator.id)
+            recipients.append(creator)
+
+    admin_users = _users_with_role("admin")
+    for user in admin_users:
+        if user.id in recipient_ids:
+            continue
+        recipient_ids.add(user.id)
+        recipients.append(user)
+
+    for role_name in roles:
+        role_users = _users_with_role(role_name)
+        if role_name in {"project_manager", "engineer", "project_engineer"}:
+            role_users = _filter_project_scoped_users(role_users, payment.project_id, role_name)
+        for user in role_users:
+            if user.id in recipient_ids:
+                continue
+            recipient_ids.add(user.id)
+            recipients.append(user)
+
+    return recipients
+
+
+def _create_notifications(
+    payment: PaymentRequest,
+    *,
+    title: str,
+    message: str,
+    url: str | None,
+    roles: tuple[str, ...] = (),
+    include_creator: bool = True,
+) -> None:
+    db.session.flush()
+    recipients = _notification_recipients(
+        payment,
+        roles,
+        include_creator=include_creator,
+    )
+    if not recipients:
+        logger.info(
+            "No notification recipients resolved for payment %s (%s).",
+            payment.id,
+            title,
+        )
+        return
+
+    notifications = [
+        Notification(
+            user_id=user.id,
+            title=title,
+            message=message,
+            url=url,
+        )
+        for user in recipients
+    ]
+    db.session.add_all(notifications)
+    logger.info(
+        "Created %s notifications for payment %s (%s) recipients=%s",
+        len(notifications),
+        payment.id,
+        title,
+        [user.id for user in recipients],
+    )
 
 
 def _project_manager_project_ids() -> list[int] | None:
@@ -1528,6 +1634,15 @@ def add_notification_note(payment_id: int):
         created_at=datetime.utcnow(),
     )
     db.session.add(note)
+
+    _create_notifications(
+        payment,
+        title=f"ملاحظة إشعار للدفعة رقم {payment.id}",
+        message=note_text,
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("finance", "project_manager"),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم تسجيل ملاحظة الإشعار بنجاح.", "success")
@@ -1731,6 +1846,14 @@ def submit_to_pm(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"تم إرسال الدفعة رقم {payment.id} لمدير المشروع",
+        message=f"تم تحويل الحالة إلى {payment.human_status}.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("project_manager",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم إرسال الدفعة إلى مدير المشروع للمراجعة.", "success")
@@ -1757,6 +1880,14 @@ def pm_approve(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"اعتماد مدير المشروع للدفعة رقم {payment.id}",
+        message=f"تم تحويل الحالة إلى {payment.human_status}.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("engineering_manager",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم اعتماد الدفعة من مدير المشروع وتم إرسالها للإدارة الهندسية.", "success")
@@ -1783,6 +1914,14 @@ def pm_reject(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"رفض مدير المشروع للدفعة رقم {payment.id}",
+        message="تم رفض الطلب وإعادته للمراجعة.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=(),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم رفض الدفعة من مدير المشروع.", "danger")
@@ -1809,6 +1948,14 @@ def eng_approve(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"اعتماد الإدارة الهندسية للدفعة رقم {payment.id}",
+        message=f"تم تحويل الحالة إلى {payment.human_status}.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("finance",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم اعتماد الدفعة من الإدارة الهندسية وتم إرسالها للمالية.", "success")
@@ -1835,6 +1982,14 @@ def eng_reject(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"رفض الإدارة الهندسية للدفعة رقم {payment.id}",
+        message="تم رفض الطلب وإعادته للمراجعة.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=(),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم رفض الدفعة من الإدارة الهندسية.", "danger")
@@ -1866,6 +2021,14 @@ def finance_approve(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"اعتماد المالية للدفعة رقم {payment.id}",
+        message="أصبحت الدفعة جاهزة للصرف.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("payment_notifier",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم اعتماد الدفعة ماليًا وأصبحت جاهزة للصرف.", "success")
@@ -1892,6 +2055,14 @@ def finance_reject(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"رفض المالية للدفعة رقم {payment.id}",
+        message="تم رفض الطلب من المالية.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=(),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم رفض الدفعة من المالية.", "danger")
@@ -1940,6 +2111,14 @@ def mark_paid(payment_id):
         new_status=payment.status,
     )
 
+    _create_notifications(
+        payment,
+        title=f"تم صرف الدفعة رقم {payment.id}",
+        message=f"تم تسجيل مبلغ الصرف الفعلي {payment.amount_finance:.2f}.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("payment_notifier",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم تسجيل أن الدفعة تم صرفها وحفظ مبلغ المالية الفعلي.", "success")
@@ -1992,6 +2171,14 @@ def update_finance_amount(payment_id: int):
         comment=f"amount_finance: {old_amount} -> {amount_finance}",
     )
 
+    _create_notifications(
+        payment,
+        title=f"تحديث مبلغ المالية للدفعة رقم {payment.id}",
+        message=f"تم تعديل مبلغ المالية من {old_amount} إلى {amount_finance}.",
+        url=url_for("payments.detail", payment_id=payment.id),
+        roles=("project_manager",),
+        include_creator=True,
+    )
     db.session.commit()
 
     flash("تم تحديث مبلغ المالية بنجاح.", "success")

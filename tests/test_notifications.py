@@ -62,3 +62,19 @@ class NotificationSecurityTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         reloaded = db.session.get(Notification, self.other_notification.id)
         self.assertFalse(reloaded.is_read)
+
+    def test_list_shows_only_current_user_notifications(self):
+        my_notification = Notification(
+            user_id=self.user.id,
+            title="My notification",
+            message="Visible to current user",
+        )
+        db.session.add(my_notification)
+        db.session.commit()
+
+        self._login(self.user)
+        response = self.client.get("/notifications/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"My notification", response.data)
+        self.assertNotIn(b"Only visible to other user", response.data)
