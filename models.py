@@ -1,11 +1,15 @@
 # models.py
 
 from datetime import datetime
+import logging
+
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from extensions import db
+
+logger = logging.getLogger(__name__)
 
 
 user_projects = db.Table(
@@ -363,5 +367,37 @@ def ensure_schema() -> None:
     ``payment_notification_notes``) if they do not exist while leaving existing
     schema untouched. The function is safe to call multiple times.
     """
-
     db.create_all()
+    ensure_user_project_id_column()
+
+
+def ensure_user_project_id_column() -> None:
+    """Ensure the users.project_id column exists for legacy databases."""
+
+    inspector = inspect(db.engine)
+    if not inspector.has_table("users"):
+        logger.info("users table missing; skipping users.project_id patch.")
+        return
+
+    column_names = {column["name"] for column in inspector.get_columns("users")}
+    if "project_id" in column_names:
+        logger.info("users.project_id column already present; no patch needed.")
+        return
+
+    dialect = db.engine.dialect.name
+    if dialect == "sqlite":
+        statement = text("ALTER TABLE users ADD COLUMN project_id INTEGER")
+        description = "SQLite"
+    elif dialect == "postgresql":
+        statement = text("ALTER TABLE users ADD COLUMN IF NOT EXISTS project_id INTEGER")
+        description = "Postgres"
+    else:
+        logger.warning(
+            "Unsupported dialect '%s' for users.project_id patch; skipping.",
+            dialect,
+        )
+        return
+
+    db.session.execute(statement)
+    db.session.commit()
+    logger.info("Added users.project_id column using %s patch.", description)

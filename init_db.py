@@ -1,13 +1,13 @@
 # init_db.py
 from app import app
 from extensions import db
-from models import Role, User
+from models import Role, User, ensure_schema
 
 
 def init_data():
     with app.app_context():
-        # إنشاء جميع الجداول في قاعدة البيانات
-        db.create_all()
+        # إنشاء جميع الجداول في قاعدة البيانات (مع ترقيع آمن)
+        ensure_schema()
 
         # إنشاء الأدوار الأساسية لو مش موجودة
         default_roles = [
