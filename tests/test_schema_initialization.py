@@ -1,6 +1,6 @@
 import unittest
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from app import create_app
 from config import Config
@@ -39,6 +39,33 @@ class EnsureSchemaTestCase(unittest.TestCase):
 
         inspector = inspect(db.engine)
         self.assertTrue(inspector.has_table("payment_notification_notes"))
+
+    def test_ensure_schema_adds_missing_user_project_id_column(self):
+        db.session.execute(text("DROP TABLE users"))
+        db.session.execute(
+            text(
+                """
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    full_name VARCHAR(150) NOT NULL,
+                    email VARCHAR(120) NOT NULL UNIQUE,
+                    password_hash VARCHAR(255) NOT NULL,
+                    role_id INTEGER
+                )
+                """
+            )
+        )
+        db.session.commit()
+
+        inspector = inspect(db.engine)
+        column_names = {column["name"] for column in inspector.get_columns("users")}
+        self.assertNotIn("project_id", column_names)
+
+        ensure_schema()
+
+        inspector = inspect(db.engine)
+        column_names = {column["name"] for column in inspector.get_columns("users")}
+        self.assertIn("project_id", column_names)
 
 
 class AutoSchemaBootstrapTestCase(unittest.TestCase):
