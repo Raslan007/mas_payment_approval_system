@@ -12,6 +12,7 @@ from config import Config
 from extensions import csrf, db, login_manager
 from logging_config import setup_logging
 from models import User, ensure_roles, ensure_schema
+from cli import purge_old_payments
 
 # استيراد الـ Blueprints
 from blueprints.main import main_bp
@@ -174,6 +175,8 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(notifications_bp, url_prefix="/notifications")  # /notifications/...
     app.register_blueprint(finance_bp)  # /finance/...
     app.register_blueprint(admin_bp)  # /admin/...
+
+    app.cli.add_command(purge_old_payments)
 
     return app
 
