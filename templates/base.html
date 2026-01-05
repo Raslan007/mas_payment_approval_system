@@ -191,6 +191,10 @@
         $('table.datatable').each(function () {
             const $table = $(this);
 
+            if ($.fn.DataTable.isDataTable($table)) {
+                return;
+            }
+
             $table.DataTable({
                 paging: true,
                 pageLength: 10,
