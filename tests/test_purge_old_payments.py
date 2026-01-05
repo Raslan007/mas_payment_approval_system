@@ -81,3 +81,15 @@ class PurgeOldPaymentsTestCase(unittest.TestCase):
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIsNotNone(db.session.get(PaymentRequest, payment.id))
+
+    def test_days_zero_rejected_and_preserves_records(self):
+        now = datetime.utcnow()
+        old = now - timedelta(days=20)
+        payment = self._make_payment(created_at=old, submitted_to_pm_at=None)
+
+        result = self.runner.invoke(
+            self.app.cli, ["purge-old-payments", "--days", "0"]
+        )
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIsNotNone(db.session.get(PaymentRequest, payment.id))

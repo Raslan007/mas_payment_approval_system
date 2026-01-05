@@ -58,14 +58,15 @@ def _remove_attachment_file(attachment: PaymentAttachment) -> None:
 def purge_old_payments(days: int, dry_run: bool) -> None:
     """Purge payment requests older than the PM cutoff date."""
 
-    if days < 0:
-        raise click.BadParameter("--days must be zero or greater")
+    if days < 1:
+        raise click.BadParameter("--days must be 1 or greater")
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     pm_date = func.coalesce(PaymentRequest.submitted_to_pm_at, PaymentRequest.created_at)
     payment_ids = [
         payment_id
         for (payment_id,) in PaymentRequest.query.filter(pm_date < cutoff)
+        .order_by(PaymentRequest.id.asc())
         .with_entities(PaymentRequest.id)
         .all()
     ]
