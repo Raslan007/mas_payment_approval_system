@@ -63,16 +63,22 @@ def purge_old_payments(days: int, dry_run: bool) -> None:
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     pm_date = func.coalesce(PaymentRequest.submitted_to_pm_at, PaymentRequest.created_at)
+    base_query = PaymentRequest.query.filter(pm_date < cutoff)
+    total_candidates = base_query.count()
     payment_ids = [
         payment_id
-        for (payment_id,) in PaymentRequest.query.filter(pm_date < cutoff)
+        for (payment_id,) in base_query.filter(PaymentRequest.status != "paid")
         .order_by(PaymentRequest.id.asc())
         .with_entities(PaymentRequest.id)
         .all()
     ]
 
     click.echo(
-        f"Found {len(payment_ids)} payment request(s) older than {cutoff.isoformat()} UTC."
+        f"Found {total_candidates} payment request(s) older than {cutoff.isoformat()} UTC."
+    )
+    click.echo(
+        "Found "
+        f"{len(payment_ids)} payment request(s) eligible for purge (excluding paid)."
     )
 
     if dry_run:

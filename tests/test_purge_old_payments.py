@@ -37,6 +37,7 @@ class PurgeOldPaymentsTestCase(unittest.TestCase):
         self,
         created_at: datetime,
         submitted_to_pm_at: datetime | None,
+        status: str = "draft",
     ) -> PaymentRequest:
         payment = PaymentRequest(
             project=self.project,
@@ -44,7 +45,7 @@ class PurgeOldPaymentsTestCase(unittest.TestCase):
             request_type="contractor",
             amount=1000.0,
             description="desc",
-            status="draft",
+            status=status,
             created_at=created_at,
             submitted_to_pm_at=submitted_to_pm_at,
         )
@@ -93,3 +94,21 @@ class PurgeOldPaymentsTestCase(unittest.TestCase):
 
         self.assertNotEqual(result.exit_code, 0)
         self.assertIsNotNone(db.session.get(PaymentRequest, payment.id))
+
+    def test_purge_skips_paid_payments(self):
+        now = datetime.utcnow()
+        old = now - timedelta(days=20)
+        paid_payment = self._make_payment(
+            created_at=old, submitted_to_pm_at=None, status="paid"
+        )
+        draft_payment = self._make_payment(
+            created_at=old, submitted_to_pm_at=None, status="draft"
+        )
+        paid_payment_id = paid_payment.id
+        draft_payment_id = draft_payment.id
+
+        result = self.runner.invoke(self.app.cli, ["purge-old-payments", "--days", "14"])
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIsNotNone(db.session.get(PaymentRequest, paid_payment_id))
+        self.assertIsNone(db.session.get(PaymentRequest, draft_payment_id))
