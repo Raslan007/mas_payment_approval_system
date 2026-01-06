@@ -31,6 +31,9 @@ body .app-content {
     align-items: center;
     justify-content: center;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    z-index: 1;
+    text-decoration: none;
 }
 
 .topbar-actions .topbar-icon-button:hover {
@@ -50,6 +53,7 @@ body .app-content {
     color: #fff;
     font-size: 11px;
     line-height: 18px;
+    pointer-events: none;
 }
 
 .topbar-user .avatar-circle {

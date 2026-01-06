@@ -9,14 +9,18 @@
         </div>
     </div>
     <div class="topbar-actions d-flex align-items-center gap-2 flex-wrap">
-        <button type="button" class="topbar-icon-button position-relative">
+        <a href="{{ url_for('notifications.list_notifications') }}"
+           class="topbar-icon-button position-relative"
+           aria-label="الإشعارات">
             <i class="fa-regular fa-envelope"></i>
             <span class="counter">{{ messages_count or 0 }}</span>
-        </button>
-        <button type="button" class="topbar-icon-button position-relative">
+        </a>
+        <a href="{{ url_for('notifications.list_notifications') }}"
+           class="topbar-icon-button position-relative"
+           aria-label="الإشعارات">
             <i class="fa-regular fa-bell"></i>
             <span class="counter">{{ notifications_count or 0 }}</span>
-        </button>
+        </a>
         <div class="topbar-user position-relative">
             <button type="button" class="user-menu-toggle d-flex align-items-center gap-2">
                 <div class="avatar-circle bg-primary text-white">
