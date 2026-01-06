@@ -99,11 +99,31 @@ body {
     max-width: 120px;
     width: 100%;
     height: auto;
+    animation: logoIntro 0.6s ease-out both;
 }
 
 @media (prefers-color-scheme: dark) {
     .auth-logo-img {
         content: url("../assets/branding/mas-logo-dark.png");
+    }
+}
+
+@keyframes logoIntro {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-logo-img {
+        animation: none;
+        transform: none;
+        opacity: 1;
     }
 }
 
