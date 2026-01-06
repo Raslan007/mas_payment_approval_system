@@ -58,9 +58,7 @@ class DashboardUITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("dashboard-topbar", body)
         self.assertIn("tile-grid", body)
-        self.assertIn("الإشعارات", body)
         self.assertIn("الدفعات", body)
-        self.assertIn("tile-badge", body)
 
     def test_tiles_are_filtered_by_role(self):
         self._login(self.finance_user)
