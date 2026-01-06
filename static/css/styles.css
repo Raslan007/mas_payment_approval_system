@@ -90,6 +90,23 @@ body {
     margin-inline: auto;
 }
 
+.auth-logo {
+    display: flex;
+    justify-content: center;
+}
+
+.auth-logo-img {
+    max-width: 120px;
+    width: 100%;
+    height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+    .auth-logo-img {
+        content: url("../assets/branding/mas-logo-dark.png");
+    }
+}
+
 /* أزرار صغيرة بأيقونة */
 .btn-sm-icon i {
     pointer-events: none;
