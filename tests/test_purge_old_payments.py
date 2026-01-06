@@ -9,6 +9,13 @@ from models import PaymentRequest, Project, Supplier
 
 class TestConfig(Config):
     TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite+pysqlite:///:memory:"
+    SECRET_KEY = "test-secret"
+    WTF_CSRF_ENABLED = False
+
+
+class SqliteRefuseConfig(Config):
+    TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SECRET_KEY = "test-secret"
     WTF_CSRF_ENABLED = False
@@ -112,3 +119,15 @@ class PurgeOldPaymentsTestCase(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIsNotNone(db.session.get(PaymentRequest, paid_payment_id))
         self.assertIsNone(db.session.get(PaymentRequest, draft_payment_id))
+
+    def test_purge_refuses_sqlite(self):
+        app = create_app(SqliteRefuseConfig)
+        with app.app_context():
+            runner = app.test_cli_runner()
+            result = runner.invoke(app.cli, ["purge-old-payments", "--days", "14"])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Refusing to run purge-old-payments on SQLite. Set DATABASE_URL to your production Postgres.",
+            result.output,
+        )

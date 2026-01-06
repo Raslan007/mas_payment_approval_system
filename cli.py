@@ -58,6 +58,12 @@ def _remove_attachment_file(attachment: PaymentAttachment) -> None:
 def purge_old_payments(days: int, dry_run: bool) -> None:
     """Purge payment requests older than the PM cutoff date."""
 
+    uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if uri.startswith("sqlite:///"):
+        raise click.ClickException(
+            "Refusing to run purge-old-payments on SQLite. Set DATABASE_URL to your production Postgres."
+        )
+
     if days < 1:
         raise click.BadParameter("--days must be 1 or greater")
 
