@@ -59,22 +59,29 @@
     </div>
 
     <div class="tile-grid mt-3">
+        {% set hidden_tile_keys = ["notifications", "overview"] %}
+        {% set hidden_tile_titles = ["الإشعارات", "نظرة إجمالية"] %}
+        {% set rendered_tiles = namespace(count=0) %}
         {% for tile in tiles %}
-            <a href="{{ tile.url }}" class="tile-card tile position-relative d-flex flex-column gap-2">
-                {% if tile.badge %}
-                    <span class="tile-badge">{{ tile.badge }}</span>
-                {% endif %}
-                <div class="tile-icon">
-                    <i class="{{ tile.icon }}" aria-hidden="true"></i>
-                </div>
-                <div class="tile-title">{{ tile.title }}</div>
-                <div class="tile-desc text-muted">{{ tile.description }}</div>
-            </a>
-        {% else %}
+            {% if tile.key not in hidden_tile_keys and tile.title not in hidden_tile_titles %}
+                {% set rendered_tiles.count = rendered_tiles.count + 1 %}
+                <a href="{{ tile.url }}" class="tile-card tile position-relative d-flex flex-column gap-2">
+                    {% if tile.badge %}
+                        <span class="tile-badge">{{ tile.badge }}</span>
+                    {% endif %}
+                    <div class="tile-icon">
+                        <i class="{{ tile.icon }}" aria-hidden="true"></i>
+                    </div>
+                    <div class="tile-title">{{ tile.title }}</div>
+                    <div class="tile-desc text-muted">{{ tile.description }}</div>
+                </a>
+            {% endif %}
+        {% endfor %}
+        {% if rendered_tiles.count == 0 %}
             <div class="text-center text-muted py-4">
                 لا توجد وحدات متاحة لهذا الدور حالياً.
             </div>
-        {% endfor %}
+        {% endif %}
     </div>
 </div>
 {% endblock %}

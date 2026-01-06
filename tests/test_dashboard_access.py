@@ -174,6 +174,31 @@ class _TileLinkParser(HTMLParser):
                 self.hrefs.append(href)
 
 
+class _TileTitleParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.titles: list[str] = []
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "div":
+            return
+        attr_dict = dict(attrs)
+        class_attr = attr_dict.get("class", "")
+        if "tile-title" in class_attr:
+            self._in_title = True
+
+    def handle_data(self, data):
+        if self._in_title:
+            text = data.strip()
+            if text:
+                self.titles.append(text)
+
+    def handle_endtag(self, tag):
+        if tag == "div" and self._in_title:
+            self._in_title = False
+
+
 class _DropdownIconParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -264,7 +289,17 @@ def test_tile_launcher_includes_overview_tile(client, user_factory, login):
     parser = _TileLinkParser()
     parser.feed(response.get_data(as_text=True))
 
-    assert "/overview" in parser.hrefs
+    assert "/overview" not in parser.hrefs
+
+
+def test_dashboard_tiles_hide_notifications_and_overview(client, user_factory, login):
+    login(user_factory("admin"))
+    response = client.get("/dashboard")
+    parser = _TileTitleParser()
+    parser.feed(response.get_data(as_text=True))
+
+    assert "الإشعارات" not in parser.titles
+    assert "نظرة إجمالية" not in parser.titles
 
 
 @pytest.mark.parametrize(
