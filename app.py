@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime
 
 from flask import Flask, g, request
 from flask_login import current_user
@@ -93,6 +94,10 @@ def create_app(config_class=Config) -> Flask:
             return value
 
     app.jinja_env.filters["num"] = format_number
+
+    @app.context_processor
+    def inject_current_year():
+        return {"current_year": datetime.utcnow().year}
 
     # إعدادات الـ LoginManager
     login_manager.login_view = "auth.login"
