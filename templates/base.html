@@ -18,6 +18,9 @@
         type="image/png"
         sizes="16x16"
         href="{{ url_for('static', filename='assets/branding/favicon-16x16.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='assets/branding/manifest.webmanifest') }}">
+    <meta name="theme-color" content="#1f2a6d">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='assets/branding/apple-touch-icon.png') }}">
 
     <!-- Bootstrap RTL -->
     <link
@@ -56,6 +59,15 @@
         .brand-logo img {
             object-fit: contain;
             display: block;
+            height: 100%;
+        }
+
+        .brand-logo {
+            height: 36px;
+        }
+
+        .brand-logo.brand-logo-lg {
+            height: 72px;
         }
 
         .app-footer {
@@ -213,6 +225,30 @@
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.colVis.min.js"></script>
 
 {% block extra_js %}{% endblock %}
+
+<script>
+    (function () {
+        const darkModeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+        const updateLogos = (isDark) => {
+            document.querySelectorAll('img[data-dark-src]').forEach((img) => {
+                const darkSrc = img.getAttribute('data-dark-src');
+                const lightSrc = img.getAttribute('data-light-src') || img.getAttribute('src');
+                if (!img.getAttribute('data-light-src')) {
+                    img.setAttribute('data-light-src', lightSrc);
+                }
+                img.setAttribute('src', isDark && darkSrc ? darkSrc : lightSrc);
+            });
+        };
+
+        if (darkModeQuery) {
+            updateLogos(darkModeQuery.matches);
+            darkModeQuery.addEventListener('change', (event) => {
+                updateLogos(event.matches);
+            });
+        }
+    })();
+</script>
 
 <!-- تهيئة عامة لأي جدول يحمل الكلاس datatable -->
 <script>
