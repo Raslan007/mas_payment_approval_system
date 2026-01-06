@@ -1,8 +1,12 @@
 <div class="dashboard-topbar d-flex align-items-center justify-content-between flex-wrap gap-3 p-3 rounded-4 shadow-sm bg-white">
     <div class="d-flex align-items-center gap-3">
-        <div class="topbar-brand d-flex align-items-center justify-content-center">
-            <i class="fa-solid fa-th-large"></i>
-        </div>
+        <a href="{{ url_for('main.dashboard') }}"
+           class="brand-logo d-flex align-items-center justify-content-center"
+           aria-label="MAS Group">
+            <img src="{{ url_for('static', filename='assets/branding/mas-logo.png') }}"
+                 alt="MAS Group"
+                 height="36">
+        </a>
         <div>
             <div class="fw-semibold">لوحة التطبيقات</div>
             <div class="text-muted small">اختصار لجميع الوحدات الأساسية</div>
