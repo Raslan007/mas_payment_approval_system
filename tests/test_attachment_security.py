@@ -137,6 +137,7 @@ class AttachmentSecurityTestCase(unittest.TestCase):
 
         response = self.client.get(f"/payments/attachments/{attachment.id}/download")
         self.assertIn(response.status_code, (400, 404))
+        self.assertNotEqual(response.status_code, 302)
 
     def test_project_manager_cannot_download_outside_scope(self):
         payment = self._make_payment(created_by=self.users["engineer"].id)
