@@ -277,7 +277,15 @@
                             <span class="badge bg-light text-dark border small">{{ p.request_type }}</span>
                         </td>
                         <td class="text-center">
-                            <span class="badge bg-light text-dark border small">{{ p.status }}</span>
+                            {% set status_class = "badge badge-status" %}
+                            {% if p.status in ["pending", "pending_pm", "pending_eng", "pending_finance"] %}
+                                {% set status_class = status_class + " badge-status--pending" %}
+                            {% elif p.status in ["ready_for_payment", "paid", "approved"] %}
+                                {% set status_class = status_class + " badge-status--approved" %}
+                            {% elif p.status == "rejected" %}
+                                {% set status_class = status_class + " badge-status--rejected" %}
+                            {% endif %}
+                            <span class="{{ status_class }} bg-light text-dark border small">{{ p.status }}</span>
                         </td>
                         <td class="text-end fw-semibold">{{ p.amount | num(2) }}</td>
                         <td class="text-end fw-semibold">
@@ -294,7 +302,7 @@
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted xsmall py-4">
+                    <td colspan="8" class="text-center text-muted xsmall py-4 empty-state">
                         لا توجد نتائج مطابقة للفلتر الحالي.
                     </td>
                 </tr>

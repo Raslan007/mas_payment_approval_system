@@ -96,16 +96,22 @@
         <!-- Topbar -->
         <header class="app-topbar d-flex align-items-center justify-content-between px-3 py-2 shadow-sm bg-white flex-wrap gap-3">
             <div class="d-flex align-items-center gap-2 flex-wrap topbar-launcher-group">
+                <a href="{{ url_for('main.dashboard') if is_auth else url_for('auth.login') }}"
+                   class="brand-block d-flex align-items-center gap-2">
+                    <span class="brand-logo">
+                        <img src="{{ url_for('static', filename='assets/branding/mas-logo.png') }}"
+                             data-dark-src="{{ url_for('static', filename='assets/branding/mas-logo-dark.png') }}"
+                             alt="MAS Group">
+                    </span>
+                    <span class="brand-text d-flex flex-column">
+                        <span class="brand-name">MAS Group</span>
+                        <span class="brand-system">نظام اعتماد الدفعات</span>
+                    </span>
+                </a>
                 {% if not is_auth %}
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="brand-logo-small d-flex align-items-center justify-content-center">
-                            <i class="bi bi-cash-coin fs-4"></i>
-                        </div>
-                        <div>
-                            <div class="fw-semibold small">MAS Group</div>
-                            <div class="text-muted xsmall">نظام اعتماد الدفعات</div>
-                        </div>
-                    </div>
+                    <span class="text-muted xsmall d-none d-md-inline">
+                        منصة موافقات داخلية موحدة لإدارة الدفعات.
+                    </span>
                 {% else %}
                     <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary btn-sm">
                         <i class="bi bi-grid-1x2-fill ms-1"></i>
@@ -129,7 +135,7 @@
                                 </li>
                             {% else %}
                                 <li>
-                                    <span class="dropdown-item-text text-muted small">لا توجد وحدات متاحة</span>
+                                    <span class="dropdown-item-text text-muted small empty-state">لا توجد وحدات متاحة</span>
                                 </li>
                             {% endfor %}
                         </ul>

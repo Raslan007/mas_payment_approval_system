@@ -245,7 +245,7 @@
             {% endfor %}
         </div>
     {% else %}
-        <p class="text-muted small mb-0">لا توجد دفعات تنتظر إجراءك حاليًا.</p>
+        <p class="text-muted small mb-0 empty-state">لا توجد دفعات تنتظر إجراءك حاليًا.</p>
     {% endif %}
 </div>
 
@@ -286,7 +286,7 @@
             </table>
         </div>
     {% else %}
-        <p class="text-muted small mb-0">لا توجد متأخرات ضمن صلاحياتك حالياً.</p>
+        <p class="text-muted small mb-0 empty-state">لا توجد متأخرات ضمن صلاحياتك حالياً.</p>
     {% endif %}
 </div>
 
@@ -515,7 +515,15 @@
                         <td class="small">{{ payment.project.project_name if payment.project else '-' }}</td>
                         <td class="text-end fw-semibold">{{ "%.2f"|format(payment.amount or 0) }}</td>
                         <td class="text-center">
-                            <span class="badge bg-{{ payment.status_badge_class }}">{{ payment.human_status }}</span>
+                            {% set status_class = "badge badge-status" %}
+                            {% if payment.status in ["pending", "pending_pm", "pending_eng", "pending_finance"] %}
+                                {% set status_class = status_class + " badge-status--pending" %}
+                            {% elif payment.status in ["ready_for_payment", "paid", "approved"] %}
+                                {% set status_class = status_class + " badge-status--approved" %}
+                            {% elif payment.status == "rejected" %}
+                                {% set status_class = status_class + " badge-status--rejected" %}
+                            {% endif %}
+                            <span class="{{ status_class }} bg-{{ payment.status_badge_class }}">{{ payment.human_status }}</span>
                         </td>
                         <td class="small text-nowrap">
                             {{ payment.created_at.strftime("%Y-%m-%d %H:%M") if payment.created_at else '' }}
@@ -526,7 +534,7 @@
             </table>
         </div>
     {% else %}
-        <p class="text-muted small mb-0">لا توجد دفعات لعرضها حالياً.</p>
+        <p class="text-muted small mb-0 empty-state">لا توجد دفعات لعرضها حالياً.</p>
     {% endif %}
 
     {% if pagination.pages > 1 %}
