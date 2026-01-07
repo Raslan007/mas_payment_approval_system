@@ -176,7 +176,15 @@
                 <div>
                     <span class="label-muted">حالة الدفعة</span>
                     <div class="mt-1">
-                        <span class="badge badge-status bg-{{ payment.status_badge_class }}">
+                        {% set status_class = "badge badge-status" %}
+                        {% if payment.status in ["pending", "pending_pm", "pending_eng", "pending_finance"] %}
+                            {% set status_class = status_class + " badge-status--pending" %}
+                        {% elif payment.status in ["ready_for_payment", "paid", "approved"] %}
+                            {% set status_class = status_class + " badge-status--approved" %}
+                        {% elif payment.status == "rejected" %}
+                            {% set status_class = status_class + " badge-status--rejected" %}
+                        {% endif %}
+                        <span class="{{ status_class }} bg-{{ payment.status_badge_class }}">
                             {{ payment.human_status }}
                         </span>
                         {% if is_rejected %}

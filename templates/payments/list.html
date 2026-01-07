@@ -239,7 +239,15 @@
 
                             <!-- الحالة -->
                             <td class="text-center">
-                                <span class="badge bg-{{ p.status_badge_class }}">
+                                {% set status_class = "badge badge-status" %}
+                                {% if p.status in ["pending", "pending_pm", "pending_eng", "pending_finance"] %}
+                                    {% set status_class = status_class + " badge-status--pending" %}
+                                {% elif p.status in ["ready_for_payment", "paid", "approved"] %}
+                                    {% set status_class = status_class + " badge-status--approved" %}
+                                {% elif p.status == "rejected" %}
+                                    {% set status_class = status_class + " badge-status--rejected" %}
+                                {% endif %}
+                                <span class="{{ status_class }} bg-{{ p.status_badge_class }}">
                                     {{ p.human_status }}
                                 </span>
                             </td>
