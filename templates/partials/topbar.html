@@ -1,3 +1,20 @@
+{% set is_auth = is_auth if is_auth is defined else (current_user.is_authenticated if current_user is defined else false) %}
+{% set user_display_name = (current_user.full_name or current_user.username) if is_auth and current_user is defined else "زائر" %}
+{% set user_initial = (user_display_name or "?")[:1] %}
+{% set user_role = role_name if role_name is defined and role_name else (current_user.role.name if is_auth and current_user is defined and current_user.role else "") %}
+{% set user_email = current_user.email if is_auth and current_user is defined and current_user.email else "" %}
+{% set profile_endpoint = "users.profile" %}
+{% set settings_endpoint = "users.settings" %}
+{% set password_endpoint = "users.change_password" %}
+{% set has_profile_endpoint = current_app is defined and current_app.view_functions.get(profile_endpoint) %}
+{% set has_settings_endpoint = current_app is defined and current_app.view_functions.get(settings_endpoint) %}
+{% set has_password_endpoint = current_app is defined and current_app.view_functions.get(password_endpoint) %}
+{% set profile_url = url_for(profile_endpoint) if has_profile_endpoint else "#" %}
+{% set settings_url = url_for(settings_endpoint) if has_settings_endpoint else "#" %}
+{% set password_url = url_for(password_endpoint) if has_password_endpoint else "#" %}
+{% set help_endpoint = "main.help" %}
+{% set help_url = url_for(help_endpoint) if current_app is defined and current_app.view_functions.get(help_endpoint) else url_for("main.dashboard") %}
+
 <div class="dashboard-topbar d-flex align-items-center justify-content-between flex-wrap gap-3 p-3 rounded-4 shadow-sm bg-white">
     <div class="d-flex align-items-center gap-3">
         <a href="{{ url_for('main.dashboard') }}"
@@ -26,28 +43,58 @@
             <i class="fa-regular fa-bell"></i>
             <span class="counter">{{ notifications_count or 0 }}</span>
         </a>
-        <div class="topbar-user position-relative">
-            <button type="button" class="user-menu-toggle d-flex align-items-center gap-2">
+        <div class="topbar-user dropdown user-menu position-relative">
+            <button type="button"
+                    class="user-menu-toggle dropdown-toggle d-flex align-items-center gap-2"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
+                    aria-haspopup="true"
+                    role="button">
                 <div class="avatar-circle bg-primary text-white">
-                    {{ (current_user.full_name or current_user.username or '?')[:1] }}
+                    {{ user_initial }}
                 </div>
                 <div class="text-start">
-                    <div class="fw-semibold small">{{ current_user.full_name or current_user.username }}</div>
-                    <div class="text-muted xsmall">{{ role_name or "مستخدم" }}</div>
+                    <div class="fw-semibold small">{{ user_display_name }}</div>
+                    <div class="text-muted xsmall">{{ user_role or "مستخدم" }}</div>
                 </div>
                 <i class="fa-solid fa-chevron-down small text-muted"></i>
             </button>
-            <div class="user-menu-dropdown shadow-sm bg-white rounded-3">
-                <div class="px-3 py-2 border-bottom">
-                    <div class="fw-semibold small">{{ current_user.full_name or current_user.username }}</div>
-                    <div class="text-muted xsmall">{{ role_name or "مستخدم" }}</div>
+            <div class="dropdown-menu dropdown-menu-end user-menu-dropdown shadow-sm bg-white rounded-3 text-end">
+                <div class="user-menu-header px-3 py-2 border-bottom">
+                    <div class="fw-semibold small">{{ user_display_name }}</div>
+                    {% if user_role %}
+                        <div class="text-muted xsmall">{{ user_role }}</div>
+                    {% endif %}
+                    {% if user_email %}
+                        <div class="text-muted xsmall">{{ user_email }}</div>
+                    {% endif %}
                 </div>
-                <div class="list-group list-group-flush">
-                    <a class="list-group-item list-group-item-action d-flex align-items-center gap-2" href="{{ url_for('notifications.list_notifications') }}">
-                        <i class="fa-regular fa-bell text-primary"></i>
-                        الإشعارات
+                <div class="py-1">
+                    <a class="dropdown-item d-flex align-items-center gap-2 {% if not has_profile_endpoint %}user-menu-item--disabled{% endif %}"
+                       href="{{ profile_url }}"
+                       {% if not has_profile_endpoint %}aria-disabled="true" tabindex="-1" title="قريباً" data-bs-toggle="tooltip"{% endif %}>
+                        <i class="fa-regular fa-user text-primary"></i>
+                        الملف الشخصي
                     </a>
-                    <a class="list-group-item list-group-item-action d-flex align-items-center gap-2" href="{{ url_for('auth.logout') }}">
+                    <a class="dropdown-item d-flex align-items-center gap-2 {% if not has_settings_endpoint %}user-menu-item--disabled{% endif %}"
+                       href="{{ settings_url }}"
+                       {% if not has_settings_endpoint %}aria-disabled="true" tabindex="-1" title="قريباً" data-bs-toggle="tooltip"{% endif %}>
+                        <i class="fa-solid fa-gear text-primary"></i>
+                        إعدادات الحساب
+                    </a>
+                    <a class="dropdown-item d-flex align-items-center gap-2 {% if not has_password_endpoint %}user-menu-item--disabled{% endif %}"
+                       href="{{ password_url }}"
+                       {% if not has_password_endpoint %}aria-disabled="true" tabindex="-1" title="قريباً" data-bs-toggle="tooltip"{% endif %}>
+                        <i class="fa-solid fa-key text-primary"></i>
+                        تغيير كلمة المرور
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item d-flex align-items-center gap-2" href="{{ help_url }}">
+                        <i class="fa-regular fa-circle-question text-primary"></i>
+                        المساعدة والدعم
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('auth.logout') }}">
                         <i class="fa-solid fa-right-from-bracket text-danger"></i>
                         تسجيل الخروج
                     </a>

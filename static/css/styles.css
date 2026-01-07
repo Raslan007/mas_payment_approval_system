@@ -82,6 +82,37 @@ body {
     font-size: 0.95rem;
 }
 
+/* User menu */
+.user-menu {
+    position: relative;
+}
+
+.user-menu-toggle {
+    background: transparent;
+    border: 0;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+}
+
+.user-menu-toggle.dropdown-toggle::after {
+    display: none;
+}
+
+.user-menu-dropdown {
+    min-width: 240px;
+    max-width: 90vw;
+    z-index: 1080;
+}
+
+.user-menu-header .xsmall {
+    line-height: 1.4;
+}
+
+.user-menu-item--disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 /* Text sizes */
 .xsmall {
     font-size: 0.7rem;
