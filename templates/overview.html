@@ -315,7 +315,7 @@
                         </div>
                     </div>
                     <div class="text-end">
-                        <div class="fw-semibold">{{ (payment.amount_finance or payment.amount or 0)|num(2) }} ج.م</div>
+                        <div class="fw-semibold">{{ (payment.finance_amount or payment.amount or 0)|num(2) }} ج.م</div>
                         <span class="badge bg-info text-dark">التفاصيل</span>
                     </div>
                 </a>

@@ -3,6 +3,7 @@
 import csv
 import io
 from datetime import datetime, timedelta, date
+from decimal import Decimal, InvalidOperation
 import math
 import os
 import pathlib
@@ -19,13 +20,14 @@ from flask import (
     current_app,
     send_from_directory,
     Response,
+    jsonify,
 )
 from flask_login import current_user
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import extract, false, exists, inspect, func
 
 from extensions import db
-from permissions import role_required
+from permissions import role_required, is_finance_user
 from models import (
     PaymentRequest,
     Project,
@@ -33,6 +35,7 @@ from models import (
     PaymentApproval,
     PaymentAttachment,
     PaymentNotificationNote,
+    PaymentFinanceAdjustment,
     Notification,
     Role,
     User,
@@ -214,6 +217,21 @@ def _get_return_to(default_endpoint: str = "payments.index", **default_kwargs) -
 
 def _redirect_with_return_to(default_endpoint: str = "payments.index", **default_kwargs):
     return redirect(_get_return_to(default_endpoint, **default_kwargs))
+
+
+def _parse_decimal_amount(raw_value: str | None) -> Decimal | None:
+    if raw_value is None:
+        return None
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return None
+    try:
+        value = Decimal(raw_value.replace(",", ""))
+    except (InvalidOperation, AttributeError):
+        return None
+    if not value.is_finite():
+        return None
+    return value
 
 
 def _user_projects_table_exists() -> bool:
@@ -546,7 +564,7 @@ def _export_query_to_csv(q, *, filename: str):
             "request_type",
             "status",
             "amount",
-            "amount_finance",
+            "finance_amount",
             "progress_percentage",
             "created_at",
             "updated_at",
@@ -564,7 +582,7 @@ def _export_query_to_csv(q, *, filename: str):
                 payment.request_type,
                 payment.status,
                 payment.amount,
-                payment.amount_finance if payment.amount_finance is not None else "",
+                payment.finance_amount if payment.finance_amount is not None else "",
                 payment.progress_percentage if payment.progress_percentage is not None else "",
                 _format_ts(payment.created_at),
                 _format_ts(payment.updated_at),
@@ -1549,6 +1567,12 @@ def detail(payment_id):
             joinedload(PaymentRequest.notification_notes).joinedload(
                 PaymentNotificationNote.user
             ),
+            selectinload(PaymentRequest.finance_adjustments).joinedload(
+                PaymentFinanceAdjustment.created_by
+            ),
+            selectinload(PaymentRequest.finance_adjustments).joinedload(
+                PaymentFinanceAdjustment.voided_by
+            ),
         ],
     )
 
@@ -1609,7 +1633,9 @@ def detail(payment_id):
         can_update_finance_amount=(
             role_name == "finance"
             and payment.status in FINANCE_AMOUNT_EDITABLE_STATUSES
+            and payment.finance_amount is None
         ),
+        can_manage_finance_adjustments=is_finance_user(current_user),
         can_view_rejection_details=role_name in ("engineering_manager", "admin"),
     )
 
@@ -1646,6 +1672,127 @@ def add_notification_note(payment_id: int):
     db.session.commit()
 
     flash("تم تسجيل ملاحظة الإشعار بنجاح.", "success")
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+
+@payments_bp.route("/<int:payment_id>/finance-adjustments", methods=["POST"])
+def create_finance_adjustment(payment_id: int):
+    payment = _get_payment_or_404(payment_id)
+
+    if not is_finance_user(current_user):
+        abort(403)
+
+    if payment.finance_amount is None:
+        if request.is_json or request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "base_amount_required"}), 400
+        flash("يرجى تسجيل مبلغ المالية الأساسي قبل إضافة أي تصحيحات.", "warning")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    payload = request.get_json(silent=True) or {}
+    raw_delta = payload.get("delta_amount") or request.form.get("delta_amount")
+    reason = (payload.get("reason") or request.form.get("reason") or "").strip()
+    notes = (payload.get("notes") or request.form.get("notes") or "").strip()
+
+    delta_amount = _parse_decimal_amount(raw_delta)
+    if delta_amount is None or delta_amount == 0:
+        if request.is_json or request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "invalid_delta_amount"}), 400
+        flash("يرجى إدخال مبلغ تصحيح صالح وغير صفري.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if not reason:
+        if request.is_json or request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "reason_required"}), 400
+        flash("يرجى إدخال سبب التصحيح.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    adjustment = PaymentFinanceAdjustment(
+        payment_id=payment.id,
+        delta_amount=delta_amount,
+        reason=reason,
+        notes=notes or None,
+        created_by_user_id=current_user.id,
+        created_at=datetime.utcnow(),
+    )
+    db.session.add(adjustment)
+    db.session.commit()
+
+    if request.is_json or request.accept_mimetypes.best == "application/json":
+        return jsonify(
+            {
+                "ok": True,
+                "adjustment": {
+                    "id": adjustment.id,
+                    "payment_id": adjustment.payment_id,
+                    "delta_amount": str(adjustment.delta_amount),
+                    "reason": adjustment.reason,
+                    "notes": adjustment.notes,
+                    "created_by_user_id": adjustment.created_by_user_id,
+                    "created_at": adjustment.created_at.isoformat()
+                    if adjustment.created_at
+                    else None,
+                    "is_void": adjustment.is_void,
+                },
+                "finance_effective_amount": str(payment.finance_effective_amount),
+            }
+        )
+
+    flash("تم إضافة تصحيح الحسابات بنجاح.", "success")
+    return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+
+@payments_bp.route(
+    "/<int:payment_id>/finance-adjustments/<int:adjustment_id>/void",
+    methods=["POST"],
+)
+def void_finance_adjustment(payment_id: int, adjustment_id: int):
+    payment = _get_payment_or_404(payment_id)
+
+    if not is_finance_user(current_user):
+        abort(403)
+
+    adjustment = PaymentFinanceAdjustment.query.filter(
+        PaymentFinanceAdjustment.id == adjustment_id,
+        PaymentFinanceAdjustment.payment_id == payment.id,
+    ).first()
+    if adjustment is None:
+        abort(404)
+
+    if adjustment.is_void:
+        flash("هذا التصحيح تم إلغاؤه مسبقاً.", "warning")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    payload = request.get_json(silent=True) or {}
+    void_reason = (payload.get("void_reason") or request.form.get("void_reason") or "").strip()
+    if not void_reason:
+        if request.is_json or request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "void_reason_required"}), 400
+        flash("يرجى إدخال سبب الإلغاء.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    adjustment.is_void = True
+    adjustment.void_reason = void_reason
+    adjustment.voided_by_user_id = current_user.id
+    adjustment.voided_at = datetime.utcnow()
+    db.session.commit()
+
+    if request.is_json or request.accept_mimetypes.best == "application/json":
+        return jsonify(
+            {
+                "ok": True,
+                "adjustment": {
+                    "id": adjustment.id,
+                    "payment_id": adjustment.payment_id,
+                    "delta_amount": str(adjustment.delta_amount),
+                    "reason": adjustment.reason,
+                    "void_reason": adjustment.void_reason,
+                    "is_void": adjustment.is_void,
+                },
+                "finance_effective_amount": str(payment.finance_effective_amount),
+            }
+        )
+
+    flash("تم إلغاء التصحيح بنجاح.", "success")
     return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
 
@@ -2075,31 +2222,30 @@ def mark_paid(payment_id):
     """
     خطوة تم الصرف:
     - الحالة يجب أن تكون READY_FOR_PAYMENT
-    - يُطلب من المالية إدخال amount_finance (المبلغ الفعلي المعتمد)
-    - يتم حفظ amount_finance وتغيير الحالة إلى PAID
+    - يُطلب من المالية إدخال finance_amount (المبلغ الفعلي المعتمد)
+    - يتم حفظ finance_amount وتغيير الحالة إلى PAID
     """
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PAID):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    amount_finance_str = (request.form.get("amount_finance") or "").strip()
-    if not amount_finance_str:
+    finance_amount_str = (request.form.get("finance_amount") or "").strip()
+    if not finance_amount_str:
         flash("برجاء إدخال مبلغ المالية الفعلي قبل تأكيد الصرف.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    try:
-        amount_finance = float(amount_finance_str.replace(",", ""))
-    except ValueError:
+    finance_amount = _parse_decimal_amount(finance_amount_str)
+    if finance_amount is None:
         flash("برجاء إدخال مبلغ مالية فعلي صحيح.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    if not math.isfinite(amount_finance) or amount_finance <= 0:
+    if finance_amount <= 0:
         flash("برجاء إدخال مبلغ مالية فعلي أكبر من صفر.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
-    payment.amount_finance = amount_finance
+    payment.finance_amount = finance_amount
     payment.status = STATUS_PAID
     payment.updated_at = datetime.utcnow()
 
@@ -2114,7 +2260,7 @@ def mark_paid(payment_id):
     _create_notifications(
         payment,
         title=f"تم صرف الدفعة رقم {payment.id}",
-        message=f"تم تسجيل مبلغ الصرف الفعلي {payment.amount_finance:.2f}.",
+        message=f"تم تسجيل مبلغ الصرف الفعلي {payment.finance_amount:.2f}.",
         url=url_for("payments.detail", payment_id=payment.id),
         roles=("payment_notifier",),
         include_creator=True,
@@ -2139,27 +2285,30 @@ def update_finance_amount(payment_id: int):
         flash("لا يمكن تعديل مبلغ المالية في الحالة الحالية للدفعة.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    raw_amount = (request.form.get("amount_finance") or "").strip()
+    if payment.finance_amount is not None:
+        flash("تم تثبيت مبلغ المالية الأساسي؛ استخدم تصحيحات الحسابات لأي تعديل.", "warning")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    raw_amount = (request.form.get("finance_amount") or "").strip()
     if not raw_amount:
         flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    try:
-        amount_finance = float(raw_amount.replace(",", ""))
-    except ValueError:
+    finance_amount = _parse_decimal_amount(raw_amount)
+    if finance_amount is None:
         flash("برجاء إدخال مبلغ مالية صحيح.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    if not math.isfinite(amount_finance) or amount_finance < 0:
+    if finance_amount < 0:
         flash("المبلغ المالي يجب أن يكون رقمًا صالحًا أكبر من أو يساوي صفر.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    if amount_finance > 1_000_000_000:
+    if finance_amount > Decimal("1000000000"):
         flash("المبلغ المدخل كبير جدًا، يرجى التحقق ثم المحاولة مرة أخرى.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    old_amount = payment.amount_finance
-    payment.amount_finance = amount_finance
+    old_amount = payment.finance_amount
+    payment.finance_amount = finance_amount
     payment.updated_at = datetime.utcnow()
 
     _add_approval_log(
@@ -2168,13 +2317,13 @@ def update_finance_amount(payment_id: int):
         action="update_amount",
         old_status=payment.status,
         new_status=payment.status,
-        comment=f"amount_finance: {old_amount} -> {amount_finance}",
+        comment=f"finance_amount: {old_amount} -> {finance_amount}",
     )
 
     _create_notifications(
         payment,
         title=f"تحديث مبلغ المالية للدفعة رقم {payment.id}",
-        message=f"تم تعديل مبلغ المالية من {old_amount} إلى {amount_finance}.",
+        message=f"تم تعديل مبلغ المالية من {old_amount} إلى {finance_amount}.",
         url=url_for("payments.detail", payment_id=payment.id),
         roles=("project_manager",),
         include_creator=True,

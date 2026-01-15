@@ -1,6 +1,7 @@
 # models.py
 
 from datetime import datetime
+from decimal import Decimal
 import logging
 
 from flask_login import UserMixin
@@ -112,7 +113,7 @@ class PaymentRequest(db.Model):
     description = db.Column(db.Text, nullable=True)
 
     # مبلغ المالية الفعلي (المبلغ الذي تم اعتماده للصرف من الإدارة المالية)
-    amount_finance = db.Column(db.Float, nullable=True)
+    finance_amount = db.Column(db.Numeric(14, 2), nullable=True)
 
     # نسبة الإنجاز وقت الدفعة (0–100)
     progress_percentage = db.Column(db.Float, nullable=True)
@@ -127,6 +128,12 @@ class PaymentRequest(db.Model):
     project = db.relationship("Project", backref="payment_requests")
     supplier = db.relationship("Supplier", backref="payment_requests")
     creator = db.relationship("User", backref="created_requests", foreign_keys=[created_by])
+    finance_adjustments = db.relationship(
+        "PaymentFinanceAdjustment",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentFinanceAdjustment.created_at.asc()",
+    )
 
     def __repr__(self):
         return f"<PaymentRequest {self.id} - {self.amount}>"
@@ -171,16 +178,82 @@ class PaymentRequest(db.Model):
         return mapping.get(self.status, "secondary")
 
     @property
-    def finance_diff(self) -> float | None:
+    def finance_diff(self) -> Decimal | None:
         """
         الفرق = مبلغ المالية - مبلغ المهندس
         موجب  => المالية صرفت أكثر من المطلوب
         سالب  => المالية صرفت أقل من المطلوب
         صفر   => مطابق للمطلوب
         """
-        if self.amount_finance is None or self.amount is None:
+        if self.amount is None or self.finance_amount is None:
             return None
-        return float(self.amount_finance) - float(self.amount)
+        return self.finance_effective_amount - self.amount_decimal
+
+    @property
+    def amount_decimal(self) -> Decimal:
+        if self.amount is None:
+            return Decimal("0.00")
+        return Decimal(str(self.amount))
+
+    @property
+    def finance_adjustments_total(self) -> Decimal:
+        total = Decimal("0.00")
+        for adjustment in self.finance_adjustments:
+            if adjustment.is_void:
+                continue
+            total += adjustment.delta_amount or Decimal("0.00")
+        return total
+
+    @property
+    def finance_effective_amount(self) -> Decimal:
+        base_amount = Decimal("0.00")
+        if self.finance_amount is not None:
+            base_amount = Decimal(str(self.finance_amount))
+        return base_amount + self.finance_adjustments_total
+
+
+class PaymentFinanceAdjustment(db.Model):
+    __tablename__ = "payment_finance_adjustments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_id = db.Column(
+        db.Integer,
+        db.ForeignKey("payment_requests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    delta_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    reason = db.Column(db.String(255), nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+
+    created_by_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+    is_void = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    voided_by_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+    voided_at = db.Column(db.DateTime, nullable=True)
+    void_reason = db.Column(db.String(255), nullable=True)
+
+    payment = db.relationship("PaymentRequest", back_populates="finance_adjustments")
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
+    voided_by = db.relationship("User", foreign_keys=[voided_by_user_id])
+
+    def __repr__(self) -> str:  # type: ignore
+        return f"<PaymentFinanceAdjustment {self.id} for payment {self.payment_id}>"
 
 
 class PaymentNotificationNote(db.Model):

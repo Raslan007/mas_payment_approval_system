@@ -57,13 +57,13 @@ class FinanceWorkbenchTestCase(unittest.TestCase):
             sess["_user_id"] = str(user.id)
             sess["_fresh"] = True
 
-    def _create_payment(self, *, status: str, amount: float = 100.0, amount_finance: float | None = None) -> PaymentRequest:
+    def _create_payment(self, *, status: str, amount: float = 100.0, finance_amount: float | None = None) -> PaymentRequest:
         payment = PaymentRequest(
             project_id=self.project.id,
             supplier_id=self.supplier.id,
             request_type="مقاول",
             amount=amount,
-            amount_finance=amount_finance,
+            finance_amount=finance_amount,
             status=status,
             created_by=self.admin.id,
         )
@@ -87,7 +87,7 @@ class FinanceWorkbenchTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_status_filter_paid_only(self):
-        paid_payment = self._create_payment(status=payment_routes.STATUS_PAID, amount_finance=120)
+        paid_payment = self._create_payment(status=payment_routes.STATUS_PAID, finance_amount=120)
         pending_payment = self._create_payment(status=payment_routes.STATUS_PENDING_FIN)
 
         self._login(self.finance_user)
@@ -97,7 +97,7 @@ class FinanceWorkbenchTestCase(unittest.TestCase):
         self.assertNotIn(f"{pending_payment.id}</td>".encode(), response.data)
 
     def test_export_returns_csv(self):
-        payment = self._create_payment(status=payment_routes.STATUS_PENDING_FIN, amount_finance=110)
+        payment = self._create_payment(status=payment_routes.STATUS_PENDING_FIN, finance_amount=110)
         self._login(self.finance_user)
 
         response = self.client.get("/finance/workbench/export")

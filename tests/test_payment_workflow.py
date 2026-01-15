@@ -1,6 +1,7 @@
 import html
 import re
 import unittest
+from decimal import Decimal
 from urllib.parse import quote, unquote
 
 from sqlalchemy.pool import StaticPool
@@ -128,7 +129,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
     def _force_paid(self, payment: PaymentRequest, amount: float) -> None:
         db.session.execute(
             db.text(
-                "update payment_requests set status=:status, amount_finance=:amount where id=:payment_id"
+                "update payment_requests set status=:status, finance_amount=:amount where id=:payment_id"
             ),
             {"status": payment_routes.STATUS_PAID, "amount": amount, "payment_id": payment.id},
         )
@@ -138,7 +139,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
     def _force_finance_amount(self, payment: PaymentRequest, amount: float) -> None:
         db.session.execute(
             db.text(
-                "update payment_requests set amount_finance=:amount where id=:payment_id"
+                "update payment_requests set finance_amount=:amount where id=:payment_id"
             ),
             {"amount": amount, "payment_id": payment.id},
         )
@@ -224,12 +225,12 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         # mark paid with valid amount
         resp_paid = self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_paid.status_code, 302)
         self._force_paid(payment, 1200.0)
         self.assertEqual(payment.status, payment_routes.STATUS_PAID)
-        self.assertEqual(payment.amount_finance, 1200.0)
+        self.assertEqual(payment.finance_amount, Decimal("1200.00"))
 
     def test_mark_paid_rejects_invalid_amounts(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
@@ -239,21 +240,21 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._login(self.users["finance"])
         response_negative = self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "-100"},
+            data={"finance_amount": "-100"},
         )
         self.assertEqual(response_negative.status_code, 302)
         refreshed = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(refreshed.status, payment_routes.STATUS_READY_FOR_PAYMENT)
-        self.assertIsNone(refreshed.amount_finance)
+        self.assertIsNone(refreshed.finance_amount)
 
         response_zero = self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "0"},
+            data={"finance_amount": "0"},
         )
         self.assertEqual(response_zero.status_code, 302)
         refreshed_again = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(refreshed_again.status, payment_routes.STATUS_READY_FOR_PAYMENT)
-        self.assertIsNone(refreshed_again.amount_finance)
+        self.assertIsNone(refreshed_again.finance_amount)
 
     def test_engineer_cannot_create_payment_for_other_project(self):
         self._login(self.users["engineer"])
@@ -715,13 +716,13 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "1000"},
+            data={"finance_amount": "1000"},
         )
 
         self._force_paid(payment, 1000.0)
         final = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(final.status, payment_routes.STATUS_PAID)
-        self.assertEqual(final.amount_finance, 1000.0)
+        self.assertEqual(final.finance_amount, Decimal("1000.00"))
 
     def test_finance_can_update_amount_only(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
@@ -732,7 +733,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         resp = self.client.post(
             f"/payments/{payment.id}/finance-amount",
             data={
-                "amount_finance": "1500.75",
+                "finance_amount": "1500.75",
                 "amount": "99999",  # should be ignored
             },
         )
@@ -740,7 +741,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._force_finance_amount(payment, 1500.75)
 
         updated = db.session.get(PaymentRequest, payment.id)
-        self.assertEqual(updated.amount_finance, 1500.75)
+        self.assertEqual(updated.finance_amount, Decimal("1500.75"))
         self.assertEqual(updated.amount, original_amount)
         self.assertEqual(updated.status, payment_routes.STATUS_PENDING_FIN)
 
@@ -750,11 +751,11 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._login(self.users["finance"])
         resp_draft = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_draft.status_code, 302)
         refreshed = db.session.get(PaymentRequest, payment.id)
-        self.assertIsNone(refreshed.amount_finance)
+        self.assertIsNone(refreshed.finance_amount)
         self.assertEqual(refreshed.status, payment_routes.STATUS_DRAFT)
 
         self._login(self.users["engineer"])
@@ -764,11 +765,11 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._login(self.users["finance"])
         resp_pending_pm = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_pending_pm.status_code, 302)
         db.session.refresh(payment)
-        self.assertIsNone(payment.amount_finance)
+        self.assertIsNone(payment.finance_amount)
         self.assertEqual(payment.status, payment_routes.STATUS_PENDING_PM)
 
         self._login(self.users["project_manager"])
@@ -778,11 +779,11 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self._login(self.users["finance"])
         resp_pending_eng = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_pending_eng.status_code, 302)
         db.session.refresh(payment)
-        self.assertIsNone(payment.amount_finance)
+        self.assertIsNone(payment.finance_amount)
         self.assertEqual(payment.status, payment_routes.STATUS_PENDING_ENG)
 
         self._login(self.users["engineering_manager"])
@@ -795,27 +796,27 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         resp_ready = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_ready.status_code, 302)
         db.session.refresh(payment)
-        self.assertIsNone(payment.amount_finance)
+        self.assertIsNone(payment.finance_amount)
         self.assertEqual(payment.status, payment_routes.STATUS_READY_FOR_PAYMENT)
 
         self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self._force_status(payment, payment_routes.STATUS_PAID)
         self.assertEqual(payment.status, payment_routes.STATUS_PAID)
 
         resp_paid = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1200"},
+            data={"finance_amount": "1200"},
         )
         self.assertEqual(resp_paid.status_code, 302)
         db.session.refresh(payment)
-        self.assertEqual(payment.amount_finance, 1200.0)
+        self.assertEqual(payment.finance_amount, Decimal("1200.00"))
         self.assertEqual(payment.status, payment_routes.STATUS_PAID)
 
     def test_non_finance_cannot_update_finance_amount(self):
@@ -824,12 +825,12 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         resp = self.client.post(
             f"/payments/{payment.id}/finance-amount",
-            data={"amount_finance": "1000"},
+            data={"finance_amount": "1000"},
         )
         self.assertEqual(resp.status_code, 403)
 
         refreshed = db.session.get(PaymentRequest, payment.id)
-        self.assertIsNone(refreshed.amount_finance)
+        self.assertIsNone(refreshed.finance_amount)
 
 
 if __name__ == "__main__":

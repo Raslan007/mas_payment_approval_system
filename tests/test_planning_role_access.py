@@ -112,7 +112,7 @@ class PlanningRoleAccessTestCase(unittest.TestCase):
             (f"/payments/{self.payment.id}/finance_approve", {}),
             (f"/payments/{self.payment.id}/finance_reject", {}),
             (f"/payments/{self.payment.id}/mark_paid", {}),
-            (f"/payments/{self.payment.id}/finance-amount", {"amount_finance": "100"}),
+            (f"/payments/{self.payment.id}/finance-amount", {"finance_amount": "100"}),
             (f"/payments/{self.payment.id}/add_notification_note", {"note": "test"}),
         ]
 

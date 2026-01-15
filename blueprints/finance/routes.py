@@ -3,6 +3,7 @@
 import csv
 import io
 from datetime import timedelta
+from decimal import Decimal
 
 from flask import Response, render_template, request
 from sqlalchemy import case, func
@@ -109,12 +110,12 @@ def _finance_workbench_query():
     finance_amount_min = _safe_float_arg("finance_amount_min")
     if finance_amount_min is not None:
         filters["finance_amount_min"] = (request.args.get("finance_amount_min") or "").strip()
-        q = q.filter(PaymentRequest.amount_finance >= finance_amount_min)
+        q = q.filter(PaymentRequest.finance_amount >= finance_amount_min)
 
     finance_amount_max = _safe_float_arg("finance_amount_max")
     if finance_amount_max is not None:
         filters["finance_amount_max"] = (request.args.get("finance_amount_max") or "").strip()
-        q = q.filter(PaymentRequest.amount_finance <= finance_amount_max)
+        q = q.filter(PaymentRequest.finance_amount <= finance_amount_max)
 
     return q, filters, projects, suppliers, request_types, status_filter, _finance_workbench_ordering(status_filter)
 
@@ -139,13 +140,13 @@ def _paginate_finance_query(q, order_clause: tuple):
 
 
 def _finance_workbench_kpis(q) -> dict:
-    base_value = func.coalesce(PaymentRequest.amount_finance, PaymentRequest.amount, 0)
+    base_value = func.coalesce(PaymentRequest.finance_amount, PaymentRequest.amount, 0)
     aggregates = (
         q.order_by(None)
         .with_entities(
             func.count(PaymentRequest.id),
             func.coalesce(func.sum(PaymentRequest.amount), 0.0),
-            func.coalesce(func.sum(PaymentRequest.amount_finance), 0.0),
+            func.coalesce(func.sum(PaymentRequest.finance_amount), 0.0),
             func.coalesce(
                 func.sum(
                     case(
@@ -172,17 +173,17 @@ def _finance_workbench_kpis(q) -> dict:
         return {
             "count": 0,
             "sum_amount": 0.0,
-            "sum_amount_finance": 0.0,
+            "sum_finance_amount": 0.0,
             "sum_ready_for_payment": 0.0,
             "sum_paid": 0.0,
         }
 
     return {
         "count": aggregates[0] or 0,
-        "sum_amount": float(aggregates[1] or 0),
-        "sum_amount_finance": float(aggregates[2] or 0),
-        "sum_ready_for_payment": float(aggregates[3] or 0),
-        "sum_paid": float(aggregates[4] or 0),
+        "sum_amount": Decimal(str(aggregates[1] or 0)),
+        "sum_finance_amount": Decimal(str(aggregates[2] or 0)),
+        "sum_ready_for_payment": Decimal(str(aggregates[3] or 0)),
+        "sum_paid": Decimal(str(aggregates[4] or 0)),
     }
 
 
@@ -211,7 +212,7 @@ def _export_finance_workbench(q, order_clause: tuple):
             "request_type",
             "status",
             "amount",
-            "amount_finance",
+            "finance_amount",
             "created_at",
         ]
     )
@@ -224,7 +225,7 @@ def _export_finance_workbench(q, order_clause: tuple):
                 payment.request_type,
                 payment.status,
                 payment.amount,
-                payment.amount_finance if payment.amount_finance is not None else "",
+                payment.finance_amount if payment.finance_amount is not None else "",
                 payment_routes._format_ts(payment.created_at),
             ]
         )

@@ -5,6 +5,13 @@ from flask import abort, request
 from flask_login import current_user, login_required
 
 
+def is_finance_user(user) -> bool:
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    role = user.role.name if user.role else None
+    return role in {"finance", "accounts"}
+
+
 def role_required(*allowed_roles):
     """
     Decorator لتقييد الوصول على حسب الدور.
