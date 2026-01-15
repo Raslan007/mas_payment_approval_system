@@ -1,10 +1,14 @@
 # extensions.py
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
+from flask_migrate import Migrate
 from flask_wtf import CSRFProtect
 
 # تهيئة الـ SQLAlchemy (قاعدة البيانات)
 db = SQLAlchemy()
+
+# تهيئة Flask-Migrate
+migrate = Migrate()
 
 # تهيئة الـ LoginManager (إدارة تسجيل الدخول)
 login_manager = LoginManager()
