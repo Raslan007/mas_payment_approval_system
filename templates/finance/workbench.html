@@ -208,7 +208,7 @@
     <div class="col-md-3">
         <div class="bg-white p-3 rounded-3 shadow-sm h-100">
             <div class="text-muted xsmall">إجمالي مبلغ المالية</div>
-            <div class="h5 mb-0">{{ kpis.sum_amount_finance | num(2) }}</div>
+            <div class="h5 mb-0">{{ kpis.sum_finance_amount | num(2) }}</div>
         </div>
     </div>
     <div class="col-md-3">
@@ -289,8 +289,8 @@
                         </td>
                         <td class="text-end fw-semibold">{{ p.amount | num(2) }}</td>
                         <td class="text-end fw-semibold">
-                            {% if p.amount_finance is not none %}
-                                {{ p.amount_finance | num(2) }}
+                            {% if p.finance_amount is not none %}
+                                {{ p.finance_amount | num(2) }}
                             {% else %}
                                 <span class="text-muted">—</span>
                             {% endif %}

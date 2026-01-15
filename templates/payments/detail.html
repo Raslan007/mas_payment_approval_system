@@ -263,9 +263,9 @@
 
                     <div class="col-md-6">
                         <div class="small-label mb-1">المبلغ المالي الفعلي (المعتمد)</div>
-                        {% if payment.amount_finance is not none %}
+                        {% if payment.finance_amount is not none %}
                             <div class="value-strong">
-                                {{ "{:,.0f}".format(payment.amount_finance) }} ج.م
+                                {{ "{:,.0f}".format(payment.finance_amount) }} ج.م
                             </div>
                         {% else %}
                             <div class="xsmall text-muted">
@@ -291,11 +291,11 @@
                     {# الفرق بين مبلغ المالية ومبلغ المهندس #}
                     <div class="col-12">
                         <div class="small-label mb-1">الفرق بين مبلغ المالية ومبلغ المهندس</div>
-                        {% if payment.amount is not none and payment.amount_finance is not none %}
-                            {% set diff = payment.amount_finance - payment.amount %}
+                        {% if payment.finance_diff is not none %}
+                            {% set diff = payment.finance_diff %}
                             <div class="value-strong">
                                 <span class="{% if diff > 0 %}text-success{% elif diff < 0 %}text-danger{% endif %}">
-                                    {{ "{:,.0f}".format(diff) }} ج.م
+                                    {{ diff | num(2) }} ج.م
                                 </span>
                                 <span class="xsmall text-muted ms-1">
                                     (موجب = المالية أكبر / سالب = المالية أقل)
@@ -356,12 +356,12 @@
                         <div class="mb-2">
                             <label class="form-label xsmall mb-1">المبلغ المالي (ج.م)</label>
                             <input type="number"
-                                   name="amount_finance"
+                                   name="finance_amount"
                                    class="form-control form-control-sm"
                                    step="0.01"
                                    min="0"
                                    required
-                                   value="{{ payment.amount_finance if payment.amount_finance is not none else '' }}">
+                                   value="{{ payment.finance_amount if payment.finance_amount is not none else '' }}">
                             <div class="form-text xsmall">
                                 يمكن تعديل مبلغ المالية أثناء مرحلة مراجعة المالية فقط.
                             </div>
@@ -374,6 +374,152 @@
                 </div>
             </div>
         {% endif %}
+
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">تصحيحات الحسابات</span>
+                {% if can_manage_finance_adjustments %}
+                    <span class="badge bg-info text-dark">للاستخدام المالي فقط</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">مبلغ المالية الأساسي</div>
+                        {% if payment.finance_amount is not none %}
+                            <div class="value-strong">{{ payment.finance_amount | num(2) }} ج.م</div>
+                        {% else %}
+                            <div class="xsmall text-muted">لم يتم تسجيل مبلغ المالية بعد.</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">إجمالي التصحيحات</div>
+                        <div class="value-strong">
+                            {{ payment.finance_adjustments_total | num(2) }} ج.م
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small-label mb-1">مبلغ المالية بعد التصحيحات</div>
+                        <div class="value-strong">
+                            {{ payment.finance_effective_amount | num(2) }} ج.م
+                        </div>
+                    </div>
+                </div>
+
+                {% if payment.finance_adjustments %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>التاريخ</th>
+                                    <th>قيمة التصحيح</th>
+                                    <th>السبب</th>
+                                    <th>بواسطة</th>
+                                    <th>الحالة</th>
+                                    {% if can_manage_finance_adjustments %}
+                                        <th>إجراء</th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for adjustment in payment.finance_adjustments %}
+                                    <tr class="{% if adjustment.is_void %}text-muted{% endif %}">
+                                        <td>
+                                            {{ adjustment.created_at.strftime("%Y-%m-%d %H:%M") if adjustment.created_at else "" }}
+                                        </td>
+                                        <td>
+                                            <span class="{% if adjustment.delta_amount > 0 %}text-success{% elif adjustment.delta_amount < 0 %}text-danger{% endif %}">
+                                                {{ adjustment.delta_amount | num(2) }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">{{ adjustment.reason }}</div>
+                                            {% if adjustment.notes %}
+                                                <div class="xsmall text-muted">{{ adjustment.notes }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {{ adjustment.created_by.full_name if adjustment.created_by else 'غير معروف' }}
+                                        </td>
+                                        <td>
+                                            {% if adjustment.is_void %}
+                                                <span class="badge bg-secondary">ملغى</span>
+                                                {% if adjustment.void_reason %}
+                                                    <div class="xsmall text-muted mt-1">
+                                                        سبب الإلغاء: {{ adjustment.void_reason }}
+                                                    </div>
+                                                {% endif %}
+                                                {% if adjustment.voided_by %}
+                                                    <div class="xsmall text-muted">
+                                                        بواسطة {{ adjustment.voided_by.full_name }}
+                                                    </div>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="badge bg-success">ساري</span>
+                                            {% endif %}
+                                        </td>
+                                        {% if can_manage_finance_adjustments %}
+                                            <td>
+                                                {% if not adjustment.is_void %}
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-outline-danger btn-sm js-void-adjustment"
+                                                        data-url="{{ url_for('payments.void_finance_adjustment', payment_id=payment.id, adjustment_id=adjustment.id) }}">
+                                                        إلغاء
+                                                    </button>
+                                                {% else %}
+                                                    <span class="text-muted xsmall">—</span>
+                                                {% endif %}
+                                            </td>
+                                        {% endif %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-muted xsmall mb-3">
+                        لا توجد تصحيحات مالية مسجلة لهذه الدفعة.
+                    </div>
+                {% endif %}
+
+                {% if can_manage_finance_adjustments %}
+                    <form method="post"
+                          action="{{ url_for('payments.create_finance_adjustment', payment_id=payment.id) }}"
+                          class="border rounded-3 p-3 bg-light-subtle">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label xsmall mb-1">قيمة التصحيح (ج.م)</label>
+                                <input type="number"
+                                       name="delta_amount"
+                                       class="form-control form-control-sm"
+                                       step="0.01"
+                                       required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label xsmall mb-1">السبب</label>
+                                <input type="text"
+                                       name="reason"
+                                       class="form-control form-control-sm"
+                                       maxlength="255"
+                                       required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label xsmall mb-1">ملاحظات</label>
+                                <input type="text"
+                                       name="notes"
+                                       class="form-control form-control-sm">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm mt-3">
+                            <i class="bi bi-plus-circle ms-1"></i>
+                            إضافة تصحيح
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
 
         {# المرفقات #}
         <div class="card mb-3 shadow-sm">
@@ -709,18 +855,18 @@
                                     المبلغ المالي الفعلي (ج.م)
                                 </label>
                                 <input type="number"
-                                       name="amount_finance"
+                                       name="finance_amount"
                                        class="form-control form-control-sm"
                                        step="0.01"
                                        required
-                                       value="{{ payment.amount_finance if payment.amount_finance is not none else '' }}">
+                                       value="{{ payment.finance_amount if payment.finance_amount is not none else '' }}">
                                 <div class="form-text xsmall">
                                     أدخل المبلغ الذي سيتم اعتماده فعليًا للصرف من المالية.
                                 </div>
                             </div>
 
-                            {% if payment.amount is not none and payment.amount_finance is not none %}
-                                {% set diff_action = payment.amount_finance - payment.amount %}
+                            {% if payment.finance_diff is not none %}
+                                {% set diff_action = payment.finance_diff %}
                                 <div class="xsmall mb-2">
                                     الفرق الحالي:
                                     <span class="fw-semibold {% if diff_action > 0 %}text-success{% elif diff_action < 0 %}text-danger{% endif %}">
@@ -746,4 +892,42 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const csrfToken = "{{ csrf_token() }}";
+        document.querySelectorAll(".js-void-adjustment").forEach((button) => {
+            button.addEventListener("click", async () => {
+                const reason = prompt("سبب إلغاء التصحيح:");
+                if (!reason) {
+                    alert("يرجى إدخال سبب الإلغاء.");
+                    return;
+                }
+
+                const url = button.dataset.url;
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken,
+                        },
+                        body: JSON.stringify({ void_reason: reason }),
+                    });
+
+                    if (!response.ok) {
+                        alert("تعذر إلغاء التصحيح. يرجى المحاولة مرة أخرى.");
+                        return;
+                    }
+
+                    window.location.reload();
+                } catch (error) {
+                    alert("تعذر الاتصال بالخادم. يرجى المحاولة لاحقًا.");
+                }
+            });
+        });
+    });
+</script>
 {% endblock %}

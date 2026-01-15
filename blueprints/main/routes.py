@@ -194,8 +194,8 @@ def overview():
     page = max(page, 1)
     per_page = min(max(per_page, 1), 100)
 
-    amount_finance_or_amount = func.coalesce(
-        PaymentRequest.amount_finance,
+    finance_amount_or_amount = func.coalesce(
+        PaymentRequest.finance_amount,
         PaymentRequest.amount,
         0.0,
     )
@@ -214,7 +214,7 @@ def overview():
             func.sum(case((PaymentRequest.status == STATUS_REJECTED, 1), else_=0)).label("rejected_count"),
             func.coalesce(func.sum(PaymentRequest.amount), 0.0).label("total_amount"),
             func.coalesce(
-                func.sum(case((PaymentRequest.status == STATUS_PAID, amount_finance_or_amount), else_=0.0)), 0.0
+                func.sum(case((PaymentRequest.status == STATUS_PAID, finance_amount_or_amount), else_=0.0)), 0.0
             ).label("total_paid"),
             func.coalesce(
                 func.sum(case((PaymentRequest.status == STATUS_PENDING_FIN, PaymentRequest.amount), else_=0.0)), 0.0
@@ -222,7 +222,7 @@ def overview():
             func.coalesce(
                 func.sum(
                     case(
-                        (PaymentRequest.status == STATUS_READY_FOR_PAYMENT, amount_finance_or_amount),
+                        (PaymentRequest.status == STATUS_READY_FOR_PAYMENT, finance_amount_or_amount),
                         else_=0.0,
                     )
                 ),
@@ -295,7 +295,7 @@ def overview():
             func.coalesce(
                 func.sum(
                     func.coalesce(
-                        PaymentRequest.amount_finance,
+                        PaymentRequest.finance_amount,
                         PaymentRequest.amount,
                         0.0,
                     )
@@ -329,7 +329,7 @@ def overview():
             func.coalesce(
                 func.sum(
                     func.coalesce(
-                        PaymentRequest.amount_finance,
+                        PaymentRequest.finance_amount,
                         PaymentRequest.amount,
                         0.0,
                     )
@@ -506,7 +506,7 @@ def overview():
         .with_entities(
             func.date(func.coalesce(PaymentRequest.updated_at, PaymentRequest.created_at)).label("day"),
             PaymentRequest.status,
-            func.coalesce(PaymentRequest.amount_finance, PaymentRequest.amount, 0.0).label(
+            func.coalesce(PaymentRequest.finance_amount, PaymentRequest.amount, 0.0).label(
                 "finance_amount"
             ),
             func.coalesce(PaymentRequest.amount, 0.0).label("requested_amount"),

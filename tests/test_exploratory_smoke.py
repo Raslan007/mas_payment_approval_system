@@ -121,7 +121,7 @@ class ExploratorySmokeTestCase(unittest.TestCase):
 
         paid_resp = self.client.post(
             f"/payments/{payment.id}/mark_paid",
-            data={"amount_finance": "1000"},
+            data={"finance_amount": "1000"},
         )
         self.assertEqual(paid_resp.status_code, 302)
         force_status("paid")
