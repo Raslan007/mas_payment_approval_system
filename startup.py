@@ -1,4 +1,5 @@
 import logging
+import os
 
 from flask import current_app
 from sqlalchemy import text
@@ -7,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from extensions import db
 
 logger = logging.getLogger(__name__)
+STARTUP_ADVISORY_LOCK_ID = 74290315
 
 
 def run_startup_migrations() -> None:
@@ -30,7 +32,7 @@ def _column_exists(table: str, column: str) -> bool:
                 """
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_schema = current_schema()
+                WHERE table_schema = ANY(current_schemas(false))
                   AND table_name = :table
                   AND column_name = :column
                 LIMIT 1
@@ -48,7 +50,7 @@ def _table_exists(table: str) -> bool:
                 """
                 SELECT 1
                 FROM information_schema.tables
-                WHERE table_schema = current_schema()
+                WHERE table_schema = ANY(current_schemas(false))
                   AND table_name = :table
                 LIMIT 1
                 """
@@ -115,5 +117,32 @@ def ensure_finance_amount_column() -> None:
 
 
 def run_startup_tasks() -> None:
-    run_startup_migrations()
-    ensure_finance_amount_column()
+    if os.getenv("RUN_STARTUP_MIGRATIONS") != "1":
+        current_app.logger.info(
+            "Skipping startup tasks; RUN_STARTUP_MIGRATIONS is not set to '1'."
+        )
+        return
+
+    if db.engine.dialect.name != "postgresql":
+        current_app.logger.info(
+            "Skipping advisory lock; unsupported dialect '%s'.",
+            db.engine.dialect.name,
+        )
+        ensure_finance_amount_column()
+        run_startup_migrations()
+        return
+
+    current_app.logger.info("Acquiring startup advisory lock.")
+    db.session.execute(
+        text("SELECT pg_advisory_lock(:lock_id)"),
+        {"lock_id": STARTUP_ADVISORY_LOCK_ID},
+    )
+    try:
+        ensure_finance_amount_column()
+        run_startup_migrations()
+    finally:
+        db.session.execute(
+            text("SELECT pg_advisory_unlock(:lock_id)"),
+            {"lock_id": STARTUP_ADVISORY_LOCK_ID},
+        )
+        current_app.logger.info("Released startup advisory lock.")
