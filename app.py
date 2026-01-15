@@ -10,9 +10,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 
 from config import Config
-from extensions import csrf, db, login_manager
+from extensions import csrf, db, login_manager, migrate
 from logging_config import setup_logging
 from models import User, ensure_roles, ensure_schema
+from startup import run_startup_tasks
 from cli import purge_old_payments
 
 # استيراد الـ Blueprints
@@ -64,10 +65,12 @@ def create_app(config_class=Config) -> Flask:
 
     # تهيئة الـ Extensions
     db.init_app(app)
+    migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
 
     with app.app_context():
+        run_startup_tasks()
         if app.config.get("AUTO_SCHEMA_BOOTSTRAP"):
             ensure_schema()
         ensure_roles()
