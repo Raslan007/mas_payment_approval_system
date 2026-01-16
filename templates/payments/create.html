@@ -21,7 +21,7 @@
             <div class="col-md-6">
                 <label class="form-label">المشروع</label>
                 <div class="d-flex gap-2">
-                    <select name="project_id" class="form-select" required title="اختر المشروع">
+                    <select name="project_id" id="project_id" class="form-select" required title="اختر المشروع">
                         <option value="">اختر المشروع...</option>
                         {% for project in projects %}
                             <option value="{{ project.id }}">{{ project.project_name }}</option>
@@ -107,6 +107,9 @@
                     تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
                 </small>
                 <small class="text-danger xsmall d-none" id="po_autofill_error"></small>
+                {% if show_po_debug %}
+                    <pre id="po_prefill_debug" class="mt-2 small text-muted border rounded p-2 bg-light"></pre>
+                {% endif %}
             </div>
 
             <!-- نسبة الإنجاز -->
@@ -144,7 +147,7 @@
 <script>
     document.addEventListener("DOMContentLoaded", () => {
         const requestType = document.getElementById("request_type");
-        const projectSelect = document.querySelector("select[name='project_id']");
+        const projectSelect = document.getElementById("project_id");
         const purchaseOrderField = document.getElementById("purchase_order_field");
         const purchaseOrderSelect = document.getElementById("purchase_order_id");
         const supplierSelect = document.getElementById("supplier_id");
@@ -152,9 +155,8 @@
         const amountInput = document.getElementById("amount");
         const poHint = document.getElementById("po_autofill_hint");
         const poError = document.getElementById("po_autofill_error");
-        const isDev =
-            typeof window !== "undefined"
-            && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+        const debugEl = document.getElementById("po_prefill_debug");
+        const showDebug = {{ "true" if show_po_debug else "false" }};
 
         if (
             !requestType
@@ -185,6 +187,37 @@
             poError.classList.remove("d-none");
         };
 
+        const updateDebug = ({
+            status = "-",
+            url = "-",
+            supplierId = "-",
+            amount = "-",
+            error = "-",
+        } = {}) => {
+            if (!showDebug || !debugEl) {
+                return;
+            }
+            debugEl.textContent = [
+                `Prefill URL: ${url}`,
+                `Status: ${status}`,
+                `Supplier ID: ${supplierId}`,
+                `Amount: ${amount}`,
+                `Error: ${error}`,
+            ].join("\n");
+        };
+
+        const triggerSupplierChange = () => {
+            supplierSelect.dispatchEvent(new Event("change", { bubbles: true }));
+            if (window.jQuery && window.jQuery.fn && window.jQuery.fn.select2) {
+                window.jQuery(supplierSelect).trigger("change");
+            }
+        };
+
+        const triggerAmountChange = () => {
+            amountInput.dispatchEvent(new Event("input", { bubbles: true }));
+            amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+
         const setLockedState = (locked) => {
             isLocked = locked;
             supplierSelect.disabled = locked;
@@ -202,23 +235,29 @@
         const clearPrefill = () => {
             setLockedState(false);
             supplierSelect.value = "";
-            supplierSelect.dispatchEvent(new Event("change", { bubbles: true }));
+            triggerSupplierChange();
             amountInput.value = "";
-            amountInput.dispatchEvent(new Event("input", { bubbles: true }));
-            amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+            triggerAmountChange();
             clearError();
+            updateDebug();
         };
 
         const applyPrefill = (payload) => {
             const supplierId = payload.supplier_id ? String(payload.supplier_id) : "";
             const amountValue = payload.amount || payload.suggested_amount || "";
             supplierSelect.value = supplierId;
-            supplierSelect.dispatchEvent(new Event("change", { bubbles: true }));
+            triggerSupplierChange();
             amountInput.value = amountValue;
-            amountInput.dispatchEvent(new Event("input", { bubbles: true }));
-            amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+            triggerAmountChange();
             setLockedState(true);
             clearError();
+            updateDebug({
+                status: "ok",
+                url: payload.prefill_url || "-",
+                supplierId,
+                amount: amountValue || "-",
+                error: "-",
+            });
         };
 
         const resetPurchaseOrderOptions = () => {
@@ -280,9 +319,7 @@
                 populatePurchaseOrders(purchaseOrders, selectedValue);
                 purchaseOrderSelect.disabled = purchaseOrders.length === 0;
             } catch (error) {
-                if (isDev) {
-                    console.error("Failed to load purchase orders", error);
-                }
+                console.error("Failed to load purchase orders", error);
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
                 clearPrefill();
@@ -297,25 +334,38 @@
                 clearPrefill();
                 return;
             }
+            const prefillUrl = `/payments/purchase_orders/${encodeURIComponent(purchaseOrderId)}/prefill?project_id=${encodeURIComponent(projectId)}`;
             try {
-                const response = await fetch(
-                    `/payments/purchase_orders/${encodeURIComponent(purchaseOrderId)}/prefill?project_id=${encodeURIComponent(projectId)}`
-                );
+                const response = await fetch(prefillUrl);
                 if (!response.ok) {
-                    throw new Error("Prefill failed.");
+                    const payload = await response.json().catch(() => ({}));
+                    updateDebug({
+                        status: response.status,
+                        url: prefillUrl,
+                        supplierId: payload.supplier_id || "-",
+                        amount: payload.amount || "-",
+                        error: payload.error || "prefill_failed",
+                    });
+                    throw new Error(payload.error || "prefill_failed");
                 }
                 const payload = await response.json();
                 if (payload && payload.ok) {
-                    applyPrefill(payload);
+                    applyPrefill({ ...payload, prefill_url: prefillUrl });
                     return;
                 }
+                updateDebug({
+                    status: response.status,
+                    url: prefillUrl,
+                    supplierId: payload.supplier_id || "-",
+                    amount: payload.amount || "-",
+                    error: payload.error || "prefill_failed",
+                });
             } catch (error) {
-                if (isDev) {
-                    console.error("Purchase order prefill failed", error);
-                }
+                console.error("Purchase order prefill failed", error);
             }
             showError("تعذر تعبئة بيانات أمر الشراء. يرجى المحاولة مرة أخرى.");
             setLockedState(false);
+            updateDebug({ status: "error", url: prefillUrl, error: "prefill_failed" });
         };
 
         requestType.addEventListener("change", () => {
