@@ -5,6 +5,7 @@ from typing import Any
 from flask import url_for
 from werkzeug.routing import BuildError
 
+from models import PURCHASE_ORDER_REQUEST_TYPE
 
 Module = dict[str, Any]
 
@@ -35,6 +36,15 @@ MODULE_DEFINITIONS: list[dict[str, Any]] = [
         "icon": "fa-solid fa-wallet",
         "endpoint": "payments.index",
         "exclude_roles": {"dc"},
+    },
+    {
+        "key": "purchase_orders",
+        "title": "أوامر الشراء",
+        "description": "متابعة أوامر الشراء الخاصة بالمشتريات",
+        "icon": "fa-solid fa-cart-shopping",
+        "endpoint": "payments.index",
+        "endpoint_kwargs": {"request_type": PURCHASE_ORDER_REQUEST_TYPE},
+        "roles": {"procurement", "admin", "finance", "engineering_manager"},
     },
     {
         "key": "ready_for_payment",

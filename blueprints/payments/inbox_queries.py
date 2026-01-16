@@ -7,7 +7,7 @@ from flask import current_app
 from sqlalchemy import and_, false, func, inspect, or_
 
 from extensions import db
-from models import PaymentRequest, user_projects
+from models import PaymentRequest, user_projects, PURCHASE_ORDER_REQUEST_TYPE
 from project_scopes import get_scoped_project_ids
 from blueprints.main.dashboard_helpers import resolve_sla_thresholds
 
@@ -30,7 +30,6 @@ ACTION_REQUIRED_STATUSES: dict[str, set[str]] = {
     "engineering_manager": {STATUS_PENDING_PM, STATUS_PENDING_ENG},
     "project_manager": {STATUS_PENDING_PM},
     "engineer": {STATUS_PENDING_PM},
-    "project_engineer": {STATUS_PENDING_PM},
     "finance": {STATUS_PENDING_FINANCE, STATUS_READY_FOR_PAYMENT},
 }
 
@@ -44,8 +43,16 @@ def scoped_inbox_base_query(user) -> tuple:
 
     role_name = user.role.name if getattr(user, "role", None) else None
     normalized_role = "engineer" if role_name == "project_engineer" else role_name
-    scoped_project_ids = get_scoped_project_ids(user, role_name=role_name)
+    scoped_project_ids = get_scoped_project_ids(user, role_name=normalized_role)
     query = PaymentRequest.query
+
+    if normalized_role == "procurement":
+        query = query.filter(PaymentRequest.request_type == PURCHASE_ORDER_REQUEST_TYPE)
+        if scoped_project_ids:
+            query = query.filter(PaymentRequest.project_id.in_(scoped_project_ids))
+        else:
+            query = query.filter(false())
+        return query, normalized_role, scoped_project_ids
 
     if normalized_role in {"project_manager", "engineer"}:
         if normalized_role == "engineer" and not scoped_project_ids:
@@ -59,7 +66,7 @@ def scoped_inbox_base_query(user) -> tuple:
     elif normalized_role == "dc":
         query = query.filter(false())
 
-    return query, role_name, scoped_project_ids
+    return query, normalized_role, scoped_project_ids
 
 
 def build_action_required_query(base_query, role_name: str | None):

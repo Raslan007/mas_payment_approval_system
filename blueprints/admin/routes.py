@@ -11,7 +11,11 @@ from permissions import role_required
 from project_scopes import _current_user_projects_table
 from . import admin_bp
 
-ALLOWED_SCOPED_ROLES: tuple[str, ...] = ("project_manager", "project_engineer")
+ALLOWED_SCOPED_ROLES: tuple[str, ...] = (
+    "project_manager",
+    "project_engineer",
+    "procurement",
+)
 
 
 def _safe_int(value) -> int | None:

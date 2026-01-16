@@ -36,7 +36,15 @@
                         <select name="scoped_role" class="form-select" required>
                             {% for role in allowed_roles %}
                                 <option value="{{ role }}" {% if selected_role == role %}selected{% endif %}>
-                                    {% if role == 'project_manager' %}مدير مشروع{% elif role == 'project_engineer' %}مهندس مشروع{% else %}{{ role }}{% endif %}
+                                    {% if role == 'project_manager' %}
+                                        مدير مشروع
+                                    {% elif role == 'project_engineer' %}
+                                        مهندس مشروع
+                                    {% elif role == 'procurement' %}
+                                        مسؤول المشتريات
+                                    {% else %}
+                                        {{ role }}
+                                    {% endif %}
                                 </option>
                             {% endfor %}
                         </select>
