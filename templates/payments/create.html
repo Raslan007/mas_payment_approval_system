@@ -158,7 +158,7 @@
         const debugEl = document.getElementById("po_prefill_debug");
         const showDebug = {{ "true" if show_po_debug else "false" }};
         const purchaseOrderOptionsUrl = "{{ url_for('payments.purchase_order_options') }}";
-        const purchaseOrderPrefillTemplate = "{{ url_for('payments.purchase_order_prefill', purchase_order_id='__PO_ID__') }}";
+        const purchaseOrderPrefillBase = "{{ url_for('payments.purchase_order_prefill', purchase_order_id=0) }}";
 
         if (
             !requestType
@@ -287,6 +287,14 @@
             }
         };
 
+        const buildPrefillUrl = (poId, projectId) => {
+            const base = purchaseOrderPrefillBase.replace(
+                /\/0\/prefill$/,
+                `/${encodeURIComponent(poId)}/prefill`
+            );
+            return `${base}?project_id=${encodeURIComponent(projectId)}`;
+        };
+
         const loadPurchaseOrders = async (selectedValue) => {
             const isPurchase = (requestType.value || "").trim() === "مشتريات";
             purchaseOrderField.classList.toggle("d-none", !isPurchase);
@@ -336,11 +344,7 @@
                 clearPrefill();
                 return;
             }
-            const prefillUrlBase = purchaseOrderPrefillTemplate.replace(
-                "__PO_ID__",
-                encodeURIComponent(purchaseOrderId)
-            );
-            const prefillUrl = `${prefillUrlBase}?project_id=${encodeURIComponent(projectId)}`;
+            const prefillUrl = buildPrefillUrl(purchaseOrderId, projectId);
             try {
                 const response = await fetch(prefillUrl);
                 if (!response.ok) {
