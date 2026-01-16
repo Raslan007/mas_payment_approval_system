@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title or "تفاصيل أمر الشراء" }}{% endblock %}
+
+{% block content %}
+{% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'badge bg-secondary'} %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">أمر شراء رقم {{ purchase_order.bo_number }}</h1>
+        <p class="text-muted xsmall mb-0">
+            تفاصيل أمر الشراء ومتابعة حالته.
+        </p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        {% if can_edit %}
+            <a href="{{ url_for('purchase_orders.edit', id=purchase_order.id) }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-pencil-square ms-1"></i>
+                تعديل
+            </a>
+            <form action="{{ url_for('purchase_orders.submit', id=purchase_order.id) }}" method="post" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('هل تريد إرسال أمر الشراء؟');">
+                    <i class="bi bi-send ms-1"></i>
+                    إرسال
+                </button>
+            </form>
+        {% endif %}
+        <a href="{{ url_for('purchase_orders.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-return-right ms-1"></i>
+            العودة للقائمة
+        </a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-12 col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                    <div>
+                        <div class="text-muted xsmall">الحالة الحالية</div>
+                        <span class="badge {{ status_info.class }}">{{ status_info.label }}</span>
+                    </div>
+                    <div class="text-muted xsmall">
+                        آخر تحديث: {{ purchase_order.updated_at.strftime('%Y-%m-%d %H:%M') if purchase_order.updated_at else '-' }}
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <div class="text-muted xsmall">المشروع</div>
+                        <div class="fw-semibold">{{ purchase_order.project.project_name if purchase_order.project else '-' }}</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="text-muted xsmall">المورد</div>
+                        <div class="fw-semibold">{{ purchase_order.supplier_name }}</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="text-muted xsmall">إجمالي المبلغ</div>
+                        <div class="fw-semibold">{{ purchase_order.total_amount | num(2) }}</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="text-muted xsmall">الدفعة المقدمة</div>
+                        <div class="fw-semibold">{{ purchase_order.advance_amount | num(2) }}</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="text-muted xsmall">المتبقي</div>
+                        <div class="fw-semibold">{{ purchase_order.remaining_amount | num(2) }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h2 class="h6 mb-3">معلومات إضافية</h2>
+                <div class="mb-2">
+                    <div class="text-muted xsmall">رقم BO</div>
+                    <div class="fw-semibold">{{ purchase_order.bo_number }}</div>
+                </div>
+                <div class="mb-2">
+                    <div class="text-muted xsmall">تاريخ الإنشاء</div>
+                    <div class="fw-semibold">{{ purchase_order.created_at.strftime('%Y-%m-%d %H:%M') if purchase_order.created_at else '-' }}</div>
+                </div>
+                <div>
+                    <div class="text-muted xsmall">أنشئ بواسطة</div>
+                    <div class="fw-semibold">{{ purchase_order.created_by.full_name if purchase_order.created_by else '-' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

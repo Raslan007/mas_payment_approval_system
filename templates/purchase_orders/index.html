@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}أوامر الشراء{% endblock %}
+
+{% block content %}
+{% set page_title = "أوامر الشراء" %}
+
+<div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+    <div>
+        <h1 class="h5 mb-1">أوامر الشراء</h1>
+        <p class="text-muted xsmall mb-0">
+            متابعة أوامر الشراء المستقلة عن طلبات الدفعات.
+        </p>
+    </div>
+    {% if can_create %}
+        <div>
+            <a href="{{ url_for('purchase_orders.new') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle ms-1"></i>
+                إضافة أمر شراء
+            </a>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="filter_project">المشروع</label>
+                <select class="form-select form-select-sm" name="project_id" id="filter_project">
+                    <option value="">كل المشاريع</option>
+                    {% for project in projects %}
+                        <option value="{{ project.id }}" {% if filters.project_id == project.id %}selected{% endif %}>
+                            {{ project.project_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label" for="filter_status">الحالة</label>
+                <select class="form-select form-select-sm" name="status" id="filter_status">
+                    <option value="">كل الحالات</option>
+                    {% for key, meta in status_meta.items() %}
+                        <option value="{{ key }}" {% if filters.status == key %}selected{% endif %}>
+                            {{ meta.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="filter_bo_number">رقم BO</label>
+                <input
+                    type="text"
+                    class="form-control form-control-sm"
+                    name="bo_number"
+                    id="filter_bo_number"
+                    value="{{ filters.bo_number }}"
+                    placeholder="مثل BO-123">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="filter_supplier_name">اسم المورد</label>
+                <input
+                    type="text"
+                    class="form-control form-control-sm"
+                    name="supplier_name"
+                    id="filter_supplier_name"
+                    value="{{ filters.supplier_name }}"
+                    placeholder="اسم المورد">
+            </div>
+            <div class="col-12 col-md-1 d-grid">
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    بحث
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0">
+            <thead>
+            <tr>
+                <th class="text-center" style="width: 70px;">#</th>
+                <th>رقم BO</th>
+                <th>المشروع</th>
+                <th>المورد</th>
+                <th class="text-nowrap">الإجمالي</th>
+                <th class="text-nowrap">الدفعة المقدمة</th>
+                <th class="text-nowrap">المتبقي</th>
+                <th class="text-nowrap">الحالة</th>
+                <th class="text-nowrap">التاريخ</th>
+                <th class="text-nowrap text-center" style="width: 180px;">الإجراءات</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if purchase_orders %}
+                {% for po in purchase_orders %}
+                    {% set meta = status_meta.get(po.status, {'label': po.status, 'class': 'badge bg-secondary'}) %}
+                    <tr>
+                        <td class="text-center text-muted">{{ po.id }}</td>
+                        <td class="fw-semibold">{{ po.bo_number }}</td>
+                        <td>{{ po.project.project_name if po.project else '-' }}</td>
+                        <td>{{ po.supplier_name }}</td>
+                        <td>{{ po.total_amount | num(2) }}</td>
+                        <td>{{ po.advance_amount | num(2) }}</td>
+                        <td>{{ po.remaining_amount | num(2) }}</td>
+                        <td>
+                            <span class="badge {{ meta.class }}">{{ meta.label }}</span>
+                        </td>
+                        <td class="text-muted">
+                            {{ po.created_at.strftime('%Y-%m-%d') if po.created_at else '-' }}
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ url_for('purchase_orders.detail', id=po.id) }}" class="btn btn-sm btn-outline-secondary me-1">
+                                <i class="bi bi-eye ms-1"></i>
+                                عرض
+                            </a>
+                            {% if can_create and po.status == 'draft' %}
+                                <a href="{{ url_for('purchase_orders.edit', id=po.id) }}" class="btn btn-sm btn-outline-primary me-1">
+                                    <i class="bi bi-pencil-square ms-1"></i>
+                                    تعديل
+                                </a>
+                                <form action="{{ url_for('purchase_orders.submit', id=po.id) }}" method="post" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-success" onclick="return confirm('هل تريد إرسال أمر الشراء؟');">
+                                        <i class="bi bi-send ms-1"></i>
+                                        إرسال
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if not purchase_orders %}
+        <p class="text-muted text-center xsmall mt-3 mb-0">
+            لا توجد أوامر شراء مطابقة لخيارات البحث.
+        </p>
+    {% endif %}
+
+    {% if pagination and pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح أوامر الشراء">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('purchase_orders.index', page=pagination.prev_num if pagination.has_prev else 1, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('purchase_orders.index', page=p, per_page=pagination.per_page, **pagination_params) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('purchase_orders.index', page=pagination.next_num if pagination.has_next else pagination.page, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for('purchase_orders.index') }}" class="d-flex align-items-center gap-2 mb-0">
+                    {% for key, value in pagination_params.items() %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <input type="hidden" name="page" value="1">
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for size in [10, 20, 50, 100] %}
+                            <option value="{{ size }}" {% if pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
+</div>
+{% endblock %}

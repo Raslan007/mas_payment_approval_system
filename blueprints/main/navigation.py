@@ -5,8 +5,6 @@ from typing import Any
 from flask import url_for
 from werkzeug.routing import BuildError
 
-from models import PURCHASE_ORDER_REQUEST_TYPE
-
 Module = dict[str, Any]
 
 DEFAULT_ICON = "fa-solid fa-grid-2"
@@ -42,9 +40,15 @@ MODULE_DEFINITIONS: list[dict[str, Any]] = [
         "title": "أوامر الشراء",
         "description": "متابعة أوامر الشراء الخاصة بالمشتريات",
         "icon": "fa-solid fa-cart-shopping",
-        "endpoint": "payments.index",
-        "endpoint_kwargs": {"request_type": PURCHASE_ORDER_REQUEST_TYPE},
-        "roles": {"procurement", "admin", "finance", "engineering_manager"},
+        "endpoint": "purchase_orders.index",
+        "roles": {
+            "procurement",
+            "admin",
+            "finance",
+            "engineering_manager",
+            "project_manager",
+            "engineer",
+        },
     },
     {
         "key": "ready_for_payment",
