@@ -7,34 +7,38 @@
 
 ## Build & start commands (Render)
 - **Build Command:** `pip install -r requirements.txt`
-- **Start Command:** run the idempotent migration scripts before launching Gunicorn, binding explicitly to `$PORT`:
+- **Start Command:** run the idempotent migration scripts before launching Gunicorn, binding explicitly to `$PORT` (update this in the Render dashboard):
 
   ```bash
   python scripts/migrate_add_indexes.py \
     && python scripts/migrate_add_payment_submitted_to_pm_at.py \
     && python scripts/migrate_add_payment_updated_at.py \
     && python scripts/migrate_add_purchase_orders_reserved_amount.py \
+    && python scripts/migrate_add_purchase_orders_paid_amount.py \
     && python scripts/migrate_add_payment_requests_purchase_order_id.py \
+    && python scripts/migrate_add_payment_requests_po_reservation_markers.py \
     && python scripts/migrate_add_user_projects.py \
-    && gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
+    && gunicorn "app:app" --bind 0.0.0.0:$PORT
   ```
 
 If you add or upgrade dependencies, use **Settings → Clear build cache** in Render before redeploying to ensure a clean environment.
 
 ## Render start command
-To ensure the schema is up to date before the app starts, configure Render's **Start Command** to run the idempotent migration scripts before launching the server (order doesn't matter; all are safe to rerun):
+To ensure the schema is up to date before the app starts, update Render's **Start Command** in the Render dashboard to run the idempotent migration scripts before launching the server (order doesn't matter; all are safe to rerun):
 
 ```bash
 python scripts/migrate_add_indexes.py \
   && python scripts/migrate_add_payment_submitted_to_pm_at.py \
   && python scripts/migrate_add_payment_updated_at.py \
   && python scripts/migrate_add_purchase_orders_reserved_amount.py \
+  && python scripts/migrate_add_purchase_orders_paid_amount.py \
   && python scripts/migrate_add_payment_requests_purchase_order_id.py \
+  && python scripts/migrate_add_payment_requests_po_reservation_markers.py \
   && python scripts/migrate_add_user_projects.py \
-  && gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
+  && gunicorn "app:app" --bind 0.0.0.0:$PORT
 ```
 
-These scripts read `DATABASE_URL`, create/patch missing tables or columns safely (Postgres or SQLite), backfill data where necessary, and then start the Flask application via Gunicorn.
+These scripts read `DATABASE_URL`, create/patch missing tables or columns safely (Postgres), backfill data where necessary, and then start the Flask application via Gunicorn.
 
 To run the new dashboard/filter indexes migration locally or on the server, execute:
 
