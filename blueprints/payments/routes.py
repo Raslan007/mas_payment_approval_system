@@ -1888,10 +1888,21 @@ def purchase_order_options():
 )
 def purchase_order_prefill(purchase_order_id: int):
     project_id = _safe_int_arg("project_id", None, min_value=1)
+    access_allowed = False
+    if project_id is not None:
+        access_allowed = _purchase_order_access_allowed(project_id)
+    user_id = current_user.id if current_user.is_authenticated else None
+    logger.info(
+        "PO prefill project_id=%s purchase_order_id=%s user_id=%s allowed=%s",
+        project_id,
+        purchase_order_id,
+        user_id,
+        access_allowed,
+    )
     if project_id is None:
         return jsonify({"ok": False, "error": "project_id_required"}), 400
 
-    if not _purchase_order_access_allowed(project_id):
+    if not access_allowed:
         return jsonify({"ok": False, "error": "project_access_denied"}), 403
 
     purchase_order = _get_valid_purchase_order(purchase_order_id, project_id)
@@ -2144,6 +2155,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
 
         payment = PaymentRequest(
@@ -2708,6 +2720,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
 
         new_purchase_order_id = purchase_order.id if purchase_order else None
@@ -2752,6 +2765,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
 
         db.session.commit()
