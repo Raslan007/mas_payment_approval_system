@@ -13,6 +13,13 @@ STARTUP_ADVISORY_LOCK_ID = 74290315
 
 def run_startup_migrations() -> None:
     """Apply Alembic migrations at startup in a safe, non-blocking manner."""
+    migrations_env = os.path.join(current_app.root_path, "migrations", "env.py")
+    if not os.path.exists(migrations_env):
+        current_app.logger.info(
+            "Skipping DB migration auto-upgrade; migrations/env.py not found."
+        )
+        return
+
     from flask_migrate import upgrade
 
     try:

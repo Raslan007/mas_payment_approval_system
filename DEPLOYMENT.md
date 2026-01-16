@@ -13,6 +13,8 @@
   python scripts/migrate_add_indexes.py \
     && python scripts/migrate_add_payment_submitted_to_pm_at.py \
     && python scripts/migrate_add_payment_updated_at.py \
+    && python scripts/migrate_add_purchase_orders_reserved_amount.py \
+    && python scripts/migrate_add_payment_requests_purchase_order_id.py \
     && python scripts/migrate_add_user_projects.py \
     && gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
   ```
@@ -26,6 +28,8 @@ To ensure the schema is up to date before the app starts, configure Render's **S
 python scripts/migrate_add_indexes.py \
   && python scripts/migrate_add_payment_submitted_to_pm_at.py \
   && python scripts/migrate_add_payment_updated_at.py \
+  && python scripts/migrate_add_purchase_orders_reserved_amount.py \
+  && python scripts/migrate_add_payment_requests_purchase_order_id.py \
   && python scripts/migrate_add_user_projects.py \
   && gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
 ```
