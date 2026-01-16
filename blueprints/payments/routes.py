@@ -305,6 +305,25 @@ def _get_valid_purchase_order(
     return purchase_order
 
 
+def _purchase_order_remaining_amount(purchase_order: PurchaseOrder) -> Decimal:
+    remaining_amount = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
+    return _quantize_amount(remaining_amount)
+
+
+def _purchase_order_supplier(purchase_order: PurchaseOrder) -> Supplier | None:
+    supplier_id = getattr(purchase_order, "supplier_id", None)
+    if supplier_id:
+        supplier = db.session.get(Supplier, supplier_id)
+        if supplier:
+            return supplier
+    supplier_name = (purchase_order.supplier_name or "").strip()
+    if supplier_name:
+        return Supplier.query.filter(
+            func.lower(Supplier.name) == func.lower(supplier_name)
+        ).first()
+    return None
+
+
 def _can_create_purchase_order(project_id: int | None, request_type: str | None) -> bool:
     return (
         _get_role() == "procurement"
@@ -1838,6 +1857,45 @@ def purchase_order_options():
     return jsonify({"ok": True, "purchase_orders": payload})
 
 
+@payments_bp.route("/purchase_orders/<int:purchase_order_id>/prefill")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "procurement",
+    "finance",
+    "chairman",
+    "planning",
+)
+def purchase_order_prefill(purchase_order_id: int):
+    project_id = _safe_int_arg("project_id", None, min_value=1)
+    if project_id is None:
+        return jsonify({"ok": False}), 404
+
+    purchase_order = _get_valid_purchase_order(purchase_order_id, project_id)
+    if purchase_order is None:
+        return jsonify({"ok": False}), 404
+
+    supplier = _purchase_order_supplier(purchase_order)
+    if supplier is None:
+        return jsonify({"ok": False}), 404
+
+    remaining_amount = _purchase_order_remaining_amount(purchase_order)
+    suggested_amount = remaining_amount
+
+    return jsonify(
+        {
+            "ok": True,
+            "purchase_order_id": purchase_order.id,
+            "supplier_id": supplier.id,
+            "supplier_name": supplier.name,
+            "suggested_amount": f"{suggested_amount:.2f}",
+            "remaining_amount": f"{remaining_amount:.2f}",
+        }
+    )
+
+
 # =========================
 #   إنشاء / تعديل / حذف
 # =========================
@@ -1859,7 +1917,14 @@ def create_payment():
         description = (request.form.get("description") or "").strip()
         purchase_order_id = request.form.get("purchase_order_id")
 
-        if not project_id or not supplier_id or not request_type or not amount_str:
+        if (
+            not project_id
+            or not request_type
+            or (
+                not _is_purchase_order_type(request_type)
+                and (not supplier_id or not amount_str)
+            )
+        ):
             flash("من فضلك أدخل جميع البيانات الأساسية للدفعة.", "danger")
             if project_id and _is_purchase_order_type(request_type):
                 try:
@@ -1879,9 +1944,8 @@ def create_payment():
 
         try:
             project_id_value = int(project_id)
-            supplier_id_value = int(supplier_id)
         except (TypeError, ValueError):
-            flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
+            flash("برجاء اختيار مشروع صحيح.", "danger")
             if project_id and _is_purchase_order_type(request_type):
                 try:
                     project_id_value = int(project_id)
@@ -1901,20 +1965,6 @@ def create_payment():
         project = db.session.get(Project, project_id_value)
         if project is None:
             flash("برجاء اختيار مشروع صحيح.", "danger")
-            if project_id and _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/create.html",
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title="إضافة دفعة جديدة",
-            )
-
-        supplier = db.session.get(Supplier, supplier_id_value)
-        if supplier is None:
-            flash("برجاء اختيار مورد صحيح.", "danger")
             if project_id and _is_purchase_order_type(request_type):
                 purchase_orders = _purchase_orders_for_form(project_id_value)
             return render_template(
@@ -1947,35 +1997,8 @@ def create_payment():
         ):
             abort(403)
 
-        amount_decimal = _parse_decimal_amount(amount_str)
-        if amount_decimal is None:
-            flash("برجاء إدخال مبلغ صحيح.", "danger")
-            if _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/create.html",
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title="إضافة دفعة جديدة",
-            )
-
-        amount_decimal = _quantize_amount(amount_decimal)
-        if amount_decimal <= 0:
-            flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
-            if _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/create.html",
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title="إضافة دفعة جديدة",
-            )
-
         purchase_order = None
+        supplier = None
         if _is_purchase_order_type(request_type):
             if not purchase_order_id:
                 flash("برجاء اختيار أمر شراء للدفعات من نوع مشتريات.", "danger")
@@ -2008,6 +2031,78 @@ def create_payment():
             if purchase_order is None:
                 flash("أمر الشراء المختار غير متاح لهذا المشروع.", "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+            supplier = _purchase_order_supplier(purchase_order)
+            if supplier is None:
+                flash("أمر الشراء لا يحتوي على مورد مرتبط.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+            amount_decimal = _purchase_order_remaining_amount(purchase_order)
+            if amount_decimal <= 0:
+                flash("لا يوجد مبلغ متاح في أمر الشراء المختار.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+        else:
+            try:
+                supplier_id_value = int(supplier_id)
+            except (TypeError, ValueError):
+                flash("برجاء اختيار مورد صحيح.", "danger")
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+            supplier = db.session.get(Supplier, supplier_id_value)
+            if supplier is None:
+                flash("برجاء اختيار مورد صحيح.", "danger")
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+
+            amount_decimal = _parse_decimal_amount(amount_str)
+            if amount_decimal is None:
+                flash("برجاء إدخال مبلغ صحيح.", "danger")
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+
+            amount_decimal = _quantize_amount(amount_decimal)
+            if amount_decimal <= 0:
+                flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
                 return render_template(
                     "payments/create.html",
                     projects=projects,
@@ -2367,7 +2462,14 @@ def edit_payment(payment_id):
         description = (request.form.get("description") or "").strip()
         purchase_order_id = request.form.get("purchase_order_id")
 
-        if not project_id or not supplier_id or not request_type or not amount_str:
+        if (
+            not project_id
+            or not request_type
+            or (
+                not _is_purchase_order_type(request_type)
+                and (not supplier_id or not amount_str)
+            )
+        ):
             flash("من فضلك أدخل جميع البيانات الأساسية للدفعة.", "danger")
             if project_id and _is_purchase_order_type(request_type):
                 try:
@@ -2388,9 +2490,8 @@ def edit_payment(payment_id):
 
         try:
             project_id_value = int(project_id)
-            supplier_id_value = int(supplier_id)
         except (TypeError, ValueError):
-            flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
+            flash("برجاء اختيار مشروع صحيح.", "danger")
             if project_id and _is_purchase_order_type(request_type):
                 try:
                     project_id_value = int(project_id)
@@ -2423,21 +2524,6 @@ def edit_payment(payment_id):
                 page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
-        supplier = db.session.get(Supplier, supplier_id_value)
-        if supplier is None:
-            flash("برجاء اختيار مورد صحيح.", "danger")
-            if project_id and _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/edit.html",
-                payment=payment,
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title=f"تعديل الدفعة رقم {payment.id}",
-            )
-
         role_name = _get_role()
         if role_name == "engineer" and not project_access_allowed(
             current_user, project_id_value, role_name="engineer"
@@ -2453,37 +2539,8 @@ def edit_payment(payment_id):
             if not _procurement_has_project_access(project_id_value):
                 abort(403)
 
-        amount_decimal = _parse_decimal_amount(amount_str)
-        if amount_decimal is None:
-            flash("برجاء إدخال مبلغ صحيح.", "danger")
-            if _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/edit.html",
-                payment=payment,
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title=f"تعديل الدفعة رقم {payment.id}",
-            )
-
-        amount_decimal = _quantize_amount(amount_decimal)
-        if amount_decimal <= 0:
-            flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
-            if _is_purchase_order_type(request_type):
-                purchase_orders = _purchase_orders_for_form(project_id_value)
-            return render_template(
-                "payments/edit.html",
-                payment=payment,
-                projects=projects,
-                suppliers=suppliers,
-                request_types=request_types,
-                purchase_orders=purchase_orders,
-                page_title=f"تعديل الدفعة رقم {payment.id}",
-            )
-
         purchase_order = None
+        supplier = None
         if _is_purchase_order_type(request_type):
             if not purchase_order_id:
                 flash("برجاء اختيار أمر شراء للدفعات من نوع مشتريات.", "danger")
@@ -2518,6 +2575,84 @@ def edit_payment(payment_id):
             if purchase_order is None:
                 flash("أمر الشراء المختار غير متاح لهذا المشروع.", "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+            supplier = _purchase_order_supplier(purchase_order)
+            if supplier is None:
+                flash("أمر الشراء لا يحتوي على مورد مرتبط.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+            amount_decimal = _purchase_order_remaining_amount(purchase_order)
+            if amount_decimal <= 0:
+                flash("لا يوجد مبلغ متاح في أمر الشراء المختار.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+        else:
+            try:
+                supplier_id_value = int(supplier_id)
+            except (TypeError, ValueError):
+                flash("برجاء اختيار مورد صحيح.", "danger")
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+            supplier = db.session.get(Supplier, supplier_id_value)
+            if supplier is None:
+                flash("برجاء اختيار مورد صحيح.", "danger")
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+
+            amount_decimal = _parse_decimal_amount(amount_str)
+            if amount_decimal is None:
+                flash("برجاء إدخال مبلغ صحيح.", "danger")
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+
+            amount_decimal = _quantize_amount(amount_decimal)
+            if amount_decimal <= 0:
+                flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
                 return render_template(
                     "payments/edit.html",
                     payment=payment,
