@@ -217,6 +217,8 @@
         const poError = document.getElementById("po_autofill_error");
         const debugEl = document.getElementById("po_prefill_debug");
         const showDebug = {{ "true" if show_po_debug else "false" }};
+        const purchaseOrderOptionsUrl = "{{ url_for('payments.purchase_order_options') }}";
+        const purchaseOrderPrefillTemplate = "{{ url_for('payments.purchase_order_prefill', purchase_order_id='__PO_ID__') }}";
 
         if (
             !requestType
@@ -380,7 +382,7 @@
 
             try {
                 const response = await fetch(
-                    `/payments/purchase_orders/options?project_id=${encodeURIComponent(projectId)}`
+                    `${purchaseOrderOptionsUrl}?project_id=${encodeURIComponent(projectId)}`
                 );
                 if (!response.ok) {
                     throw new Error("Failed to load purchase orders.");
@@ -407,7 +409,11 @@
                 clearPrefill();
                 return;
             }
-            const prefillUrl = `/payments/purchase_orders/${encodeURIComponent(purchaseOrderId)}/prefill?project_id=${encodeURIComponent(projectId)}`;
+            const prefillUrlBase = purchaseOrderPrefillTemplate.replace(
+                "__PO_ID__",
+                encodeURIComponent(purchaseOrderId)
+            );
+            const prefillUrl = `${prefillUrlBase}?project_id=${encodeURIComponent(projectId)}`;
             try {
                 const response = await fetch(prefillUrl);
                 if (!response.ok) {
