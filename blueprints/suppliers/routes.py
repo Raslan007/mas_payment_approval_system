@@ -1,8 +1,9 @@
 # blueprints/suppliers/routes.py
 
 from flask import render_template, request, redirect, url_for, flash
+from sqlalchemy import func
 from extensions import db
-from models import Supplier
+from models import Supplier, normalize_supplier_name
 from permissions import role_required
 from . import suppliers_bp
 
@@ -41,7 +42,7 @@ def list_suppliers():
 @role_required("admin", "engineering_manager", "dc")
 def create_supplier():
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
+        name = normalize_supplier_name(request.form.get("name") or "")
         supplier_type = (request.form.get("supplier_type") or "").strip()
 
         if not name or not supplier_type:
@@ -50,11 +51,10 @@ def create_supplier():
 
         # يمكن لاحقًا إضافة تحقق من التكرار (نفس الاسم + النوع)
         existing = Supplier.query.filter(
-            Supplier.name == name,
-            Supplier.supplier_type == supplier_type,
+            func.lower(Supplier.name) == name.lower(),
         ).first()
         if existing:
-            flash("يوجد مورد/مقاول مسجل بنفس الاسم والنوع.", "danger")
+            flash("يوجد مورد/مقاول مسجل بنفس الاسم.", "danger")
             return redirect(url_for("suppliers.create_supplier"))
 
         supplier = Supplier(name=name, supplier_type=supplier_type)
@@ -73,7 +73,7 @@ def edit_supplier(supplier_id):
     supplier = Supplier.query.get_or_404(supplier_id)
 
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
+        name = normalize_supplier_name(request.form.get("name") or "")
         supplier_type = (request.form.get("supplier_type") or "").strip()
 
         if not name or not supplier_type:
@@ -82,12 +82,11 @@ def edit_supplier(supplier_id):
 
         # التحقق من عدم وجود مورد آخر بنفس الاسم والنوع
         existing = Supplier.query.filter(
-            Supplier.name == name,
-            Supplier.supplier_type == supplier_type,
+            func.lower(Supplier.name) == name.lower(),
             Supplier.id != supplier.id,
         ).first()
         if existing:
-            flash("يوجد مورد/مقاول آخر مسجل بنفس الاسم والنوع.", "danger")
+            flash("يوجد مورد/مقاول آخر مسجل بنفس الاسم.", "danger")
             return redirect(url_for("suppliers.edit_supplier", supplier_id=supplier.id))
 
         supplier.name = name

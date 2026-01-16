@@ -18,7 +18,9 @@ from models import (
     Role,
     User,
     PURCHASE_ORDER_REQUEST_TYPE,
+    PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_SUBMITTED,
+    DEFAULT_SUPPLIER_TYPE,
 )
 from blueprints.payments import routes as payment_routes
 
@@ -128,18 +130,20 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         project: Project | None = None,
         supplier_name: str | None = None,
         bo_number: str | None = None,
+        status: str = PURCHASE_ORDER_STATUS_SUBMITTED,
     ) -> PurchaseOrder:
         bo_number_value = bo_number or f"PO-{1000 + PurchaseOrder.query.count() + 1}"
         purchase_order = PurchaseOrder(
             bo_number=bo_number_value,
             project=project or self.project,
+            supplier_id=self.supplier.id,
             supplier_name=supplier_name or self.supplier.name,
             total_amount=remaining_amount,
             advance_amount=Decimal("0.00"),
             reserved_amount=Decimal("0.00"),
             paid_amount=Decimal("0.00"),
             remaining_amount=remaining_amount,
-            status=PURCHASE_ORDER_STATUS_SUBMITTED,
+            status=status,
             created_by_id=self.users["admin"].id,
         )
         db.session.add(purchase_order)
@@ -354,7 +358,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "description": "bad project",
             },
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(PaymentRequest.query.count(), initial_count)
 
         response_missing_supplier = self.client.post(
@@ -367,7 +371,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "description": "bad supplier",
             },
         )
-        self.assertEqual(response_missing_supplier.status_code, 302)
+        self.assertEqual(response_missing_supplier.status_code, 200)
         self.assertEqual(PaymentRequest.query.count(), initial_count)
 
     def test_create_payment_rejects_non_positive_amount(self):
@@ -384,8 +388,85 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "description": "invalid amount",
             },
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_create_purchase_order_autocreates_supplier(self):
+        self._login(self.users["admin"])
+        initial_supplier_count = Supplier.query.count()
+        bo_number = "PO-SUP-NEW-1"
+
+        response = self.client.post(
+            "/purchase-orders/",
+            data={
+                "bo_number": bo_number,
+                "project_id": self.project.id,
+                "supplier_name": "New Supplier One",
+                "total_amount": "100.00",
+                "advance_amount": "0.00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        purchase_order = PurchaseOrder.query.filter_by(bo_number=bo_number).first()
+        self.assertIsNotNone(purchase_order)
+        self.assertIsNotNone(purchase_order.supplier_id)
+        self.assertEqual(Supplier.query.count(), initial_supplier_count + 1)
+        supplier = Supplier.query.get(purchase_order.supplier_id)
+        self.assertIsNotNone(supplier)
+        self.assertEqual(supplier.name, "New Supplier One")
+        self.assertEqual(supplier.supplier_type, DEFAULT_SUPPLIER_TYPE)
+
+    def test_create_purchase_order_reuses_supplier_case_insensitive(self):
+        existing_supplier = Supplier(name="Case Supplier", supplier_type="contractor")
+        db.session.add(existing_supplier)
+        db.session.commit()
+        self._login(self.users["admin"])
+        initial_supplier_count = Supplier.query.count()
+        bo_number = "PO-SUP-REUSE-1"
+
+        response = self.client.post(
+            "/purchase-orders/",
+            data={
+                "bo_number": bo_number,
+                "project_id": self.project.id,
+                "supplier_name": "  case   supplier ",
+                "total_amount": "200.00",
+                "advance_amount": "0.00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        purchase_order = PurchaseOrder.query.filter_by(bo_number=bo_number).first()
+        self.assertIsNotNone(purchase_order)
+        self.assertEqual(purchase_order.supplier_id, existing_supplier.id)
+        self.assertEqual(Supplier.query.count(), initial_supplier_count)
+
+    def test_edit_purchase_order_updates_supplier_name(self):
+        purchase_order = self._make_purchase_order(
+            remaining_amount=Decimal("80.00"),
+            status=PURCHASE_ORDER_STATUS_DRAFT,
+        )
+        self._login(self.users["admin"])
+        initial_supplier_count = Supplier.query.count()
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/update",
+            data={
+                "bo_number": purchase_order.bo_number,
+                "project_id": purchase_order.project_id,
+                "supplier_name": "Edited Supplier Name",
+                "total_amount": "80.00",
+                "advance_amount": "0.00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertIsNotNone(purchase_order.supplier_id)
+        self.assertEqual(Supplier.query.count(), initial_supplier_count + 1)
+        supplier = Supplier.query.get(purchase_order.supplier_id)
+        self.assertEqual(supplier.name, "Edited Supplier Name")
 
     def test_purchase_order_prefill_endpoint_returns_supplier_and_amount(self):
         purchase_order = self._make_purchase_order(remaining_amount=Decimal("150.00"))
@@ -521,7 +602,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "description": "bad project",
             },
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
         refreshed = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(refreshed.project_id, self.project.id)
 
@@ -535,7 +616,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
                 "description": "bad supplier",
             },
         )
-        self.assertEqual(response_missing_supplier.status_code, 302)
+        self.assertEqual(response_missing_supplier.status_code, 200)
         refreshed_again = db.session.get(PaymentRequest, payment.id)
         self.assertEqual(refreshed_again.supplier_id, self.supplier.id)
 

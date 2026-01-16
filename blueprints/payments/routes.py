@@ -1354,7 +1354,7 @@ def _scoped_payments_query_for_listing():
         status_choices = [
             choice
             for choice in status_choices
-            if choice.get("value") in ("", *NOTIFIER_ALLOWED_STATUSES)
+            if choice[0] in ("", *NOTIFIER_ALLOWED_STATUSES)
         ]
 
     # صلاحيات العرض الأساسية

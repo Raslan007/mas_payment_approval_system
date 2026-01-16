@@ -123,6 +123,131 @@ def ensure_finance_amount_column() -> None:
         ) from exc
 
 
+def ensure_suppliers_lower_name_index() -> None:
+    """Ensure a case-insensitive unique index exists for suppliers.name."""
+    if db.engine.dialect.name != "postgresql":
+        current_app.logger.info(
+            "Skipping suppliers lower(name) index; unsupported dialect '%s'.",
+            db.engine.dialect.name,
+        )
+        return
+
+    try:
+        if not _table_exists("suppliers"):
+            current_app.logger.error("suppliers table missing; schema incompatible.")
+            return
+
+        db.session.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_suppliers_lower_name
+                ON suppliers (lower(name))
+                """
+            )
+        )
+        db.session.commit()
+        current_app.logger.info("Ensured suppliers lower(name) unique index exists.")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Failed to ensure suppliers lower(name) unique index.",
+            exc_info=exc,
+        )
+
+
+def ensure_purchase_order_supplier_id_column() -> None:
+    """Ensure purchase_orders.supplier_id exists and is backfilled."""
+    if db.engine.dialect.name != "postgresql":
+        current_app.logger.info(
+            "Skipping purchase_orders.supplier_id patch; unsupported dialect '%s'.",
+            db.engine.dialect.name,
+        )
+        return
+
+    try:
+        if not _table_exists("purchase_orders"):
+            current_app.logger.error("purchase_orders table missing; schema incompatible.")
+            return
+
+        if not _column_exists("purchase_orders", "supplier_id"):
+            db.session.execute(
+                text(
+                    """
+                    ALTER TABLE purchase_orders
+                    ADD COLUMN IF NOT EXISTS supplier_id INTEGER
+                    """
+                )
+            )
+            db.session.commit()
+            current_app.logger.info("Added purchase_orders.supplier_id column.")
+
+        if not _table_exists("suppliers"):
+            current_app.logger.error("suppliers table missing; cannot backfill supplier_id.")
+            return
+
+        db.session.execute(
+            text(
+                """
+                INSERT INTO suppliers (name, supplier_type)
+                SELECT DISTINCT po.supplier_name, 'غير محدد'
+                FROM purchase_orders po
+                WHERE po.supplier_id IS NULL
+                  AND po.supplier_name IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM suppliers s
+                    WHERE lower(s.name) = lower(po.supplier_name)
+                  )
+                """
+            )
+        )
+        db.session.execute(
+            text(
+                """
+                UPDATE purchase_orders po
+                SET supplier_id = s.id
+                FROM suppliers s
+                WHERE po.supplier_id IS NULL
+                  AND lower(s.name) = lower(po.supplier_name)
+                """
+            )
+        )
+        db.session.execute(
+            text(
+                """
+                ALTER TABLE purchase_orders
+                ALTER COLUMN supplier_id SET NOT NULL
+                """
+            )
+        )
+        db.session.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'fk_purchase_orders_supplier_id'
+                    ) THEN
+                        ALTER TABLE purchase_orders
+                        ADD CONSTRAINT fk_purchase_orders_supplier_id
+                        FOREIGN KEY (supplier_id) REFERENCES suppliers(id);
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        db.session.commit()
+        current_app.logger.info("Backfilled purchase_orders.supplier_id and enforced constraint.")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Failed to ensure purchase_orders.supplier_id column.",
+            exc_info=exc,
+        )
+
+
 def run_startup_tasks() -> None:
     if os.getenv("RUN_STARTUP_MIGRATIONS") != "1":
         current_app.logger.info(
@@ -136,6 +261,8 @@ def run_startup_tasks() -> None:
             db.engine.dialect.name,
         )
         ensure_finance_amount_column()
+        ensure_purchase_order_supplier_id_column()
+        ensure_suppliers_lower_name_index()
         run_startup_migrations()
         return
 
@@ -146,6 +273,8 @@ def run_startup_tasks() -> None:
     )
     try:
         ensure_finance_amount_column()
+        ensure_purchase_order_supplier_id_column()
+        ensure_suppliers_lower_name_index()
         run_startup_migrations()
     finally:
         db.session.execute(

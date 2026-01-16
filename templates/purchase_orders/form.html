@@ -50,14 +50,26 @@
             </div>
 
             <div class="col-12 col-md-4">
-                <label for="supplier_name" class="form-label">اسم المورد</label>
+                <label for="supplier_id" class="form-label">المورد</label>
+                <select class="form-select" id="supplier_id" name="supplier_id">
+                    <option value="">اختر مورداً</option>
+                    {% for supplier in suppliers %}
+                        <option value="{{ supplier.id }}" {% if is_edit and purchase_order.supplier_id == supplier.id %}selected{% endif %}>
+                            {{ supplier.name }}{% if supplier.supplier_type %} ({{ supplier.supplier_type }}){% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">إذا لم يكن المورد موجوداً في القائمة، أدخل الاسم أدناه وسيتم إنشاؤه تلقائياً.</div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <label for="supplier_name" class="form-label">اسم مورد جديد</label>
                 <input
                     type="text"
                     class="form-control"
                     id="supplier_name"
                     name="supplier_name"
-                    value="{{ purchase_order.supplier_name if is_edit else '' }}"
-                    required>
+                    value="{% if is_edit and not purchase_order.supplier_id %}{{ purchase_order.supplier_name }}{% endif %}">
             </div>
 
             <div class="col-12 col-md-4">
@@ -107,4 +119,20 @@
         </form>
     </div>
 </div>
+<script>
+    const supplierSelect = document.getElementById("supplier_id");
+    const supplierNameInput = document.getElementById("supplier_name");
+    if (supplierSelect && supplierNameInput) {
+        supplierNameInput.addEventListener("input", () => {
+            if (supplierNameInput.value.trim()) {
+                supplierSelect.value = "";
+            }
+        });
+        supplierSelect.addEventListener("change", () => {
+            if (supplierSelect.value) {
+                supplierNameInput.value = "";
+            }
+        });
+    }
+</script>
 {% endblock %}
