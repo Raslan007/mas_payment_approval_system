@@ -6,7 +6,8 @@ import logging
 
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, column
+from sqlalchemy import event
 
 from extensions import db
 
@@ -257,6 +258,100 @@ class PaymentFinanceAdjustment(db.Model):
 
 
 PURCHASE_ORDER_REQUEST_TYPE = "مشتريات"
+
+PURCHASE_ORDER_STATUS_DRAFT = "draft"
+PURCHASE_ORDER_STATUS_SUBMITTED = "submitted"
+PURCHASE_ORDER_STATUS_PM_APPROVED = "pm_approved"
+PURCHASE_ORDER_STATUS_ENG_APPROVED = "eng_approved"
+PURCHASE_ORDER_STATUS_FINANCE_APPROVED = "finance_approved"
+PURCHASE_ORDER_STATUS_CLOSED = "closed"
+PURCHASE_ORDER_STATUS_REJECTED = "rejected"
+
+
+class PurchaseOrder(db.Model):
+    __tablename__ = "purchase_orders"
+    __table_args__ = (
+        db.Index(
+            "uq_purchase_orders_bo_number_ci",
+            db.func.lower(column("bo_number")),
+            unique=True,
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    bo_number = db.Column(db.String(50), nullable=False)
+    project_id = db.Column(
+        db.Integer,
+        db.ForeignKey("projects.id"),
+        nullable=False,
+        index=True,
+    )
+    supplier_name = db.Column(db.String(255), nullable=False)
+    total_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    advance_amount = db.Column(
+        db.Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+    remaining_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    status = db.Column(
+        db.String(30),
+        nullable=False,
+        default=PURCHASE_ORDER_STATUS_DRAFT,
+    )
+    created_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    project = db.relationship("Project", backref="purchase_orders")
+    created_by = db.relationship("User", backref="purchase_orders")
+
+    def recalculate_remaining_amount(self) -> None:
+        if self.total_amount is None or self.advance_amount is None:
+            return
+        total = Decimal(str(self.total_amount))
+        advance = Decimal(str(self.advance_amount))
+        self.remaining_amount = total - advance
+
+    def validate_amounts(self) -> None:
+        amounts = {
+            "total_amount": self.total_amount,
+            "advance_amount": self.advance_amount,
+            "remaining_amount": self.remaining_amount,
+        }
+        for name, value in amounts.items():
+            if value is None:
+                continue
+            if Decimal(str(value)) < 0:
+                raise ValueError(f"{name} cannot be negative.")
+
+        if (
+            self.total_amount is not None
+            and self.advance_amount is not None
+            and Decimal(str(self.advance_amount)) > Decimal(str(self.total_amount))
+        ):
+            raise ValueError("advance_amount cannot exceed total_amount.")
+
+    def __repr__(self) -> str:  # type: ignore
+        return f"<PurchaseOrder {self.id} - {self.bo_number}>"
+
+
+@event.listens_for(PurchaseOrder, "before_insert")
+@event.listens_for(PurchaseOrder, "before_update")
+def _purchase_order_before_save(mapper, connection, target: PurchaseOrder) -> None:
+    if target.status == PURCHASE_ORDER_STATUS_DRAFT:
+        target.recalculate_remaining_amount()
+    target.validate_amounts()
 
 
 class PaymentNotificationNote(db.Model):
