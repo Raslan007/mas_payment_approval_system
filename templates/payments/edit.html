@@ -203,47 +203,76 @@
         const purchaseOrderField = document.getElementById("purchase_order_field");
         const purchaseOrderSelect = document.getElementById("purchase_order_id");
 
-        if (!requestType || !purchaseOrderField || !purchaseOrderSelect) {
+        if (!requestType || !projectSelect || !purchaseOrderField || !purchaseOrderSelect) {
             return;
         }
 
-        const togglePurchaseOrderField = () => {
+        const resetPurchaseOrderOptions = () => {
+            purchaseOrderSelect.innerHTML = "";
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = "اختر أمر الشراء...";
+            purchaseOrderSelect.appendChild(placeholder);
+            purchaseOrderSelect.value = "";
+        };
+
+        const populatePurchaseOrders = (purchaseOrders, selectedValue) => {
+            resetPurchaseOrderOptions();
+            purchaseOrders.forEach((purchaseOrder) => {
+                const option = document.createElement("option");
+                option.value = purchaseOrder.id;
+                option.textContent = `${purchaseOrder.bo_number} (المتبقي: ${purchaseOrder.remaining_amount})`;
+                purchaseOrderSelect.appendChild(option);
+            });
+            if (
+                selectedValue
+                && purchaseOrderSelect.querySelector(`option[value="${selectedValue}"]`)
+            ) {
+                purchaseOrderSelect.value = selectedValue;
+            }
+        };
+
+        const loadPurchaseOrders = async (selectedValue) => {
             const isPurchase = (requestType.value || "").trim() === "مشتريات";
             purchaseOrderField.classList.toggle("d-none", !isPurchase);
             purchaseOrderSelect.required = isPurchase;
-            if (!isPurchase) {
-                purchaseOrderSelect.value = "";
-            }
-            filterPurchaseOrders();
-        };
 
-        const filterPurchaseOrders = () => {
-            if (!projectSelect) {
+            if (!isPurchase) {
+                resetPurchaseOrderOptions();
+                purchaseOrderSelect.disabled = true;
                 return;
             }
+
             const projectId = projectSelect.value;
-            const options = purchaseOrderSelect.querySelectorAll("option[data-project-id]");
-            options.forEach((option) => {
-                const matches = !projectId || option.dataset.projectId === projectId;
-                option.hidden = !matches;
-                option.disabled = !matches;
-            });
-            if (
-                purchaseOrderSelect.value
-                && purchaseOrderSelect.selectedOptions.length
-                && purchaseOrderSelect.selectedOptions[0].hidden
-            ) {
-                purchaseOrderSelect.value = "";
+            if (!projectId) {
+                resetPurchaseOrderOptions();
+                purchaseOrderSelect.disabled = true;
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    `/payments/purchase_orders/options?project_id=${encodeURIComponent(projectId)}`
+                );
+                if (!response.ok) {
+                    throw new Error("Failed to load purchase orders.");
+                }
+                const payload = await response.json();
+                const purchaseOrders = Array.isArray(payload.purchase_orders)
+                    ? payload.purchase_orders
+                    : [];
+                populatePurchaseOrders(purchaseOrders, selectedValue);
+                purchaseOrderSelect.disabled = purchaseOrders.length === 0;
+            } catch (error) {
+                resetPurchaseOrderOptions();
+                purchaseOrderSelect.disabled = true;
             }
         };
 
-        requestType.addEventListener("change", togglePurchaseOrderField);
-        if (projectSelect) {
-            projectSelect.addEventListener("change", filterPurchaseOrders);
-        }
+        requestType.addEventListener("change", () => loadPurchaseOrders());
+        projectSelect.addEventListener("change", () => loadPurchaseOrders(purchaseOrderSelect.value));
 
-        filterPurchaseOrders();
-        togglePurchaseOrderField();
+        loadPurchaseOrders(purchaseOrderSelect.value);
     })();
 </script>
 {% endblock %}

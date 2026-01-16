@@ -1790,6 +1790,54 @@ def export_finance_ready():
     return _export_query_to_csv(q, filename="payments_finance_ready.csv")
 
 
+@payments_bp.route("/purchase_orders/options")
+@role_required(
+    "admin",
+    "engineering_manager",
+    "project_manager",
+    "engineer",
+    "procurement",
+    "finance",
+    "chairman",
+    "planning",
+)
+def purchase_order_options():
+    project_id = _safe_int_arg("project_id", None, min_value=1)
+    purchase_orders: list[PurchaseOrder] = []
+
+    if project_id:
+        role_name = _get_role()
+        access_allowed = True
+        if role_name == "engineer" and not project_access_allowed(
+            current_user, project_id, role_name="engineer"
+        ):
+            access_allowed = False
+        elif role_name == "project_manager":
+            pm_project_ids = _project_manager_project_ids() or []
+            if project_id not in pm_project_ids:
+                access_allowed = False
+        elif role_name == "procurement":
+            if not _procurement_has_project_access(project_id):
+                access_allowed = False
+
+        if access_allowed:
+            purchase_orders = _purchase_orders_for_form(project_id)
+
+    def _format_remaining_amount(value: Decimal | None) -> str:
+        amount = _quantize_amount(Decimal(str(value or Decimal("0.00"))))
+        return f"{amount:,.2f}"
+
+    payload = [
+        {
+            "id": purchase_order.id,
+            "bo_number": purchase_order.bo_number,
+            "remaining_amount": _format_remaining_amount(purchase_order.remaining_amount),
+        }
+        for purchase_order in purchase_orders
+    ]
+    return jsonify({"ok": True, "purchase_orders": payload})
+
+
 # =========================
 #   إنشاء / تعديل / حذف
 # =========================
