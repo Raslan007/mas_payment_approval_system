@@ -108,6 +108,12 @@ class PaymentRequest(db.Model):
 
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     supplier_id = db.Column(db.Integer, db.ForeignKey("suppliers.id"), nullable=False)
+    purchase_order_id = db.Column(
+        db.Integer,
+        db.ForeignKey("purchase_orders.id"),
+        nullable=True,
+        index=True,
+    )
 
     request_type = db.Column(db.String(50), nullable=False)  # مقاول / مشتريات / عهدة
     amount = db.Column(db.Float, nullable=False)
@@ -128,6 +134,10 @@ class PaymentRequest(db.Model):
 
     project = db.relationship("Project", backref="payment_requests")
     supplier = db.relationship("Supplier", backref="payment_requests")
+    purchase_order = db.relationship(
+        "PurchaseOrder",
+        backref=db.backref("payment_requests", lazy="dynamic"),
+    )
     creator = db.relationship("User", backref="created_requests", foreign_keys=[created_by])
     finance_adjustments = db.relationship(
         "PaymentFinanceAdjustment",
@@ -293,6 +303,16 @@ class PurchaseOrder(db.Model):
         nullable=False,
         default=Decimal("0.00"),
     )
+    reserved_amount = db.Column(
+        db.Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+    paid_amount = db.Column(
+        db.Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
     remaining_amount = db.Column(db.Numeric(14, 2), nullable=False)
     status = db.Column(
         db.String(30),
@@ -317,16 +337,20 @@ class PurchaseOrder(db.Model):
     created_by = db.relationship("User", backref="purchase_orders")
 
     def recalculate_remaining_amount(self) -> None:
-        if self.total_amount is None or self.advance_amount is None:
+        if self.total_amount is None:
             return
         total = Decimal(str(self.total_amount))
-        advance = Decimal(str(self.advance_amount))
-        self.remaining_amount = total - advance
+        advance = Decimal(str(self.advance_amount or Decimal("0.00")))
+        reserved = Decimal(str(self.reserved_amount or Decimal("0.00")))
+        paid = Decimal(str(self.paid_amount or Decimal("0.00")))
+        self.remaining_amount = total - advance - reserved - paid
 
     def validate_amounts(self) -> None:
         amounts = {
             "total_amount": self.total_amount,
             "advance_amount": self.advance_amount,
+            "reserved_amount": self.reserved_amount,
+            "paid_amount": self.paid_amount,
             "remaining_amount": self.remaining_amount,
         }
         for name, value in amounts.items():
@@ -390,9 +414,24 @@ class PurchaseOrderDecision(db.Model):
 @event.listens_for(PurchaseOrder, "before_insert")
 @event.listens_for(PurchaseOrder, "before_update")
 def _purchase_order_before_save(mapper, connection, target: PurchaseOrder) -> None:
-    if target.status == PURCHASE_ORDER_STATUS_DRAFT:
-        target.recalculate_remaining_amount()
+    target.recalculate_remaining_amount()
     target.validate_amounts()
+
+
+def _payment_request_requires_purchase_order(target: PaymentRequest) -> bool:
+    return target.request_type == PURCHASE_ORDER_REQUEST_TYPE
+
+
+def _payment_request_submitted_from_draft(target: PaymentRequest) -> bool:
+    if target.status == "draft":
+        return False
+    state = inspect(target)
+    if state.transient or state.pending:
+        return True
+    history = state.attrs.status.history
+    if history.has_changes() and "draft" in history.deleted:
+        return True
+    return False
 
 
 class PaymentNotificationNote(db.Model):
