@@ -78,6 +78,13 @@ class Project(db.Model):
 
 class Supplier(db.Model):
     __tablename__ = "suppliers"
+    __table_args__ = (
+        db.Index(
+            "ux_suppliers_lower_name",
+            db.func.lower(column("name")),
+            unique=True,
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
@@ -85,6 +92,29 @@ class Supplier(db.Model):
 
     def __repr__(self):
         return f"<Supplier {self.name}>"
+
+
+DEFAULT_SUPPLIER_TYPE = "غير محدد"
+
+
+def normalize_supplier_name(name: str) -> str:
+    return " ".join(name.split())
+
+
+def get_or_create_supplier_by_name(name: str) -> Supplier:
+    normalized = normalize_supplier_name(name)
+    supplier = Supplier.query.filter(
+        db.func.lower(Supplier.name) == normalized.lower()
+    ).first()
+    if supplier:
+        supplier.was_created = False
+        return supplier
+
+    supplier = Supplier(name=normalized, supplier_type=DEFAULT_SUPPLIER_TYPE)
+    supplier.was_created = True
+    db.session.add(supplier)
+    db.session.flush()
+    return supplier
 
 
 class PaymentRequest(db.Model):
@@ -299,6 +329,12 @@ class PurchaseOrder(db.Model):
         nullable=False,
         index=True,
     )
+    supplier_id = db.Column(
+        db.Integer,
+        db.ForeignKey("suppliers.id"),
+        nullable=False,
+        index=True,
+    )
     supplier_name = db.Column(db.String(255), nullable=False)
     total_amount = db.Column(db.Numeric(14, 2), nullable=False)
     advance_amount = db.Column(
@@ -337,6 +373,7 @@ class PurchaseOrder(db.Model):
     )
 
     project = db.relationship("Project", backref="purchase_orders")
+    supplier = db.relationship("Supplier", backref="purchase_orders")
     created_by = db.relationship("User", backref="purchase_orders")
 
     def recalculate_remaining_amount(self) -> None:

@@ -55,7 +55,7 @@
                     </div>
                     <div class="col-12 col-md-6">
                         <div class="text-muted xsmall">المورد</div>
-                        <div class="fw-semibold">{{ purchase_order.supplier_name }}</div>
+                        <div class="fw-semibold">{{ purchase_order.supplier.name if purchase_order.supplier else purchase_order.supplier_name }}</div>
                     </div>
                     <div class="col-12 col-md-4">
                         <div class="text-muted xsmall">إجمالي المبلغ</div>

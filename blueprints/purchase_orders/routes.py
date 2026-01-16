@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+import logging
 
 from flask import render_template, request, redirect, url_for, flash, abort
 from flask_login import current_user
@@ -14,16 +15,21 @@ from models import (
     Project,
     PurchaseOrder,
     PurchaseOrderDecision,
+    Supplier,
     PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_SUBMITTED,
     PURCHASE_ORDER_STATUS_PM_APPROVED,
     PURCHASE_ORDER_STATUS_ENG_APPROVED,
     PURCHASE_ORDER_STATUS_FINANCE_APPROVED,
     PURCHASE_ORDER_STATUS_REJECTED,
+    get_or_create_supplier_by_name,
+    normalize_supplier_name,
 )
 from permissions import role_required
 from project_scopes import get_scoped_project_ids
 from . import purchase_orders_bp
+
+logger = logging.getLogger(__name__)
 
 VIEW_ROLES = (
     "procurement",
@@ -240,11 +246,13 @@ def index():
 def new():
     normalized_role, scoped_ids = _scoped_project_ids()
     projects = _load_projects(normalized_role, scoped_ids)
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
     return render_template(
         "purchase_orders/form.html",
         purchase_order=None,
         projects=projects,
+        suppliers=suppliers,
         status_meta=_status_meta(PURCHASE_ORDER_STATUS_DRAFT),
         action_url=url_for("purchase_orders.create"),
         submit_label="إضافة أمر شراء",
@@ -258,7 +266,8 @@ def create():
     normalized_role, scoped_ids = _scoped_project_ids()
 
     bo_number = (request.form.get("bo_number") or "").strip()
-    supplier_name = (request.form.get("supplier_name") or "").strip()
+    supplier_id = request.form.get("supplier_id", type=int)
+    supplier_name = normalize_supplier_name(request.form.get("supplier_name") or "")
     project_id = request.form.get("project_id", type=int)
     total_amount_raw = request.form.get("total_amount")
     advance_amount_raw = request.form.get("advance_amount")
@@ -270,8 +279,8 @@ def create():
     errors: list[str] = []
     if not bo_number:
         errors.append("يرجى إدخال رقم BO.")
-    if not supplier_name:
-        errors.append("يرجى إدخال اسم المورد.")
+    if not supplier_id and not supplier_name:
+        errors.append("يرجى اختيار المورد أو إدخال اسم مورد جديد.")
     if not project_id:
         errors.append("يرجى اختيار المشروع.")
     if total_amount is None:
@@ -288,6 +297,26 @@ def create():
 
     if project_id:
         _enforce_project_scope(project_id, normalized_role, scoped_ids)
+
+    supplier = None
+    if supplier_id:
+        supplier = db.session.get(Supplier, supplier_id)
+        if supplier is None:
+            errors.append("المورد المحدد غير موجود.")
+    elif supplier_name:
+        supplier = get_or_create_supplier_by_name(supplier_name)
+        if getattr(supplier, "was_created", False):
+            logger.info(
+                "PO create created supplier_id=%s name='%s'.",
+                supplier.id,
+                supplier.name,
+            )
+        else:
+            logger.info(
+                "PO create reused supplier_id=%s name='%s'.",
+                supplier.id,
+                supplier.name,
+            )
 
     existing = None
     if bo_number:
@@ -307,7 +336,8 @@ def create():
     purchase_order = PurchaseOrder(
         bo_number=bo_number,
         project_id=project_id,
-        supplier_name=supplier_name,
+        supplier_id=supplier.id,
+        supplier_name=supplier.name,
         total_amount=total_amount,
         advance_amount=advance_amount,
         remaining_amount=remaining_amount,
@@ -361,11 +391,13 @@ def edit(id: int):
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
     projects = _load_projects(normalized_role, scoped_ids)
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
     return render_template(
         "purchase_orders/form.html",
         purchase_order=purchase_order,
         projects=projects,
+        suppliers=suppliers,
         status_meta=_status_meta(purchase_order.status),
         action_url=url_for("purchase_orders.update", id=id),
         submit_label="حفظ التعديلات",
@@ -385,7 +417,8 @@ def update(id: int):
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
     bo_number = (request.form.get("bo_number") or "").strip()
-    supplier_name = (request.form.get("supplier_name") or "").strip()
+    supplier_id = request.form.get("supplier_id", type=int)
+    supplier_name = normalize_supplier_name(request.form.get("supplier_name") or "")
     project_id = request.form.get("project_id", type=int)
     total_amount_raw = request.form.get("total_amount")
     advance_amount_raw = request.form.get("advance_amount")
@@ -397,8 +430,8 @@ def update(id: int):
     errors: list[str] = []
     if not bo_number:
         errors.append("يرجى إدخال رقم BO.")
-    if not supplier_name:
-        errors.append("يرجى إدخال اسم المورد.")
+    if not supplier_id and not supplier_name:
+        errors.append("يرجى اختيار المورد أو إدخال اسم مورد جديد.")
     if not project_id:
         errors.append("يرجى اختيار المشروع.")
     if total_amount is None:
@@ -416,6 +449,26 @@ def update(id: int):
     if project_id:
         _enforce_project_scope(project_id, normalized_role, scoped_ids)
 
+    supplier = None
+    if supplier_id:
+        supplier = db.session.get(Supplier, supplier_id)
+        if supplier is None:
+            errors.append("المورد المحدد غير موجود.")
+    elif supplier_name:
+        supplier = get_or_create_supplier_by_name(supplier_name)
+        if getattr(supplier, "was_created", False):
+            logger.info(
+                "PO update created supplier_id=%s name='%s'.",
+                supplier.id,
+                supplier.name,
+            )
+        else:
+            logger.info(
+                "PO update reused supplier_id=%s name='%s'.",
+                supplier.id,
+                supplier.name,
+            )
+
     if bo_number:
         existing = PurchaseOrder.query.filter(
             func.lower(PurchaseOrder.bo_number) == bo_number.lower(),
@@ -431,7 +484,8 @@ def update(id: int):
 
     purchase_order.bo_number = bo_number
     purchase_order.project_id = project_id
-    purchase_order.supplier_name = supplier_name
+    purchase_order.supplier_id = supplier.id
+    purchase_order.supplier_name = supplier.name
     purchase_order.total_amount = total_amount
     purchase_order.advance_amount = advance_amount
     purchase_order.remaining_amount = (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
