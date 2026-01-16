@@ -1842,23 +1842,19 @@ def purchase_order_options():
     project_id = _safe_int_arg("project_id", None, min_value=1)
     purchase_orders: list[PurchaseOrder] = []
 
+    access_allowed = False
     if project_id:
-        role_name = _get_role()
-        access_allowed = True
-        if role_name == "engineer" and not project_access_allowed(
-            current_user, project_id, role_name="engineer"
-        ):
-            access_allowed = False
-        elif role_name == "project_manager":
-            pm_project_ids = _project_manager_project_ids() or []
-            if project_id not in pm_project_ids:
-                access_allowed = False
-        elif role_name == "procurement":
-            if not _procurement_has_project_access(project_id):
-                access_allowed = False
+        access_allowed = _purchase_order_access_allowed(project_id)
 
-        if access_allowed:
-            purchase_orders = _purchase_orders_for_form(project_id)
+    if access_allowed:
+        purchase_orders = _purchase_orders_for_form(project_id)
+    elif project_id:
+        user_id = current_user.id if current_user.is_authenticated else None
+        logger.info(
+            "PO options forbidden project_id=%s user_id=%s",
+            project_id,
+            user_id,
+        )
 
     def _format_remaining_amount(value: Decimal | None) -> str:
         amount = _quantize_amount(Decimal(str(value or Decimal("0.00"))))
@@ -1888,30 +1884,51 @@ def purchase_order_options():
 )
 def purchase_order_prefill(purchase_order_id: int):
     project_id = _safe_int_arg("project_id", None, min_value=1)
-    access_allowed = False
-    if project_id is not None:
-        access_allowed = _purchase_order_access_allowed(project_id)
     user_id = current_user.id if current_user.is_authenticated else None
-    logger.info(
-        "PO prefill project_id=%s purchase_order_id=%s user_id=%s allowed=%s",
-        project_id,
-        purchase_order_id,
-        user_id,
-        access_allowed,
-    )
-    if project_id is None:
-        return jsonify({"ok": False, "error": "project_id_required"}), 400
-
-    if not access_allowed:
-        return jsonify({"ok": False, "error": "project_access_denied"}), 403
-
-    purchase_order = _get_valid_purchase_order(purchase_order_id, project_id)
+    purchase_order = PurchaseOrder.query.get(purchase_order_id)
     if purchase_order is None:
-        return jsonify({"ok": False, "error": "purchase_order_not_found"}), 404
+        logger.info(
+            "PO prefill failed reason=not_found project_id=%s purchase_order_id=%s user_id=%s",
+            project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "purchase_order_not_found"}), 200
+    if project_id is not None and purchase_order.project_id != project_id:
+        logger.info(
+            "PO prefill failed reason=mismatch project_id=%s purchase_order_id=%s user_id=%s",
+            project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "purchase_order_project_mismatch"}), 200
+    access_project_id = project_id or purchase_order.project_id
+    if not _purchase_order_access_allowed(access_project_id):
+        logger.info(
+            "PO prefill failed reason=forbidden project_id=%s purchase_order_id=%s user_id=%s",
+            access_project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "forbidden"}), 200
+    if purchase_order.status in PURCHASE_ORDER_EXCLUDED_STATUSES:
+        logger.info(
+            "PO prefill failed reason=not_found project_id=%s purchase_order_id=%s user_id=%s",
+            access_project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "purchase_order_not_found"}), 200
 
     supplier = _purchase_order_supplier(purchase_order)
     if supplier is None:
-        return jsonify({"ok": False, "error": "supplier_not_found"}), 404
+        logger.info(
+            "PO prefill failed reason=supplier_not_found project_id=%s purchase_order_id=%s user_id=%s",
+            access_project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "supplier_not_found"}), 200
 
     remaining_amount = _purchase_order_remaining_amount(purchase_order)
     suggested_amount = remaining_amount
@@ -1919,10 +1936,7 @@ def purchase_order_prefill(purchase_order_id: int):
     return jsonify(
         {
             "ok": True,
-            "purchase_order_id": purchase_order.id,
             "supplier_id": str(supplier.id),
-            "supplier_name": supplier.name,
-            "suggested_amount": f"{suggested_amount:.2f}",
             "amount": f"{suggested_amount:.2f}",
             "remaining_amount": f"{remaining_amount:.2f}",
         }
