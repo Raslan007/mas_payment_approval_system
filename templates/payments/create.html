@@ -133,6 +133,9 @@
         </div>
 
         <div class="d-flex justify-content-end gap-2 mt-3">
+            <small class="text-danger xsmall d-none align-self-center" id="po_submit_error">
+                تعذر تحميل بيانات أمر الشراء
+            </small>
             <a href="{{ url_for('payments.index') }}" class="btn btn-outline-secondary">
                 رجوع
             </a>
@@ -156,6 +159,8 @@
         const poHint = document.getElementById("po_autofill_hint");
         const poError = document.getElementById("po_autofill_error");
         const debugEl = document.getElementById("po_prefill_debug");
+        const submitButton = document.querySelector('button[type="submit"]');
+        const submitError = document.getElementById("po_submit_error");
         const showDebug = {{ "true" if show_po_debug else "false" }};
         const purchaseOrderOptionsUrl = "{{ url_for('payments.purchase_order_options') }}";
         const purchaseOrderPrefillBase = "{{ url_for('payments.purchase_order_prefill', purchase_order_id=0) }}";
@@ -234,6 +239,14 @@
             }
         };
 
+        const setSubmitBlocked = (blocked) => {
+            if (!submitButton || !submitError) {
+                return;
+            }
+            submitButton.disabled = blocked;
+            submitError.classList.toggle("d-none", !blocked);
+        };
+
         const clearPrefill = () => {
             setLockedState(false);
             supplierSelect.value = "";
@@ -241,6 +254,7 @@
             amountInput.value = "";
             triggerAmountChange();
             clearError();
+            setSubmitBlocked(false);
             updateDebug();
         };
 
@@ -260,6 +274,22 @@
                 amount: amountValue || "-",
                 error: "-",
             });
+            setSubmitBlocked(false);
+        };
+
+        const clearPrefillFields = () => {
+            setLockedState(false);
+            supplierSelect.value = "";
+            triggerSupplierChange();
+            amountInput.value = "";
+            triggerAmountChange();
+        };
+
+        const handlePrefillFailure = (errorMessage, prefillUrl) => {
+            clearPrefillFields();
+            showError(errorMessage);
+            setSubmitBlocked(Boolean(purchaseOrderSelect.value));
+            updateDebug({ status: "error", url: prefillUrl, error: errorMessage || "prefill_failed" });
         };
 
         const resetPurchaseOrderOptions = () => {
@@ -347,8 +377,8 @@
             const prefillUrl = buildPrefillUrl(purchaseOrderId, projectId);
             try {
                 const response = await fetch(prefillUrl);
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => ({}));
+                const payload = await response.json().catch(() => ({}));
+                if (!payload || payload.ok !== true) {
                     updateDebug({
                         status: response.status,
                         url: prefillUrl,
@@ -356,26 +386,15 @@
                         amount: payload.amount || "-",
                         error: payload.error || "prefill_failed",
                     });
-                    throw new Error(payload.error || "prefill_failed");
-                }
-                const payload = await response.json();
-                if (payload && payload.ok) {
-                    applyPrefill({ ...payload, prefill_url: prefillUrl });
+                    handlePrefillFailure(payload.error || "prefill_failed", prefillUrl);
                     return;
                 }
-                updateDebug({
-                    status: response.status,
-                    url: prefillUrl,
-                    supplierId: payload.supplier_id || "-",
-                    amount: payload.amount || "-",
-                    error: payload.error || "prefill_failed",
-                });
+                applyPrefill({ ...payload, prefill_url: prefillUrl });
+                return;
             } catch (error) {
                 console.error("Purchase order prefill failed", error);
+                handlePrefillFailure("prefill_failed", prefillUrl);
             }
-            showError("تعذر تعبئة بيانات أمر الشراء. يرجى المحاولة مرة أخرى.");
-            setLockedState(false);
-            updateDebug({ status: "error", url: prefillUrl, error: "prefill_failed" });
         };
 
         requestType.addEventListener("change", () => {

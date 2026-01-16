@@ -127,9 +127,11 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         remaining_amount: Decimal,
         project: Project | None = None,
         supplier_name: str | None = None,
+        bo_number: str | None = None,
     ) -> PurchaseOrder:
+        bo_number_value = bo_number or f"PO-{1000 + PurchaseOrder.query.count() + 1}"
         purchase_order = PurchaseOrder(
-            bo_number="PO-1001",
+            bo_number=bo_number_value,
             project=project or self.project,
             supplier_name=supplier_name or self.supplier.name,
             total_amount=remaining_amount,
@@ -396,8 +398,68 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["supplier_id"], self.supplier.id)
-        self.assertEqual(payload["suggested_amount"], "150.00")
+        self.assertEqual(payload["supplier_id"], str(self.supplier.id))
+        self.assertEqual(payload["amount"], "150.00")
+        self.assertEqual(payload["remaining_amount"], "150.00")
+
+    def test_purchase_order_prefill_returns_not_found(self):
+        self._login(self.users["admin"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/999/prefill?project_id={self.project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "purchase_order_not_found")
+
+    def test_purchase_order_prefill_returns_mismatch(self):
+        purchase_order = self._make_purchase_order(remaining_amount=Decimal("150.00"))
+        self._login(self.users["admin"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/{purchase_order.id}/prefill?project_id={self.alt_project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "purchase_order_project_mismatch")
+
+    def test_purchase_order_prefill_returns_forbidden(self):
+        purchase_order = self._make_purchase_order(
+            remaining_amount=Decimal("150.00"),
+            project=self.alt_project,
+        )
+        self._login(self.users["engineer"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/{purchase_order.id}/prefill?project_id={self.alt_project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "forbidden")
+
+    def test_purchase_order_options_scopes_to_project(self):
+        purchase_order = self._make_purchase_order(remaining_amount=Decimal("75.00"))
+        alt_po = self._make_purchase_order(
+            remaining_amount=Decimal("30.00"),
+            project=self.alt_project,
+        )
+        self._login(self.users["admin"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/options?project_id={self.project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        purchase_order_ids = {item["id"] for item in payload["purchase_orders"]}
+        self.assertIn(purchase_order.id, purchase_order_ids)
+        self.assertNotIn(alt_po.id, purchase_order_ids)
 
     def test_create_purchase_order_payment_overrides_supplier_and_amount(self):
         purchase_order = self._make_purchase_order(remaining_amount=Decimal("200.00"))
