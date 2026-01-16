@@ -341,6 +341,7 @@ class PurchaseOrder(db.Model):
         db.Numeric(14, 2),
         nullable=False,
         default=Decimal("0.00"),
+        server_default="0",
     )
     reserved_amount = db.Column(
         db.Numeric(14, 2),

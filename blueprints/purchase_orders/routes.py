@@ -137,6 +137,10 @@ def _parse_decimal_amount(value: str | None) -> Decimal | None:
     return parsed
 
 
+def _quantize_amount(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
+
+
 def _load_projects(normalized_role: str | None, scoped_ids: list[int]) -> list[Project]:
     query = Project.query.order_by(Project.project_name.asc())
     if scoped_ids:
@@ -275,6 +279,10 @@ def create():
     advance_amount = _parse_decimal_amount(advance_amount_raw)
     if advance_amount_raw is None or not advance_amount_raw.strip():
         advance_amount = Decimal("0.00")
+    if total_amount is not None:
+        total_amount = _quantize_amount(total_amount)
+    if advance_amount is not None:
+        advance_amount = _quantize_amount(advance_amount)
 
     errors: list[str] = []
     if not bo_number:
@@ -332,6 +340,7 @@ def create():
         return redirect(url_for("purchase_orders.new"))
 
     remaining_amount = (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
+    remaining_amount = _quantize_amount(remaining_amount)
 
     purchase_order = PurchaseOrder(
         bo_number=bo_number,
@@ -426,6 +435,10 @@ def update(id: int):
     advance_amount = _parse_decimal_amount(advance_amount_raw)
     if advance_amount_raw is None or not advance_amount_raw.strip():
         advance_amount = Decimal("0.00")
+    if total_amount is not None:
+        total_amount = _quantize_amount(total_amount)
+    if advance_amount is not None:
+        advance_amount = _quantize_amount(advance_amount)
 
     errors: list[str] = []
     if not bo_number:
@@ -488,7 +501,9 @@ def update(id: int):
     purchase_order.supplier_name = supplier.name
     purchase_order.total_amount = total_amount
     purchase_order.advance_amount = advance_amount
-    purchase_order.remaining_amount = (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
+    purchase_order.remaining_amount = _quantize_amount(
+        (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
+    )
 
     db.session.commit()
     flash("تم تحديث أمر الشراء بنجاح.", "success")
