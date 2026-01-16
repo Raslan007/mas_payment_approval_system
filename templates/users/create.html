@@ -53,7 +53,7 @@
                 {% endfor %}
             </select>
             <small class="text-muted xsmall">
-                مثال: admin, engineering_manager, project_manager, engineer, finance
+                مثال: admin, engineering_manager, project_manager, engineer, finance, procurement
             </small>
         </div>
 
@@ -69,7 +69,7 @@
                 {% endfor %}
             </select>
             <small class="text-muted xsmall" id="project-help-text">
-                هذا الحقل مطلوب للمهندس ومدير المشروع، واختياري لباقي الأدوار.
+                هذا الحقل مطلوب للمهندس ومدير المشروع ومسؤول المشتريات، واختياري لباقي الأدوار.
             </small>
         </div>
 
@@ -169,7 +169,9 @@
         const selectedOption = roleSelect.options[roleSelect.selectedIndex];
         const roleName = selectedOption ? selectedOption.getAttribute("data-role-name") : "";
 
-        const requiresProject = roleName === "engineer" || roleName === "project_manager";
+        const requiresProject = roleName === "engineer"
+            || roleName === "project_manager"
+            || roleName === "procurement";
 
         if (requiresProject) {
             projectGroup.classList.remove("d-none");
@@ -179,9 +181,13 @@
             projectSelect.multiple = roleName === "project_manager";
             const helpText = document.getElementById("project-help-text");
             if (helpText) {
-                helpText.textContent = roleName === "project_manager"
-                    ? "يمكن اختيار مشروع واحد أو أكثر لمدير المشروع."
-                    : "اختر مشروعًا واحدًا للمهندس.";
+                if (roleName === "project_manager") {
+                    helpText.textContent = "يمكن اختيار مشروع واحد أو أكثر لمدير المشروع.";
+                } else if (roleName === "procurement") {
+                    helpText.textContent = "اختر مشروعًا واحدًا لمسؤول المشتريات.";
+                } else {
+                    helpText.textContent = "اختر مشروعًا واحدًا للمهندس.";
+                }
             }
         } else {
             projectGroup.classList.add("d-none");

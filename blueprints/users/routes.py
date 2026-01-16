@@ -24,6 +24,7 @@ def create_user():
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
     has_user_projects_table = _user_projects_table_exists()
+    has_scoped_role_column = _user_projects_has_scoped_role()
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
@@ -50,14 +51,15 @@ def create_user():
             flash("يوجد مستخدم مسجل بنفس البريد الإلكتروني.", "danger")
             return redirect(url_for("users.create_user"))
 
-        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
+        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع / مشتريات)
         selected_role = Role.query.get(int(role_id)) if role_id else None
         requires_project = selected_role and selected_role.name in (
             "engineer",
             "project_manager",
+            "procurement",
         )
         if requires_project and not project_ids:
-            flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
+            flash("يجب ربط المهندس أو مدير المشروع أو مسؤول المشتريات بمشروع محدد.", "danger")
             return redirect(url_for("users.create_user"))
 
         user = User(full_name=full_name, email=email)
@@ -78,6 +80,7 @@ def create_user():
             selected_role
             and selected_role.name == "project_manager"
             and has_user_projects_table
+            and not has_scoped_role_column
         ):
             user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
 
@@ -96,9 +99,10 @@ def edit_user(user_id):
     roles = Role.query.order_by(Role.name.asc()).all()
     projects = Project.query.order_by(Project.project_name.asc()).all()
     has_user_projects_table = _user_projects_table_exists()
+    has_scoped_role_column = _user_projects_has_scoped_role()
 
     selected_project_ids: list[int] = []
-    if has_user_projects_table:
+    if has_user_projects_table and not has_scoped_role_column:
         selected_project_ids = [
             row.project_id
             for row in db.session.query(user_projects.c.project_id)
@@ -130,14 +134,15 @@ def edit_user(user_id):
             flash("يوجد مستخدم آخر مسجل بنفس البريد الإلكتروني.", "danger")
             return redirect(url_for("users.edit_user", user_id=user.id))
 
-        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع)
+        # التحقق من ربط المشروع حسب الدور (مهندس / مدير مشروع / مشتريات)
         selected_role = Role.query.get(int(role_id)) if role_id else None
         requires_project = selected_role and selected_role.name in (
             "engineer",
             "project_manager",
+            "procurement",
         )
         if requires_project and not project_ids:
-            flash("يجب ربط المهندس أو مدير المشروع بمشروع محدد.", "danger")
+            flash("يجب ربط المهندس أو مدير المشروع أو مسؤول المشتريات بمشروع محدد.", "danger")
             return redirect(url_for("users.edit_user", user_id=user.id))
 
         user.full_name = full_name
@@ -156,7 +161,12 @@ def edit_user(user_id):
         else:
             user.project_id = None
 
-        if selected_role and selected_role.name == "project_manager" and has_user_projects_table:
+        if (
+            selected_role
+            and selected_role.name == "project_manager"
+            and has_user_projects_table
+            and not has_scoped_role_column
+        ):
             user.projects = Project.query.filter(Project.id.in_(project_ids_int)).all()
 
         # تحديث كلمة المرور لو تم إدخال واحدة جديدة
@@ -197,12 +207,26 @@ def _user_projects_table_exists() -> bool:
     return inspector.has_table("user_projects")
 
 
+def _user_projects_has_scoped_role() -> bool:
+    inspector = inspect(db.engine)
+    if not inspector.has_table("user_projects"):
+        return False
+
+    try:
+        columns = {col["name"] for col in inspector.get_columns("user_projects")}
+    except Exception:
+        return False
+
+    return "scoped_role" in columns
+
+
 @users_bp.route("/<int:user_id>/projects", methods=["GET", "POST"])
 @role_required("admin")
 def assign_user_projects(user_id):
     user = User.query.get_or_404(user_id)
     projects = Project.query.order_by(Project.project_name.asc()).all()
     has_user_projects_table = _user_projects_table_exists()
+    has_scoped_role_column = _user_projects_has_scoped_role()
 
     if request.method == "POST":
         if not has_user_projects_table:
@@ -225,19 +249,24 @@ def assign_user_projects(user_id):
             else []
         )
 
-        user.projects = selected_projects
+        if has_scoped_role_column:
+            user.project_id = selected_projects[0].id if selected_projects else None
+        else:
+            user.projects = selected_projects
         db.session.commit()
         flash("تم تحديث المشاريع المرتبطة بالمستخدم بنجاح.", "success")
         return redirect(url_for("users.assign_user_projects", user_id=user.id))
 
     selected_project_ids: list[int] = []
-    if has_user_projects_table:
+    if has_user_projects_table and not has_scoped_role_column:
         selected_project_ids = [
             row.project_id
             for row in db.session.query(user_projects.c.project_id)
             .filter(user_projects.c.user_id == user.id)
             .all()
         ]
+    elif user.project_id:
+        selected_project_ids = [user.project_id]
 
     return render_template(
         "users/assign_projects.html",

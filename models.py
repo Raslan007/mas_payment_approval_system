@@ -256,6 +256,9 @@ class PaymentFinanceAdjustment(db.Model):
         return f"<PaymentFinanceAdjustment {self.id} for payment {self.payment_id}>"
 
 
+PURCHASE_ORDER_REQUEST_TYPE = "مشتريات"
+
+
 class PaymentNotificationNote(db.Model):
     """
     ملاحظات إشعار المقاولين دون تغيير حالة الدفعة.
@@ -398,6 +401,7 @@ REQUIRED_ROLES: tuple[tuple[str, str], ...] = (
     ("chairman", "رئيس مجلس الإدارة"),
     ("dc", "Data Entry / Data Control"),
     ("payment_notifier", "مسؤول إشعار المقاولين"),
+    ("procurement", "مسؤول المشتريات"),
 )
 
 

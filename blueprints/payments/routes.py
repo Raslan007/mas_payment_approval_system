@@ -41,6 +41,7 @@ from models import (
     User,
     SavedView,
     user_projects,
+    PURCHASE_ORDER_REQUEST_TYPE,
 )
 from project_scopes import get_scoped_project_ids, project_access_allowed
 from . import payments_bp
@@ -133,6 +134,7 @@ WORKFLOW_TRANSITIONS: dict[tuple[str, str], set[str]] = {
         "engineering_manager",
         "project_manager",
         "engineer",
+        "procurement",
     },
     (STATUS_PENDING_PM, STATUS_PENDING_ENG): {
         "admin",
@@ -183,6 +185,46 @@ def _get_role():
     if role_name == "project_engineer":
         return "engineer"
     return role_name
+
+
+def _is_purchase_order_type(request_type: str | None) -> bool:
+    return (request_type or "").strip() == PURCHASE_ORDER_REQUEST_TYPE
+
+
+def _is_purchase_order(payment: PaymentRequest) -> bool:
+    return _is_purchase_order_type(payment.request_type)
+
+
+def _procurement_project_ids() -> list[int]:
+    if not current_user.is_authenticated:
+        return []
+    return get_scoped_project_ids(current_user, role_name="procurement")
+
+
+def _procurement_has_project_access(project_id: int | None) -> bool:
+    if project_id is None:
+        return False
+    scoped_ids = _procurement_project_ids()
+    if not scoped_ids:
+        return False
+    return project_id in scoped_ids
+
+
+def _can_create_purchase_order(project_id: int | None, request_type: str | None) -> bool:
+    return (
+        _get_role() == "procurement"
+        and _is_purchase_order_type(request_type)
+        and _procurement_has_project_access(project_id)
+    )
+
+
+def _can_edit_purchase_order(payment: PaymentRequest) -> bool:
+    return (
+        _get_role() == "procurement"
+        and _is_purchase_order(payment)
+        and payment.status == STATUS_DRAFT
+        and _procurement_has_project_access(payment.project_id)
+    )
 
 
 def _normalize_return_to(target: str | None) -> str | None:
@@ -636,6 +678,12 @@ def _can_view_payment(p: PaymentRequest) -> bool:
             return False
         return p.project_id in pm_project_ids
 
+    # مسؤول المشتريات يشوف أوامر الشراء داخل مشروعاته فقط
+    if role_name == "procurement":
+        if not _is_purchase_order(p):
+            return False
+        return _procurement_has_project_access(p.project_id)
+
     # المهندس يشوف فقط دفعات مشاريعه المرتبطة أو التي أنشأها (في حال عدم وجود ربط متعدد)
     if role_name == "engineer":
         scoped_projects = get_scoped_project_ids(current_user, role_name="engineer")
@@ -652,7 +700,13 @@ def _can_view_payment(p: PaymentRequest) -> bool:
 
 def _can_create_payment() -> bool:
     role_name = _get_role()
-    return role_name in ("admin", "engineering_manager", "project_manager", "engineer")
+    return role_name in (
+        "admin",
+        "engineering_manager",
+        "project_manager",
+        "engineer",
+        "procurement",
+    )
 
 
 def _can_export_payments(allowed_roles: set[str]) -> bool:
@@ -690,6 +744,11 @@ def _can_transition(payment: PaymentRequest, target_status: str) -> bool:
     allowed_roles = WORKFLOW_TRANSITIONS.get((payment.status, target_status))
     if role_name is None or not allowed_roles:
         return False
+    if role_name == "procurement":
+        if not _is_purchase_order(payment):
+            return False
+        if not _procurement_has_project_access(payment.project_id):
+            return False
     return role_name in allowed_roles
 
 
@@ -712,6 +771,14 @@ def _require_transition(payment: PaymentRequest, target_status: str) -> bool:
         )
         return False
 
+    if role_name == "procurement":
+        if not _is_purchase_order(payment) or not _procurement_has_project_access(payment.project_id):
+            flash(
+                "غير مسموح لمسؤول المشتريات بتنفيذ هذا الإجراء على الدفعات خارج أوامر الشراء أو خارج نطاق المشروع.",
+                "danger",
+            )
+            return False
+
     return True
 
 
@@ -729,6 +796,9 @@ def _can_edit_payment(p: PaymentRequest) -> bool:
 
     if role_name in ("admin", "engineering_manager"):
         return True
+
+    if role_name == "procurement":
+        return _can_edit_purchase_order(p)
 
     if role_name == "engineer":
         return p.created_by == current_user.id and p.status == STATUS_DRAFT
@@ -998,6 +1068,7 @@ def _scoped_payments_query_for_listing():
     role_name = _get_role()
     pm_project_ids: list[int] | None = None
     engineer_project_ids: list[int] | None = None
+    procurement_project_ids: list[int] | None = None
 
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
@@ -1028,6 +1099,15 @@ def _scoped_payments_query_for_listing():
             q = q.filter(PaymentRequest.project_id.in_(engineer_project_ids))
         else:
             q = q.filter(PaymentRequest.created_by == current_user.id)
+    elif role_name == "procurement":
+        procurement_project_ids = _procurement_project_ids()
+        allowed_request_types = {PURCHASE_ORDER_REQUEST_TYPE}
+        request_types = [PURCHASE_ORDER_REQUEST_TYPE]
+        q = q.filter(PaymentRequest.request_type == PURCHASE_ORDER_REQUEST_TYPE)
+        if procurement_project_ids:
+            q = q.filter(PaymentRequest.project_id.in_(procurement_project_ids))
+        else:
+            q = q.filter(false())
     elif role_name == "dc":
         q = q.filter(false())
     else:
@@ -1129,6 +1209,7 @@ def inbox_ready_for_payment():
     "chairman",
     "payment_notifier",
     "dc",
+    "procurement",
 )
 def index():
     """
@@ -1172,6 +1253,7 @@ def index():
                 "chairman",
                 "payment_notifier",
                 "dc",
+                "procurement",
             }
         ),
         can_edit_payment=_can_edit_payment,
@@ -1190,6 +1272,7 @@ def index():
     "chairman",
     "payment_notifier",
     "dc",
+    "procurement",
 )
 def export_my():
     q, filters, _, _, _ = _scoped_payments_query_for_listing()
@@ -1457,7 +1540,7 @@ def export_finance_ready():
 # =========================
 
 @payments_bp.route("/create", methods=["GET", "POST"])
-@role_required("admin", "engineering_manager", "project_manager", "engineer")
+@role_required("admin", "engineering_manager", "project_manager", "engineer", "procurement")
 def create_payment():
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -1501,7 +1584,16 @@ def create_payment():
             pm_project_ids = _project_manager_project_ids() or []
             if project_id_value not in pm_project_ids:
                 abort(403)
-        if role_name not in ("admin", "engineering_manager", "project_manager", "engineer"):
+        if role_name == "procurement":
+            if not _can_create_purchase_order(project_id_value, request_type):
+                abort(403)
+        if role_name not in (
+            "admin",
+            "engineering_manager",
+            "project_manager",
+            "engineer",
+            "procurement",
+        ):
             abort(403)
 
         try:
@@ -1550,6 +1642,7 @@ def create_payment():
     "finance",
     "chairman",
     "payment_notifier",
+    "procurement",
 )
 def detail(payment_id):
     """
@@ -1806,6 +1899,7 @@ def void_finance_adjustment(payment_id: int, adjustment_id: int):
     "finance",
     "chairman",
     "payment_notifier",
+    "procurement",
 )
 def download_attachment(attachment_id: int):
     attachment = PaymentAttachment.query.get_or_404(attachment_id)
@@ -1838,6 +1932,7 @@ def download_attachment(attachment_id: int):
     "engineering_manager",
     "project_manager",
     "engineer",
+    "procurement",
 )
 def edit_payment(payment_id):
     payment = _get_payment_or_404(payment_id)
@@ -1892,6 +1987,11 @@ def edit_payment(payment_id):
         if role_name == "project_manager":
             pm_project_ids = _project_manager_project_ids() or []
             if project_id_value not in pm_project_ids:
+                abort(403)
+        if role_name == "procurement":
+            if not _is_purchase_order_type(request_type):
+                abort(403)
+            if not _procurement_has_project_access(project_id_value):
                 abort(403)
 
         try:
@@ -1973,7 +2073,7 @@ def delete_payment(payment_id):
 # =========================
 
 @payments_bp.route("/<int:payment_id>/submit_to_pm", methods=["POST"])
-@role_required("admin", "engineering_manager", "project_manager", "engineer")
+@role_required("admin", "engineering_manager", "project_manager", "engineer", "procurement")
 def submit_to_pm(payment_id):
     payment = _get_payment_or_404(payment_id)
 

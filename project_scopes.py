@@ -20,7 +20,7 @@ from models import user_projects
 # column is absent.
 _reflected_user_projects_with_role = None
 
-ALLOWED_SCOPED_ROLES = {"project_manager", "engineer", "project_engineer"}
+ALLOWED_SCOPED_ROLES = {"project_manager", "engineer", "project_engineer", "procurement"}
 
 
 def _has_user_projects_table() -> bool:
@@ -102,16 +102,16 @@ def get_scoped_project_ids(user, *, role_name: str | None = None) -> list[int]:
     - Uses the ``user_projects`` link table when available.
     - Falls back to the user's primary ``project_id`` when no linked projects are
       found (supports legacy single-project setups).
-    - Currently supports project-based scoping for project managers and
-      engineers (including the project_engineer alias) only; other roles
-      receive an empty list.
+    - Currently supports project-based scoping for project managers,
+      procurement officers, and engineers (including the project_engineer
+      alias) only; other roles receive an empty list.
     """
 
     if not getattr(user, "id", None):
         return []
 
     resolved_role = _normalize_role(role_name or (user.role.name if getattr(user, "role", None) else None))
-    if resolved_role not in {"project_manager", "engineer"}:
+    if resolved_role not in {"project_manager", "engineer", "procurement"}:
         return []
 
     project_ids: list[int] = []
@@ -120,10 +120,16 @@ def get_scoped_project_ids(user, *, role_name: str | None = None) -> list[int]:
     if table is not None:
         try:
             query = db.session.query(table.c.project_id).filter(table.c.user_id == user.id)
-            if has_role_column and role_name:
-                query = query.filter(table.c.scoped_role == role_name)
-            rows = query.all()
-            project_ids = [row.project_id for row in rows if row.project_id]
+            if has_role_column and resolved_role:
+                role_query = query.filter(table.c.scoped_role == resolved_role)
+                role_rows = role_query.all()
+                project_ids = [row.project_id for row in role_rows if row.project_id]
+                if not project_ids:
+                    null_rows = query.filter(table.c.scoped_role.is_(None)).all()
+                    project_ids = [row.project_id for row in null_rows if row.project_id]
+            else:
+                rows = query.all()
+                project_ids = [row.project_id for row in rows if row.project_id]
         except Exception:
             project_ids = []
 

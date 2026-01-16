@@ -101,6 +101,9 @@ def index():
     if normalized_role == "payment_notifier":
         return redirect(url_for("main.dashboard"))
 
+    if normalized_role == "procurement":
+        return redirect(url_for("main.dashboard"))
+
     # admin + engineering_manager + chairman + finance → لوحة التحكم العامة
     if normalized_role in ("admin", "engineering_manager", "chairman", "finance"):
         return redirect(url_for("main.dashboard"))
@@ -138,6 +141,7 @@ def no_role():
     "payment_notifier",
     "dc",
     "planning",
+    "procurement",
 )
 def dashboard():
     base_q, role_name, _ = _scoped_dashboard_query()
