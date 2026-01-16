@@ -1888,9 +1888,10 @@ def purchase_order_prefill(purchase_order_id: int):
         {
             "ok": True,
             "purchase_order_id": purchase_order.id,
-            "supplier_id": supplier.id,
+            "supplier_id": str(supplier.id),
             "supplier_name": supplier.name,
             "suggested_amount": f"{suggested_amount:.2f}",
+            "amount": f"{suggested_amount:.2f}",
             "remaining_amount": f"{remaining_amount:.2f}",
         }
     )
