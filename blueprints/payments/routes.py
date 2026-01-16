@@ -269,6 +269,15 @@ def _purchase_order_base_query():
     return query
 
 
+def _po_lock_query(purchase_order_id: int):
+    query = _purchase_order_base_query().filter(
+        PurchaseOrder.id == purchase_order_id
+    )
+    if _supports_for_update():
+        query = query.with_for_update()
+    return query
+
+
 def _purchase_orders_for_form(project_id: int | None = None) -> list[PurchaseOrder]:
     query = _purchase_order_base_query().filter(
         PurchaseOrder.status.notin_(PURCHASE_ORDER_EXCLUDED_STATUSES)
@@ -313,20 +322,42 @@ def _can_edit_purchase_order(payment: PaymentRequest) -> bool:
     )
 
 
-def _reserve_purchase_order_amount(payment: PaymentRequest) -> bool:
+def _payment_amount_decimal(payment: PaymentRequest) -> Decimal:
+    return _quantize_amount(Decimal(str(payment.amount or Decimal("0.00"))))
+
+
+def _po_reserved_amount(payment: PaymentRequest) -> Decimal | None:
+    if payment.purchase_order_reserved_amount is None:
+        return None
+    return _quantize_amount(Decimal(str(payment.purchase_order_reserved_amount)))
+
+
+def _po_reserve(payment: PaymentRequest) -> bool:
     if not _is_purchase_order(payment):
         return True
     if not payment.purchase_order_id:
         flash("يجب اختيار أمر الشراء قبل إرسال الدفعة.", "danger")
         return False
 
-    amount_decimal = Decimal(str(payment.amount))
-    query = _purchase_order_base_query().filter(
-        PurchaseOrder.id == payment.purchase_order_id
-    )
-    if _supports_for_update():
-        query = query.with_for_update()
-    purchase_order = query.first()
+    if (
+        payment.purchase_order_reserved_at is not None
+        and payment.purchase_order_reserved_amount is not None
+    ):
+        return True
+    if payment.purchase_order_finalized_at is not None:
+        return True
+
+    amount_decimal = _payment_amount_decimal(payment)
+    try:
+        purchase_order = _po_lock_query(payment.purchase_order_id).first()
+    except Exception:
+        logger.exception(
+            "Failed to lock purchase order for reservation",
+            extra={"purchase_order_id": payment.purchase_order_id},
+        )
+        flash("حدث خطأ أثناء حجز مبلغ أمر الشراء.", "danger")
+        return False
+
     if purchase_order is None:
         flash("أمر الشراء المحدد غير موجود أو لم يعد متاحاً.", "danger")
         return False
@@ -347,28 +378,87 @@ def _reserve_purchase_order_amount(payment: PaymentRequest) -> bool:
     purchase_order.reserved_amount = (
         Decimal(str(purchase_order.reserved_amount or Decimal("0.00"))) + amount_decimal
     )
+    payment.purchase_order_reserved_at = datetime.utcnow()
+    payment.purchase_order_reserved_amount = amount_decimal
     return True
 
 
-def _release_purchase_order_amount(payment: PaymentRequest) -> None:
+def _po_release(payment: PaymentRequest) -> None:
     if not _is_purchase_order(payment) or not payment.purchase_order_id:
         return
 
-    amount_decimal = Decimal(str(payment.amount))
-    query = _purchase_order_base_query().filter(
-        PurchaseOrder.id == payment.purchase_order_id
-    )
-    if _supports_for_update():
-        query = query.with_for_update()
-    purchase_order = query.first()
+    reserved_amount = _po_reserved_amount(payment)
+    if reserved_amount is None:
+        return
+
+    try:
+        purchase_order = _po_lock_query(payment.purchase_order_id).first()
+    except Exception:
+        logger.exception(
+            "Failed to lock purchase order for release",
+            extra={"purchase_order_id": payment.purchase_order_id},
+        )
+        return
     if purchase_order is None:
         return
 
-    reserved_amount = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
-    new_reserved = reserved_amount - amount_decimal
+    current_reserved = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    new_reserved = current_reserved - reserved_amount
     if new_reserved < 0:
         new_reserved = Decimal("0.00")
     purchase_order.reserved_amount = new_reserved
+    payment.purchase_order_reserved_at = None
+    payment.purchase_order_reserved_amount = None
+
+
+def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
+    if not _is_purchase_order(payment) or not payment.purchase_order_id:
+        return True
+
+    if payment.purchase_order_finalized_at is not None:
+        return True
+
+    reserved_amount = _po_reserved_amount(payment)
+    amount_to_apply = _quantize_amount(Decimal(str(amount_to_apply)))
+    if amount_to_apply <= 0:
+        flash("برجاء إدخال مبلغ صرف صحيح أكبر من صفر.", "danger")
+        return False
+
+    try:
+        purchase_order = _po_lock_query(payment.purchase_order_id).first()
+    except Exception:
+        logger.exception(
+            "Failed to lock purchase order for finalization",
+            extra={"purchase_order_id": payment.purchase_order_id},
+        )
+        flash("حدث خطأ أثناء تحديث أمر الشراء.", "danger")
+        return False
+
+    if purchase_order is None:
+        flash("أمر الشراء المحدد غير موجود أو لم يعد متاحاً.", "danger")
+        return False
+
+    current_remaining = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
+    if current_remaining < amount_to_apply:
+        flash("رصيد أمر الشراء المتبقي غير كافٍ لإتمام الصرف.", "danger")
+        return False
+
+    current_reserved = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    if current_reserved < amount_to_apply:
+        flash("رصيد الحجز في أمر الشراء غير كافٍ لإتمام الصرف.", "danger")
+        return False
+    if reserved_amount is not None and reserved_amount < amount_to_apply:
+        flash("مبلغ الصرف يتجاوز قيمة الحجز المسجلة لهذه الدفعة.", "danger")
+        return False
+    new_reserved = current_reserved - amount_to_apply
+    purchase_order.reserved_amount = new_reserved
+
+    new_remaining = current_remaining - amount_to_apply
+    purchase_order.remaining_amount = new_remaining
+
+    payment.purchase_order_reserved_amount = None
+    payment.purchase_order_finalized_at = datetime.utcnow()
+    return True
 
 
 def _normalize_return_to(target: str | None) -> str | None:
@@ -418,6 +508,10 @@ def _parse_decimal_amount(raw_value: str | None) -> Decimal | None:
     if not value.is_finite():
         return None
     return value
+
+
+def _quantize_amount(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
 
 
 def _user_projects_table_exists() -> bool:
@@ -1805,9 +1899,8 @@ def create_payment():
         ):
             abort(403)
 
-        try:
-            amount = float(amount_str.replace(",", ""))
-        except ValueError:
+        amount_decimal = _parse_decimal_amount(amount_str)
+        if amount_decimal is None:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
             if _is_purchase_order_type(request_type):
                 purchase_orders = _purchase_orders_for_form(project_id_value)
@@ -1820,7 +1913,8 @@ def create_payment():
                 page_title="إضافة دفعة جديدة",
             )
 
-        if not math.isfinite(amount) or amount <= 0:
+        amount_decimal = _quantize_amount(amount_decimal)
+        if amount_decimal <= 0:
             flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
             if _is_purchase_order_type(request_type):
                 purchase_orders = _purchase_orders_for_form(project_id_value)
@@ -1879,7 +1973,7 @@ def create_payment():
             project_id=project.id,
             supplier_id=supplier.id,
             request_type=request_type,
-            amount=amount,
+            amount=amount_decimal,
             description=description,
             purchase_order_id=purchase_order.id if purchase_order else None,
             status=STATUS_DRAFT,
@@ -2311,9 +2405,8 @@ def edit_payment(payment_id):
             if not _procurement_has_project_access(project_id_value):
                 abort(403)
 
-        try:
-            amount = float(amount_str.replace(",", ""))
-        except ValueError:
+        amount_decimal = _parse_decimal_amount(amount_str)
+        if amount_decimal is None:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
             if _is_purchase_order_type(request_type):
                 purchase_orders = _purchase_orders_for_form(project_id_value)
@@ -2327,7 +2420,8 @@ def edit_payment(payment_id):
                 page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
-        if not math.isfinite(amount) or amount <= 0:
+        amount_decimal = _quantize_amount(amount_decimal)
+        if amount_decimal <= 0:
             flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
             if _is_purchase_order_type(request_type):
                 purchase_orders = _purchase_orders_for_form(project_id_value)
@@ -2386,13 +2480,49 @@ def edit_payment(payment_id):
                     page_title=f"تعديل الدفعة رقم {payment.id}",
                 )
 
+        new_purchase_order_id = purchase_order.id if purchase_order else None
+        new_amount_decimal = amount_decimal.quantize(Decimal("0.01"))
+        existing_reserved_amount = _po_reserved_amount(payment)
+        existing_reserved_quantized = (
+            existing_reserved_amount.quantize(Decimal("0.01"))
+            if existing_reserved_amount is not None
+            else None
+        )
+        reservation_needs_update = (
+            existing_reserved_quantized is not None
+            and (
+                payment.purchase_order_id != new_purchase_order_id
+                or existing_reserved_quantized != new_amount_decimal
+            )
+        )
+        if reservation_needs_update:
+            _po_release(payment)
+
         payment.project_id = project.id
         payment.supplier_id = supplier.id
         payment.request_type = request_type
-        payment.amount = amount
+        payment.amount = amount_decimal
         payment.description = description
-        payment.purchase_order_id = purchase_order.id if purchase_order else None
+        payment.purchase_order_id = new_purchase_order_id
         payment.updated_at = datetime.utcnow()
+
+        if reservation_needs_update and new_purchase_order_id:
+            if not _po_reserve(payment):
+                db.session.rollback()
+                purchase_orders = (
+                    _purchase_orders_for_form(project_id_value)
+                    if _is_purchase_order_type(request_type)
+                    else []
+                )
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
 
         db.session.commit()
         flash("تم تحديث بيانات الدفعة بنجاح.", "success")
@@ -2421,6 +2551,14 @@ def delete_payment(payment_id):
     """
     payment = _get_payment_or_404(payment_id)
     _require_can_delete(payment)
+
+    if (
+        _is_purchase_order(payment)
+        and payment.purchase_order_id
+        and payment.purchase_order_finalized_at is None
+        and payment.purchase_order_reserved_amount is not None
+    ):
+        _po_release(payment)
 
     # حذف سجلات الاعتماد المرتبطة
     PaymentApproval.query.filter_by(
@@ -2460,7 +2598,7 @@ def submit_to_pm(payment_id):
     if not _require_transition(payment, STATUS_PENDING_PM):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    if not _reserve_purchase_order_amount(payment):
+    if not _po_reserve(payment):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
@@ -2532,7 +2670,7 @@ def pm_reject(payment_id):
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    _release_purchase_order_amount(payment)
+    _po_release(payment)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -2602,7 +2740,7 @@ def eng_reject(payment_id):
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    _release_purchase_order_amount(payment)
+    _po_release(payment)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -2677,7 +2815,7 @@ def finance_reject(payment_id):
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
-    _release_purchase_order_amount(payment)
+    _po_release(payment)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -2729,8 +2867,12 @@ def mark_paid(payment_id):
         flash("برجاء إدخال مبلغ مالية فعلي صحيح.", "danger")
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
+    finance_amount = _quantize_amount(finance_amount)
     if finance_amount <= 0:
         flash("برجاء إدخال مبلغ مالية فعلي أكبر من صفر.", "danger")
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if not _po_finalize(payment, finance_amount):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status

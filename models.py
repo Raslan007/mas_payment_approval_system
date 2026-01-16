@@ -114,9 +114,12 @@ class PaymentRequest(db.Model):
         nullable=True,
         index=True,
     )
+    purchase_order_reserved_at = db.Column(db.DateTime, nullable=True)
+    purchase_order_reserved_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    purchase_order_finalized_at = db.Column(db.DateTime, nullable=True)
 
     request_type = db.Column(db.String(50), nullable=False)  # مقاول / مشتريات / عهدة
-    amount = db.Column(db.Float, nullable=False)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
     description = db.Column(db.Text, nullable=True)
 
     # مبلغ المالية الفعلي (المبلغ الذي تم اعتماده للصرف من الإدارة المالية)
