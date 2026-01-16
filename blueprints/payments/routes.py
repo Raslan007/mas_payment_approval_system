@@ -41,7 +41,10 @@ from models import (
     User,
     SavedView,
     user_projects,
+    PurchaseOrder,
     PURCHASE_ORDER_REQUEST_TYPE,
+    PURCHASE_ORDER_STATUS_DRAFT,
+    PURCHASE_ORDER_STATUS_REJECTED,
 )
 from project_scopes import get_scoped_project_ids, project_access_allowed
 from . import payments_bp
@@ -210,6 +213,89 @@ def _procurement_has_project_access(project_id: int | None) -> bool:
     return project_id in scoped_ids
 
 
+def _scoped_form_projects() -> list[Project]:
+    role_name = _get_role()
+    query = Project.query.order_by(Project.project_name.asc())
+
+    if role_name == "procurement":
+        scoped_ids = _procurement_project_ids()
+        if scoped_ids:
+            return query.filter(Project.id.in_(scoped_ids)).all()
+        return query.filter(false()).all()
+
+    if role_name == "project_manager":
+        pm_project_ids = _project_manager_project_ids() or []
+        if pm_project_ids:
+            return query.filter(Project.id.in_(pm_project_ids)).all()
+        return query.filter(false()).all()
+
+    if role_name == "engineer":
+        engineer_project_ids = get_scoped_project_ids(current_user, role_name="engineer")
+        if engineer_project_ids:
+            return query.filter(Project.id.in_(engineer_project_ids)).all()
+        if current_user.project_id:
+            return query.filter(Project.id == current_user.project_id).all()
+        return query.filter(false()).all()
+
+    if role_name in ("admin", "engineering_manager"):
+        return query.all()
+
+    return query.filter(false()).all()
+
+
+PURCHASE_ORDER_EXCLUDED_STATUSES: set[str] = {
+    PURCHASE_ORDER_STATUS_DRAFT,
+    PURCHASE_ORDER_STATUS_REJECTED,
+}
+
+
+def _purchase_order_scoped_project_ids() -> tuple[str | None, list[int]]:
+    normalized_role = _get_role()
+    scoped_ids = get_scoped_project_ids(current_user, role_name=normalized_role)
+    return normalized_role, scoped_ids
+
+
+def _supports_for_update() -> bool:
+    return db.session.get_bind().dialect.name != "sqlite"
+
+
+def _purchase_order_base_query():
+    normalized_role, scoped_ids = _purchase_order_scoped_project_ids()
+    query = PurchaseOrder.query
+    if scoped_ids:
+        query = query.filter(PurchaseOrder.project_id.in_(scoped_ids))
+    elif normalized_role in {"project_manager", "engineer", "procurement"}:
+        query = query.filter(false())
+    return query
+
+
+def _purchase_orders_for_form(project_id: int | None = None) -> list[PurchaseOrder]:
+    query = _purchase_order_base_query().filter(
+        PurchaseOrder.status.notin_(PURCHASE_ORDER_EXCLUDED_STATUSES)
+    )
+    if project_id:
+        query = query.filter(PurchaseOrder.project_id == project_id)
+    return query.order_by(PurchaseOrder.bo_number.asc(), PurchaseOrder.id.asc()).all()
+
+
+def _get_valid_purchase_order(
+    purchase_order_id: int | None,
+    project_id: int | None,
+) -> PurchaseOrder | None:
+    if purchase_order_id is None or project_id is None:
+        return None
+    purchase_order = (
+        _purchase_order_base_query()
+        .filter(
+            PurchaseOrder.id == purchase_order_id,
+            PurchaseOrder.project_id == project_id,
+            PurchaseOrder.status.notin_(PURCHASE_ORDER_EXCLUDED_STATUSES),
+        )
+        .first()
+    )
+    return purchase_order
+
+
 def _can_create_purchase_order(project_id: int | None, request_type: str | None) -> bool:
     return (
         _get_role() == "procurement"
@@ -225,6 +311,64 @@ def _can_edit_purchase_order(payment: PaymentRequest) -> bool:
         and payment.status == STATUS_DRAFT
         and _procurement_has_project_access(payment.project_id)
     )
+
+
+def _reserve_purchase_order_amount(payment: PaymentRequest) -> bool:
+    if not _is_purchase_order(payment):
+        return True
+    if not payment.purchase_order_id:
+        flash("يجب اختيار أمر الشراء قبل إرسال الدفعة.", "danger")
+        return False
+
+    amount_decimal = Decimal(str(payment.amount))
+    query = _purchase_order_base_query().filter(
+        PurchaseOrder.id == payment.purchase_order_id
+    )
+    if _supports_for_update():
+        query = query.with_for_update()
+    purchase_order = query.first()
+    if purchase_order is None:
+        flash("أمر الشراء المحدد غير موجود أو لم يعد متاحاً.", "danger")
+        return False
+
+    if purchase_order.project_id != payment.project_id:
+        flash("أمر الشراء المختار لا يتبع المشروع المحدد.", "danger")
+        return False
+
+    if purchase_order.status in PURCHASE_ORDER_EXCLUDED_STATUSES:
+        flash("أمر الشراء المختار غير متاح للاستخدام.", "danger")
+        return False
+
+    remaining_amount = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
+    if remaining_amount < amount_decimal:
+        flash("رصيد أمر الشراء المتبقي غير كافٍ لهذه الدفعة.", "danger")
+        return False
+
+    purchase_order.reserved_amount = (
+        Decimal(str(purchase_order.reserved_amount or Decimal("0.00"))) + amount_decimal
+    )
+    return True
+
+
+def _release_purchase_order_amount(payment: PaymentRequest) -> None:
+    if not _is_purchase_order(payment) or not payment.purchase_order_id:
+        return
+
+    amount_decimal = Decimal(str(payment.amount))
+    query = _purchase_order_base_query().filter(
+        PurchaseOrder.id == payment.purchase_order_id
+    )
+    if _supports_for_update():
+        query = query.with_for_update()
+    purchase_order = query.first()
+    if purchase_order is None:
+        return
+
+    reserved_amount = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    new_reserved = reserved_amount - amount_decimal
+    if new_reserved < 0:
+        new_reserved = Decimal("0.00")
+    purchase_order.reserved_amount = new_reserved
 
 
 def _normalize_return_to(target: str | None) -> str | None:
@@ -1073,13 +1217,13 @@ def _scoped_payments_query_for_listing():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     projects, request_types, status_choices = _get_filter_lists()
-    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    allowed_request_types = set(request_types)
 
     if role_name == "payment_notifier":
         status_choices = [
             choice
             for choice in status_choices
-            if choice[0] in ("", *NOTIFIER_ALLOWED_STATUSES)
+            if choice.get("value") in ("", *NOTIFIER_ALLOWED_STATUSES)
         ]
 
     # صلاحيات العرض الأساسية
@@ -1346,7 +1490,8 @@ def export_all():
 @payments_bp.route("/pm_review")
 @role_required("admin", "engineering_manager", "project_manager", "chairman", "planning")
 def pm_review():
-    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_PM)
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    q = base_q.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_PM)
 
     pagination, page, per_page = _paginate_payments_query(q)
 
@@ -1365,6 +1510,10 @@ def pm_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        pagination_endpoint="payments.pm_review",
+        return_to=_get_return_to(),
+        export_endpoint=None,
+        export_params={},
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
@@ -1375,7 +1524,8 @@ def pm_review():
 @payments_bp.route("/eng_review")
 @role_required("admin", "engineering_manager", "chairman", "planning")
 def eng_review():
-    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_ENG)
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    q = base_q.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_PENDING_ENG)
 
     pagination, page, per_page = _paginate_payments_query(q)
 
@@ -1394,6 +1544,10 @@ def eng_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        pagination_endpoint="payments.eng_review",
+        return_to=_get_return_to(),
+        export_endpoint=None,
+        export_params={},
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
@@ -1411,7 +1565,8 @@ def list_finance_review():
         * جاهزة للصرف
         * تم الصرف
     """
-    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    q = base_q.options(*PAYMENT_RELATION_OPTIONS).filter(
         PaymentRequest.status.in_(
             [STATUS_PENDING_FIN, STATUS_READY_FOR_PAYMENT, STATUS_PAID]
         )
@@ -1433,6 +1588,10 @@ def list_finance_review():
         projects=projects,
         request_types=request_types,
         status_choices=status_choices,
+        pagination_endpoint="payments.list_finance_review",
+        return_to=_get_return_to(),
+        export_endpoint=None,
+        export_params={},
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
@@ -1440,8 +1599,8 @@ def list_finance_review():
     )
 
 
-def _finance_ready_query():
-    q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS).filter(PaymentRequest.status == STATUS_READY_FOR_PAYMENT)
+def _finance_ready_query(base_query):
+    q = build_ready_for_payment_query(base_query).options(*PAYMENT_RELATION_OPTIONS)
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -1498,7 +1657,8 @@ def finance_eng_approved():
     - من تاريخ / إلى تاريخ (تاريخ الإنشاء)
     """
 
-    q, filters, projects, suppliers = _finance_ready_query()
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    q, filters, projects, suppliers = _finance_ready_query(base_q)
 
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
@@ -1531,7 +1691,8 @@ def finance_eng_approved():
     "payment_notifier",
 )
 def export_finance_ready():
-    q, _, _, _ = _finance_ready_query()
+    base_q, _, _ = scoped_inbox_base_query(current_user)
+    q, _, _, _ = _finance_ready_query(base_q)
     return _export_query_to_csv(q, filename="payments_finance_ready.csv")
 
 
@@ -1542,10 +1703,11 @@ def export_finance_ready():
 @payments_bp.route("/create", methods=["GET", "POST"])
 @role_required("admin", "engineering_manager", "project_manager", "engineer", "procurement")
 def create_payment():
-    projects = Project.query.order_by(Project.project_name.asc()).all()
+    projects = _scoped_form_projects()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     # يمكن استخدام نفس قائمة أنواع الدفعات إن احتجناها في القالب
     _, request_types, _ = _get_filter_lists()
+    purchase_orders: list[PurchaseOrder] = []
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -1553,27 +1715,74 @@ def create_payment():
         request_type = (request.form.get("request_type") or "").strip()
         amount_str = (request.form.get("amount") or "").strip()
         description = (request.form.get("description") or "").strip()
+        purchase_order_id = request.form.get("purchase_order_id")
 
         if not project_id or not supplier_id or not request_type or not amount_str:
             flash("من فضلك أدخل جميع البيانات الأساسية للدفعة.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if project_id and _is_purchase_order_type(request_type):
+                try:
+                    project_id_value = int(project_id)
+                except (TypeError, ValueError):
+                    project_id_value = None
+                if project_id_value:
+                    purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
 
         try:
             project_id_value = int(project_id)
             supplier_id_value = int(supplier_id)
         except (TypeError, ValueError):
             flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if project_id and _is_purchase_order_type(request_type):
+                try:
+                    project_id_value = int(project_id)
+                except (TypeError, ValueError):
+                    project_id_value = None
+                if project_id_value:
+                    purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
 
         project = db.session.get(Project, project_id_value)
         if project is None:
             flash("برجاء اختيار مشروع صحيح.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if project_id and _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
 
         supplier = db.session.get(Supplier, supplier_id_value)
         if supplier is None:
             flash("برجاء اختيار مورد صحيح.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if project_id and _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
 
         role_name = _get_role()
         if role_name == "engineer" and not project_access_allowed(
@@ -1600,11 +1809,71 @@ def create_payment():
             amount = float(amount_str.replace(",", ""))
         except ValueError:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
 
         if not math.isfinite(amount) or amount <= 0:
             flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
-            return redirect(url_for("payments.create_payment"))
+            if _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/create.html",
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title="إضافة دفعة جديدة",
+            )
+
+        purchase_order = None
+        if _is_purchase_order_type(request_type):
+            if not purchase_order_id:
+                flash("برجاء اختيار أمر شراء للدفعات من نوع مشتريات.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+            try:
+                purchase_order_id_value = int(purchase_order_id)
+            except (TypeError, ValueError):
+                flash("برجاء اختيار أمر شراء صحيح.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
+            purchase_order = _get_valid_purchase_order(
+                purchase_order_id_value,
+                project_id_value,
+            )
+            if purchase_order is None:
+                flash("أمر الشراء المختار غير متاح لهذا المشروع.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                )
 
         payment = PaymentRequest(
             project_id=project.id,
@@ -1612,6 +1881,7 @@ def create_payment():
             request_type=request_type,
             amount=amount,
             description=description,
+            purchase_order_id=purchase_order.id if purchase_order else None,
             status=STATUS_DRAFT,
             created_by=current_user.id,
             created_at=datetime.utcnow(),
@@ -1628,6 +1898,7 @@ def create_payment():
         projects=projects,
         suppliers=suppliers,
         request_types=request_types,
+        purchase_orders=purchase_orders,
         page_title="إضافة دفعة جديدة",
     )
 
@@ -1938,10 +2209,13 @@ def edit_payment(payment_id):
     payment = _get_payment_or_404(payment_id)
     _require_can_edit(payment)
 
-    projects = Project.query.order_by(Project.project_name.asc()).all()
+    projects = _scoped_form_projects()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     # هنا نجيب قائمة أنواع الدفعات ونرسلها للقالب
     _, request_types, _ = _get_filter_lists()
+    purchase_orders: list[PurchaseOrder] = []
+    if payment.request_type == PURCHASE_ORDER_REQUEST_TYPE:
+        purchase_orders = _purchase_orders_for_form(payment.project_id)
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -1949,11 +2223,25 @@ def edit_payment(payment_id):
         request_type = (request.form.get("request_type") or "").strip()
         amount_str = (request.form.get("amount") or "").strip()
         description = (request.form.get("description") or "").strip()
+        purchase_order_id = request.form.get("purchase_order_id")
 
         if not project_id or not supplier_id or not request_type or not amount_str:
             flash("من فضلك أدخل جميع البيانات الأساسية للدفعة.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if project_id and _is_purchase_order_type(request_type):
+                try:
+                    project_id_value = int(project_id)
+                except (TypeError, ValueError):
+                    project_id_value = None
+                if project_id_value:
+                    purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
         try:
@@ -1961,22 +2249,51 @@ def edit_payment(payment_id):
             supplier_id_value = int(supplier_id)
         except (TypeError, ValueError):
             flash("برجاء اختيار مشروع ومورد صحيح.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if project_id and _is_purchase_order_type(request_type):
+                try:
+                    project_id_value = int(project_id)
+                except (TypeError, ValueError):
+                    project_id_value = None
+                if project_id_value:
+                    purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
         project = db.session.get(Project, project_id_value)
         if project is None:
             flash("برجاء اختيار مشروع صحيح.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if project_id and _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
         supplier = db.session.get(Supplier, supplier_id_value)
         if supplier is None:
             flash("برجاء اختيار مورد صحيح.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if project_id and _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
         role_name = _get_role()
@@ -1998,21 +2315,83 @@ def edit_payment(payment_id):
             amount = float(amount_str.replace(",", ""))
         except ValueError:
             flash("برجاء إدخال مبلغ صحيح.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
 
         if not math.isfinite(amount) or amount <= 0:
             flash("برجاء إدخال مبلغ صحيح أكبر من صفر.", "danger")
-            return redirect(
-                url_for("payments.edit_payment", payment_id=payment.id)
+            if _is_purchase_order_type(request_type):
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+            return render_template(
+                "payments/edit.html",
+                payment=payment,
+                projects=projects,
+                suppliers=suppliers,
+                request_types=request_types,
+                purchase_orders=purchase_orders,
+                page_title=f"تعديل الدفعة رقم {payment.id}",
             )
+
+        purchase_order = None
+        if _is_purchase_order_type(request_type):
+            if not purchase_order_id:
+                flash("برجاء اختيار أمر شراء للدفعات من نوع مشتريات.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+            try:
+                purchase_order_id_value = int(purchase_order_id)
+            except (TypeError, ValueError):
+                flash("برجاء اختيار أمر شراء صحيح.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
+            purchase_order = _get_valid_purchase_order(
+                purchase_order_id_value,
+                project_id_value,
+            )
+            if purchase_order is None:
+                flash("أمر الشراء المختار غير متاح لهذا المشروع.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                )
 
         payment.project_id = project.id
         payment.supplier_id = supplier.id
         payment.request_type = request_type
         payment.amount = amount
         payment.description = description
+        payment.purchase_order_id = purchase_order.id if purchase_order else None
         payment.updated_at = datetime.utcnow()
 
         db.session.commit()
@@ -2025,6 +2404,7 @@ def edit_payment(payment_id):
         projects=projects,
         suppliers=suppliers,
         request_types=request_types,
+        purchase_orders=purchase_orders,
         page_title=f"تعديل الدفعة رقم {payment.id}",
     )
 
@@ -2078,6 +2458,9 @@ def submit_to_pm(payment_id):
     payment = _get_payment_or_404(payment_id)
 
     if not _require_transition(payment, STATUS_PENDING_PM):
+        return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if not _reserve_purchase_order_amount(payment):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
@@ -2149,6 +2532,8 @@ def pm_reject(payment_id):
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
+    _release_purchase_order_amount(payment)
+
     old_status = payment.status
     payment.status = STATUS_REJECTED
     payment.updated_at = datetime.utcnow()
@@ -2216,6 +2601,8 @@ def eng_reject(payment_id):
 
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    _release_purchase_order_amount(payment)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED
@@ -2289,6 +2676,8 @@ def finance_reject(payment_id):
 
     if not _require_transition(payment, STATUS_REJECTED):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    _release_purchase_order_amount(payment)
 
     old_status = payment.status
     payment.status = STATUS_REJECTED

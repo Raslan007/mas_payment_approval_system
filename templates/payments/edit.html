@@ -84,6 +84,23 @@
                     </select>
                 </div>
 
+                <!-- أمر الشراء -->
+                <div class="col-md-6 {% if payment.request_type != 'مشتريات' %}d-none{% endif %}" id="purchase_order_field">
+                    <label for="purchase_order_id" class="form-label small mb-1">أمر الشراء</label>
+                    <select class="form-select form-select-sm" id="purchase_order_id" name="purchase_order_id">
+                        <option value="">اختر أمر الشراء...</option>
+                        {% for po in purchase_orders %}
+                            <option value="{{ po.id }}" data-project-id="{{ po.project_id }}"
+                                {% if payment.purchase_order_id == po.id %}selected{% endif %}>
+                                أمر شراء {{ po.bo_number }} - المتبقي {{ po.remaining_amount | num(2) }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text xsmall">
+                        حدد أمر الشراء المرتبط بالدفعة لطلبات المشتريات.
+                    </div>
+                </div>
+
                 <!-- قيمة الدفعة -->
                 <div class="col-md-6">
                     <label for="amount" class="form-label small mb-1">قيمة الدفعة (ج.م)</label>
@@ -178,4 +195,55 @@
         </form>
     </div>
 </div>
+
+<script>
+    (function () {
+        const requestType = document.getElementById("request_type");
+        const projectSelect = document.getElementById("project_id");
+        const purchaseOrderField = document.getElementById("purchase_order_field");
+        const purchaseOrderSelect = document.getElementById("purchase_order_id");
+
+        if (!requestType || !purchaseOrderField || !purchaseOrderSelect) {
+            return;
+        }
+
+        const togglePurchaseOrderField = () => {
+            const isPurchase = (requestType.value || "").trim() === "مشتريات";
+            purchaseOrderField.classList.toggle("d-none", !isPurchase);
+            purchaseOrderSelect.required = isPurchase;
+            if (!isPurchase) {
+                purchaseOrderSelect.value = "";
+            }
+            filterPurchaseOrders();
+        };
+
+        const filterPurchaseOrders = () => {
+            if (!projectSelect) {
+                return;
+            }
+            const projectId = projectSelect.value;
+            const options = purchaseOrderSelect.querySelectorAll("option[data-project-id]");
+            options.forEach((option) => {
+                const matches = !projectId || option.dataset.projectId === projectId;
+                option.hidden = !matches;
+                option.disabled = !matches;
+            });
+            if (
+                purchaseOrderSelect.value
+                && purchaseOrderSelect.selectedOptions.length
+                && purchaseOrderSelect.selectedOptions[0].hidden
+            ) {
+                purchaseOrderSelect.value = "";
+            }
+        };
+
+        requestType.addEventListener("change", togglePurchaseOrderField);
+        if (projectSelect) {
+            projectSelect.addEventListener("change", filterPurchaseOrders);
+        }
+
+        filterPurchaseOrders();
+        togglePurchaseOrderField();
+    })();
+</script>
 {% endblock %}
