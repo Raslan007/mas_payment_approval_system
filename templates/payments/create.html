@@ -94,7 +94,7 @@
                     {% endfor %}
                 </select>
                 <small class="text-muted xsmall">
-                    اختر أمر الشراء المرتبط بالمشروع، ويظهر الرصيد المتبقي لكل أمر.
+                    اختر أمر الشراء المرتبط بالمشروع، وسيتم استخدام الدفعة المقدمة من أمر الشراء كمبلغ للدفعة.
                 </small>
             </div>
 
@@ -104,7 +104,7 @@
                 <input type="number" step="0.01" name="amount" id="amount" class="form-control"
                        required title="أدخل المبلغ" placeholder="أدخل المبلغ">
                 <small class="text-muted xsmall d-none" id="po_autofill_hint">
-                    تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
+                    تم تعبئة المورد والمبلغ تلقائيًا حسب الدفعة المقدمة من أمر الشراء.
                 </small>
                 <small class="text-danger xsmall d-none" id="po_autofill_error"></small>
                 {% if show_po_debug %}

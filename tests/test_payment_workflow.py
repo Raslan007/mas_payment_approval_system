@@ -4,6 +4,7 @@ import unittest
 from decimal import Decimal
 from urllib.parse import quote, unquote
 
+from flask_login import login_user
 from sqlalchemy.pool import StaticPool
 
 from app import create_app
@@ -126,23 +127,36 @@ class PaymentWorkflowTestCase(unittest.TestCase):
     def _make_purchase_order(
         self,
         *,
-        remaining_amount: Decimal,
+        remaining_amount: Decimal | None = None,
+        total_amount: Decimal | None = None,
+        advance_amount: Decimal | None = None,
         project: Project | None = None,
         supplier_name: str | None = None,
         bo_number: str | None = None,
         status: str = PURCHASE_ORDER_STATUS_SUBMITTED,
     ) -> PurchaseOrder:
+        advance_amount_value = advance_amount or Decimal("0.00")
+        total_amount_value = total_amount
+        if total_amount_value is None:
+            total_amount_value = (
+                remaining_amount + advance_amount_value
+                if remaining_amount is not None
+                else Decimal("0.00")
+            )
+        remaining_amount_value = remaining_amount
+        if remaining_amount_value is None:
+            remaining_amount_value = total_amount_value - advance_amount_value
         bo_number_value = bo_number or f"PO-{1000 + PurchaseOrder.query.count() + 1}"
         purchase_order = PurchaseOrder(
             bo_number=bo_number_value,
             project=project or self.project,
             supplier_id=self.supplier.id,
             supplier_name=supplier_name or self.supplier.name,
-            total_amount=remaining_amount,
-            advance_amount=Decimal("0.00"),
+            total_amount=total_amount_value,
+            advance_amount=advance_amount_value,
             reserved_amount=Decimal("0.00"),
             paid_amount=Decimal("0.00"),
-            remaining_amount=remaining_amount,
+            remaining_amount=remaining_amount_value,
             status=status,
             created_by_id=self.users["admin"].id,
         )
@@ -469,7 +483,10 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(supplier.name, "Edited Supplier Name")
 
     def test_purchase_order_prefill_endpoint_returns_supplier_and_amount(self):
-        purchase_order = self._make_purchase_order(remaining_amount=Decimal("150.00"))
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50000.00"),
+            advance_amount=Decimal("12000.00"),
+        )
         self._login(self.users["admin"])
 
         response = self.client.get(
@@ -480,8 +497,24 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["supplier_id"], str(self.supplier.id))
-        self.assertEqual(payload["amount"], "150.00")
-        self.assertEqual(payload["remaining_amount"], "150.00")
+        self.assertEqual(payload["amount"], "12000.00")
+        self.assertEqual(payload["remaining_amount"], "38000.00")
+
+    def test_purchase_order_prefill_rejects_missing_advance(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50000.00"),
+            advance_amount=Decimal("0.00"),
+        )
+        self._login(self.users["admin"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/{purchase_order.id}/prefill?project_id={self.project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "حدد الدفعة المقدمة في أمر الشراء أولاً")
 
     def test_purchase_order_prefill_returns_not_found(self):
         self._login(self.users["admin"])
@@ -543,7 +576,10 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertNotIn(alt_po.id, purchase_order_ids)
 
     def test_create_purchase_order_payment_overrides_supplier_and_amount(self):
-        purchase_order = self._make_purchase_order(remaining_amount=Decimal("200.00"))
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50000.00"),
+            advance_amount=Decimal("12000.00"),
+        )
         alt_supplier = Supplier(name="Alt Supplier", supplier_type="contractor")
         db.session.add(alt_supplier)
         db.session.commit()
@@ -567,7 +603,71 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertIsNotNone(payment)
         self.assertEqual(payment.purchase_order_id, purchase_order.id)
         self.assertEqual(payment.supplier_id, self.supplier.id)
-        self.assertEqual(Decimal(str(payment.amount)), Decimal("200.00"))
+        self.assertEqual(Decimal(str(payment.amount)), Decimal("12000.00"))
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        updated_po = db.session.get(PurchaseOrder, purchase_order.id)
+        self.assertIsNotNone(updated_po)
+        self.assertEqual(
+            Decimal(str(updated_po.reserved_amount)),
+            Decimal("12000.00"),
+        )
+
+    def test_create_purchase_order_payment_rejects_missing_advance(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50000.00"),
+            advance_amount=Decimal("0.00"),
+        )
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": PURCHASE_ORDER_REQUEST_TYPE,
+                "amount": "10.00",
+                "description": "prefill test",
+                "purchase_order_id": purchase_order.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "حدد الدفعة المقدمة في أمر الشراء أولاً".encode("utf-8"),
+            response.data,
+        )
+        self.assertEqual(PaymentRequest.query.count(), 0)
+
+    def test_create_purchase_order_payment_rejects_advance_exceeds_remaining(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50000.00"),
+            advance_amount=Decimal("30000.00"),
+        )
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": PURCHASE_ORDER_REQUEST_TYPE,
+                "amount": "10.00",
+                "description": "prefill test",
+                "purchase_order_id": purchase_order.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.".encode("utf-8"),
+            response.data,
+        )
+        self.assertEqual(PaymentRequest.query.count(), 0)
 
     def test_engineer_cannot_edit_payment_to_other_project(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)

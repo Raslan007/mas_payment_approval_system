@@ -195,7 +195,7 @@ def _is_purchase_order_type(request_type: str | None) -> bool:
 
 
 def _is_purchase_order(payment: PaymentRequest) -> bool:
-    return _is_purchase_order_type(payment.request_type)
+    return _is_purchase_order_type(payment.request_type) or bool(payment.purchase_order_id)
 
 
 def _procurement_project_ids() -> list[int]:
@@ -328,6 +328,11 @@ def _purchase_order_remaining_amount(purchase_order: PurchaseOrder) -> Decimal:
     return _quantize_amount(remaining_amount)
 
 
+def _purchase_order_advance_amount(purchase_order: PurchaseOrder) -> Decimal:
+    advance_amount = Decimal(str(purchase_order.advance_amount or Decimal("0.00")))
+    return _quantize_amount(advance_amount)
+
+
 def _purchase_order_supplier(purchase_order: PurchaseOrder) -> Supplier | None:
     supplier_id = getattr(purchase_order, "supplier_id", None)
     if supplier_id:
@@ -370,8 +375,6 @@ def _po_reserved_amount(payment: PaymentRequest) -> Decimal | None:
 
 
 def _po_reserve(payment: PaymentRequest) -> bool:
-    if not _is_purchase_order(payment):
-        return True
     if not payment.purchase_order_id:
         flash("يجب اختيار أمر الشراء قبل إرسال الدفعة.", "danger")
         return False
@@ -421,7 +424,7 @@ def _po_reserve(payment: PaymentRequest) -> bool:
 
 
 def _po_release(payment: PaymentRequest) -> None:
-    if not _is_purchase_order(payment) or not payment.purchase_order_id:
+    if not payment.purchase_order_id:
         return
 
     reserved_amount = _po_reserved_amount(payment)
@@ -449,7 +452,7 @@ def _po_release(payment: PaymentRequest) -> None:
 
 
 def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
-    if not _is_purchase_order(payment) or not payment.purchase_order_id:
+    if not payment.purchase_order_id:
         return True
 
     if payment.purchase_order_finalized_at is not None:
@@ -1931,13 +1934,21 @@ def purchase_order_prefill(purchase_order_id: int):
         return jsonify({"ok": False, "error": "supplier_not_found"}), 200
 
     remaining_amount = _purchase_order_remaining_amount(purchase_order)
-    suggested_amount = remaining_amount
+    advance_amount = _purchase_order_advance_amount(purchase_order)
+    if advance_amount <= 0:
+        logger.info(
+            "PO prefill failed reason=advance_not_set project_id=%s purchase_order_id=%s user_id=%s",
+            access_project_id,
+            purchase_order_id,
+            user_id,
+        )
+        return jsonify({"ok": False, "error": "حدد الدفعة المقدمة في أمر الشراء أولاً"}), 200
 
     return jsonify(
         {
             "ok": True,
             "supplier_id": str(supplier.id),
-            "amount": f"{suggested_amount:.2f}",
+            "amount": f"{advance_amount:.2f}",
             "remaining_amount": f"{remaining_amount:.2f}",
         }
     )
@@ -2106,9 +2117,34 @@ def create_payment():
                     page_title="إضافة دفعة جديدة",
                     show_po_debug=show_po_debug,
                 )
-            amount_decimal = _purchase_order_remaining_amount(purchase_order)
+            remaining_amount = _purchase_order_remaining_amount(purchase_order)
+            amount_decimal = _purchase_order_advance_amount(purchase_order)
             if amount_decimal <= 0:
-                flash("لا يوجد مبلغ متاح في أمر الشراء المختار.", "danger")
+                logger.info(
+                    "PO create blocked reason=advance_not_set project_id=%s purchase_order_id=%s user_id=%s",
+                    project_id_value,
+                    purchase_order.id,
+                    current_user.id if current_user.is_authenticated else None,
+                )
+                flash("حدد الدفعة المقدمة في أمر الشراء أولاً.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/create.html",
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
+                )
+            if amount_decimal > remaining_amount:
+                logger.info(
+                    "PO create blocked reason=advance_exceeds_remaining project_id=%s purchase_order_id=%s user_id=%s",
+                    project_id_value,
+                    purchase_order.id,
+                    current_user.id if current_user.is_authenticated else None,
+                )
+                flash("الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.", "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
                 return render_template(
                     "payments/create.html",
@@ -2666,9 +2702,37 @@ def edit_payment(payment_id):
                     page_title=f"تعديل الدفعة رقم {payment.id}",
                     show_po_debug=show_po_debug,
                 )
-            amount_decimal = _purchase_order_remaining_amount(purchase_order)
+            remaining_amount = _purchase_order_remaining_amount(purchase_order)
+            amount_decimal = _purchase_order_advance_amount(purchase_order)
             if amount_decimal <= 0:
-                flash("لا يوجد مبلغ متاح في أمر الشراء المختار.", "danger")
+                logger.info(
+                    "PO edit blocked reason=advance_not_set project_id=%s purchase_order_id=%s user_id=%s payment_id=%s",
+                    project_id_value,
+                    purchase_order.id,
+                    current_user.id if current_user.is_authenticated else None,
+                    payment.id,
+                )
+                flash("حدد الدفعة المقدمة في أمر الشراء أولاً.", "danger")
+                purchase_orders = _purchase_orders_for_form(project_id_value)
+                return render_template(
+                    "payments/edit.html",
+                    payment=payment,
+                    projects=projects,
+                    suppliers=suppliers,
+                    request_types=request_types,
+                    purchase_orders=purchase_orders,
+                    page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
+                )
+            if amount_decimal > remaining_amount:
+                logger.info(
+                    "PO edit blocked reason=advance_exceeds_remaining project_id=%s purchase_order_id=%s user_id=%s payment_id=%s",
+                    project_id_value,
+                    purchase_order.id,
+                    current_user.id if current_user.is_authenticated else None,
+                    payment.id,
+                )
+                flash("الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.", "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
                 return render_template(
                     "payments/edit.html",

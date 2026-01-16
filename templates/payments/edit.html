@@ -98,7 +98,7 @@
                         {% endfor %}
                     </select>
                     <div class="form-text xsmall">
-                        حدد أمر الشراء المرتبط بالدفعة لطلبات المشتريات.
+                        حدد أمر الشراء المرتبط بالدفعة لطلبات المشتريات، وسيتم استخدام الدفعة المقدمة منه.
                     </div>
                 </div>
 
@@ -111,7 +111,7 @@
                            value="{{ payment.amount }}"
                            required>
                     <div class="form-text xsmall d-none" id="po_autofill_hint">
-                        تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
+                        تم تعبئة المورد والمبلغ تلقائيًا حسب الدفعة المقدمة من أمر الشراء.
                     </div>
                     <div class="form-text xsmall text-danger d-none" id="po_autofill_error"></div>
                     {% if show_po_debug %}
