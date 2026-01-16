@@ -109,6 +109,9 @@
                            id="amount" name="amount"
                            value="{{ payment.amount }}"
                            required>
+                    <div class="form-text xsmall d-none" id="po_autofill_hint">
+                        تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
+                    </div>
                 </div>
 
                 <!-- نسبة الإنجاز -->
@@ -202,10 +205,35 @@
         const projectSelect = document.getElementById("project_id");
         const purchaseOrderField = document.getElementById("purchase_order_field");
         const purchaseOrderSelect = document.getElementById("purchase_order_id");
+        const supplierSelect = document.getElementById("supplier_id");
+        const amountInput = document.getElementById("amount");
+        const poHint = document.getElementById("po_autofill_hint");
 
-        if (!requestType || !projectSelect || !purchaseOrderField || !purchaseOrderSelect) {
+        if (
+            !requestType
+            || !projectSelect
+            || !purchaseOrderField
+            || !purchaseOrderSelect
+            || !supplierSelect
+            || !amountInput
+            || !poHint
+        ) {
             return;
         }
+
+        const clearPrefill = () => {
+            supplierSelect.disabled = false;
+            amountInput.readOnly = false;
+            poHint.classList.add("d-none");
+        };
+
+        const applyPrefill = (payload) => {
+            supplierSelect.value = String(payload.supplier_id || "");
+            supplierSelect.disabled = true;
+            amountInput.value = payload.suggested_amount || "";
+            amountInput.readOnly = true;
+            poHint.classList.remove("d-none");
+        };
 
         const resetPurchaseOrderOptions = () => {
             purchaseOrderSelect.innerHTML = "";
@@ -240,6 +268,7 @@
             if (!isPurchase) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
                 return;
             }
 
@@ -247,6 +276,7 @@
             if (!projectId) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
                 return;
             }
 
@@ -266,13 +296,55 @@
             } catch (error) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
             }
         };
 
-        requestType.addEventListener("change", () => loadPurchaseOrders());
-        projectSelect.addEventListener("change", () => loadPurchaseOrders(purchaseOrderSelect.value));
+        const handlePurchaseOrderChange = async () => {
+            const isPurchase = (requestType.value || "").trim() === "مشتريات";
+            const projectId = projectSelect.value;
+            const purchaseOrderId = purchaseOrderSelect.value;
+            if (!isPurchase || !projectId || !purchaseOrderId) {
+                clearPrefill();
+                return;
+            }
+            try {
+                const response = await fetch(
+                    `/payments/purchase_orders/${encodeURIComponent(purchaseOrderId)}/prefill?project_id=${encodeURIComponent(projectId)}`
+                );
+                if (!response.ok) {
+                    throw new Error("Prefill failed.");
+                }
+                const payload = await response.json();
+                if (payload && payload.ok) {
+                    applyPrefill(payload);
+                    return;
+                }
+            } catch (error) {
+                // ignore
+            }
+            clearPrefill();
+        };
 
-        loadPurchaseOrders(purchaseOrderSelect.value);
+        requestType.addEventListener("change", () => {
+            if ((requestType.value || "").trim() !== "مشتريات") {
+                purchaseOrderSelect.value = "";
+            }
+            clearPrefill();
+            loadPurchaseOrders();
+        });
+        projectSelect.addEventListener("change", () => {
+            purchaseOrderSelect.value = "";
+            clearPrefill();
+            loadPurchaseOrders(purchaseOrderSelect.value);
+        });
+        purchaseOrderSelect.addEventListener("change", handlePurchaseOrderChange);
+
+        loadPurchaseOrders(purchaseOrderSelect.value).then(() => {
+            if (purchaseOrderSelect.value) {
+                handlePurchaseOrderChange();
+            }
+        });
     })();
 </script>
 {% endblock %}

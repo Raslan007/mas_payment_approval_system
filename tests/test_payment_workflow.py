@@ -13,9 +13,12 @@ from models import (
     Notification,
     PaymentRequest,
     Project,
+    PurchaseOrder,
     Supplier,
     Role,
     User,
+    PURCHASE_ORDER_REQUEST_TYPE,
+    PURCHASE_ORDER_STATUS_SUBMITTED,
 )
 from blueprints.payments import routes as payment_routes
 
@@ -117,6 +120,29 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         db.session.add(payment)
         db.session.commit()
         return payment
+
+    def _make_purchase_order(
+        self,
+        *,
+        remaining_amount: Decimal,
+        project: Project | None = None,
+        supplier_name: str | None = None,
+    ) -> PurchaseOrder:
+        purchase_order = PurchaseOrder(
+            bo_number="PO-1001",
+            project=project or self.project,
+            supplier_name=supplier_name or self.supplier.name,
+            total_amount=remaining_amount,
+            advance_amount=Decimal("0.00"),
+            reserved_amount=Decimal("0.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=remaining_amount,
+            status=PURCHASE_ORDER_STATUS_SUBMITTED,
+            created_by_id=self.users["admin"].id,
+        )
+        db.session.add(purchase_order)
+        db.session.commit()
+        return purchase_order
 
     def _force_status(self, payment: PaymentRequest, status: str) -> None:
         db.session.execute(
@@ -358,6 +384,47 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(PaymentRequest.query.count(), initial_count)
+
+    def test_purchase_order_prefill_endpoint_returns_supplier_and_amount(self):
+        purchase_order = self._make_purchase_order(remaining_amount=Decimal("150.00"))
+        self._login(self.users["admin"])
+
+        response = self.client.get(
+            f"/payments/purchase_orders/{purchase_order.id}/prefill?project_id={self.project.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["supplier_id"], self.supplier.id)
+        self.assertEqual(payload["suggested_amount"], "150.00")
+
+    def test_create_purchase_order_payment_overrides_supplier_and_amount(self):
+        purchase_order = self._make_purchase_order(remaining_amount=Decimal("200.00"))
+        alt_supplier = Supplier(name="Alt Supplier", supplier_type="contractor")
+        db.session.add(alt_supplier)
+        db.session.commit()
+
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": alt_supplier.id,
+                "request_type": PURCHASE_ORDER_REQUEST_TYPE,
+                "amount": "10.00",
+                "description": "prefill test",
+                "purchase_order_id": purchase_order.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        payment = PaymentRequest.query.order_by(PaymentRequest.id.desc()).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.purchase_order_id, purchase_order.id)
+        self.assertEqual(payment.supplier_id, self.supplier.id)
+        self.assertEqual(Decimal(str(payment.amount)), Decimal("200.00"))
 
     def test_engineer_cannot_edit_payment_to_other_project(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)

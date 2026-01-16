@@ -46,7 +46,7 @@
             <div class="col-md-6">
                 <label class="form-label">المورد / المقاول</label>
                 <div class="d-flex gap-2">
-                    <select name="supplier_id" class="form-select" required title="اختر المورد أو المقاول">
+                    <select name="supplier_id" id="supplier_id" class="form-select" required title="اختر المورد أو المقاول">
                         <option value="">اختر المورد أو المقاول...</option>
                         {% for s in suppliers %}
                             <option value="{{ s.id }}">{{ s.name }} ({{ s.supplier_type }})</option>
@@ -100,8 +100,11 @@
             <!-- المبلغ -->
             <div class="col-md-4">
                 <label class="form-label">المبلغ</label>
-                <input type="number" step="0.01" name="amount" class="form-control"
+                <input type="number" step="0.01" name="amount" id="amount" class="form-control"
                        required title="أدخل المبلغ" placeholder="أدخل المبلغ">
+                <small class="text-muted xsmall d-none" id="po_autofill_hint">
+                    تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
+                </small>
             </div>
 
             <!-- نسبة الإنجاز -->
@@ -142,10 +145,35 @@
         const projectSelect = document.querySelector("select[name='project_id']");
         const purchaseOrderField = document.getElementById("purchase_order_field");
         const purchaseOrderSelect = document.getElementById("purchase_order_id");
+        const supplierSelect = document.getElementById("supplier_id");
+        const amountInput = document.getElementById("amount");
+        const poHint = document.getElementById("po_autofill_hint");
 
-        if (!requestType || !projectSelect || !purchaseOrderField || !purchaseOrderSelect) {
+        if (
+            !requestType
+            || !projectSelect
+            || !purchaseOrderField
+            || !purchaseOrderSelect
+            || !supplierSelect
+            || !amountInput
+            || !poHint
+        ) {
             return;
         }
+
+        const clearPrefill = () => {
+            supplierSelect.disabled = false;
+            amountInput.readOnly = false;
+            poHint.classList.add("d-none");
+        };
+
+        const applyPrefill = (payload) => {
+            supplierSelect.value = String(payload.supplier_id || "");
+            supplierSelect.disabled = true;
+            amountInput.value = payload.suggested_amount || "";
+            amountInput.readOnly = true;
+            poHint.classList.remove("d-none");
+        };
 
         const resetPurchaseOrderOptions = () => {
             purchaseOrderSelect.innerHTML = "";
@@ -180,6 +208,7 @@
             if (!isPurchase) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
                 return;
             }
 
@@ -187,6 +216,7 @@
             if (!projectId) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
                 return;
             }
 
@@ -206,11 +236,47 @@
             } catch (error) {
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
+                clearPrefill();
             }
         };
 
-        requestType.addEventListener("change", () => loadPurchaseOrders());
-        projectSelect.addEventListener("change", () => loadPurchaseOrders());
+        const handlePurchaseOrderChange = async () => {
+            const isPurchase = (requestType.value || "").trim() === "مشتريات";
+            const projectId = projectSelect.value;
+            const purchaseOrderId = purchaseOrderSelect.value;
+            if (!isPurchase || !projectId || !purchaseOrderId) {
+                clearPrefill();
+                return;
+            }
+            try {
+                const response = await fetch(
+                    `/payments/purchase_orders/${encodeURIComponent(purchaseOrderId)}/prefill?project_id=${encodeURIComponent(projectId)}`
+                );
+                if (!response.ok) {
+                    throw new Error("Prefill failed.");
+                }
+                const payload = await response.json();
+                if (payload && payload.ok) {
+                    applyPrefill(payload);
+                    return;
+                }
+            } catch (error) {
+                // ignore
+            }
+            clearPrefill();
+        };
+
+        requestType.addEventListener("change", () => {
+            purchaseOrderSelect.value = "";
+            clearPrefill();
+            loadPurchaseOrders();
+        });
+        projectSelect.addEventListener("change", () => {
+            purchaseOrderSelect.value = "";
+            clearPrefill();
+            loadPurchaseOrders();
+        });
+        purchaseOrderSelect.addEventListener("change", handlePurchaseOrderChange);
 
         loadPurchaseOrders();
     })();
