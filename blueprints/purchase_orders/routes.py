@@ -13,8 +13,13 @@ from extensions import db
 from models import (
     Project,
     PurchaseOrder,
+    PurchaseOrderDecision,
     PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_SUBMITTED,
+    PURCHASE_ORDER_STATUS_PM_APPROVED,
+    PURCHASE_ORDER_STATUS_ENG_APPROVED,
+    PURCHASE_ORDER_STATUS_FINANCE_APPROVED,
+    PURCHASE_ORDER_STATUS_REJECTED,
 )
 from permissions import role_required
 from project_scopes import get_scoped_project_ids
@@ -40,9 +45,47 @@ STATUS_META = {
         "label": "مرسل",
         "class": "badge-status badge-status--pending",
     },
+    PURCHASE_ORDER_STATUS_PM_APPROVED: {
+        "label": "معتمد من مدير المشروع",
+        "class": "badge-status badge-status--pending",
+    },
+    PURCHASE_ORDER_STATUS_ENG_APPROVED: {
+        "label": "معتمد من الإدارة الهندسية",
+        "class": "badge-status badge-status--pending",
+    },
+    PURCHASE_ORDER_STATUS_FINANCE_APPROVED: {
+        "label": "معتمد من المالية",
+        "class": "badge-status badge-status--success",
+    },
+    PURCHASE_ORDER_STATUS_REJECTED: {
+        "label": "مرفوض",
+        "class": "badge-status badge-status--danger",
+    },
 }
 
-ALLOWED_STATUSES = {PURCHASE_ORDER_STATUS_DRAFT, PURCHASE_ORDER_STATUS_SUBMITTED}
+ALLOWED_STATUSES = {
+    PURCHASE_ORDER_STATUS_DRAFT,
+    PURCHASE_ORDER_STATUS_SUBMITTED,
+    PURCHASE_ORDER_STATUS_PM_APPROVED,
+    PURCHASE_ORDER_STATUS_ENG_APPROVED,
+    PURCHASE_ORDER_STATUS_FINANCE_APPROVED,
+    PURCHASE_ORDER_STATUS_REJECTED,
+}
+
+APPROVAL_STAGES = {
+    PURCHASE_ORDER_STATUS_SUBMITTED: {
+        "required_role": "project_manager",
+        "next_status": PURCHASE_ORDER_STATUS_PM_APPROVED,
+    },
+    PURCHASE_ORDER_STATUS_PM_APPROVED: {
+        "required_role": "engineering_manager",
+        "next_status": PURCHASE_ORDER_STATUS_ENG_APPROVED,
+    },
+    PURCHASE_ORDER_STATUS_ENG_APPROVED: {
+        "required_role": "finance",
+        "next_status": PURCHASE_ORDER_STATUS_FINANCE_APPROVED,
+    },
+}
 
 
 def _normalized_role() -> str | None:
@@ -99,6 +142,23 @@ def _load_projects(normalized_role: str | None, scoped_ids: list[int]) -> list[P
 
 def _status_meta(status: str) -> dict[str, str]:
     return STATUS_META.get(status, {"label": status, "class": "badge bg-secondary"})
+
+
+def _approval_stage(status: str) -> dict[str, str] | None:
+    return APPROVAL_STAGES.get(status)
+
+
+def _role_can_act(normalized_role: str | None, required_role: str) -> bool:
+    return normalized_role == required_role or normalized_role == "admin"
+
+
+def _get_approval_target(status: str, normalized_role: str | None) -> str | None:
+    stage = _approval_stage(status)
+    if not stage:
+        return None
+    if not _role_can_act(normalized_role, stage["required_role"]):
+        return None
+    return stage["next_status"]
 
 
 @purchase_orders_bp.route("/")
@@ -267,18 +327,25 @@ def detail(id: int):
     purchase_order = PurchaseOrder.query.options(
         selectinload(PurchaseOrder.project),
         selectinload(PurchaseOrder.created_by),
+        selectinload(PurchaseOrder.decisions).selectinload(PurchaseOrderDecision.decided_by),
     ).get_or_404(id)
 
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
+    approval_target = _get_approval_target(purchase_order.status, normalized_role)
+    can_approve = approval_target is not None
+    can_reject = approval_target is not None
     can_edit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
 
     return render_template(
         "purchase_orders/detail.html",
         purchase_order=purchase_order,
         status_meta=_status_meta(purchase_order.status),
+        status_meta_map=STATUS_META,
         can_edit=can_edit,
+        can_approve=can_approve,
+        can_reject=can_reject,
         page_title=f"أمر شراء رقم {purchase_order.bo_number}",
     )
 
@@ -386,8 +453,77 @@ def submit(id: int):
         flash("يمكن إرسال المسودات فقط.", "warning")
         return redirect(url_for("purchase_orders.detail", id=id))
 
+    decision = PurchaseOrderDecision(
+        purchase_order_id=purchase_order.id,
+        action="submit",
+        from_status=purchase_order.status,
+        to_status=PURCHASE_ORDER_STATUS_SUBMITTED,
+        comment=None,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(decision)
     purchase_order.status = PURCHASE_ORDER_STATUS_SUBMITTED
     db.session.commit()
 
     flash("تم إرسال أمر الشراء بنجاح.", "success")
+    return redirect(url_for("purchase_orders.detail", id=id))
+
+
+@purchase_orders_bp.route("/<int:id>/approve", methods=["POST"])
+@role_required("project_manager", "engineering_manager", "finance", "admin")
+def approve(id: int):
+    purchase_order = PurchaseOrder.query.get_or_404(id)
+
+    normalized_role, scoped_ids = _scoped_project_ids()
+    _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
+
+    next_status = _get_approval_target(purchase_order.status, normalized_role)
+    if next_status is None:
+        flash("لا يمكن اعتماد أمر الشراء في هذه المرحلة.", "warning")
+        return redirect(url_for("purchase_orders.detail", id=id))
+
+    comment = (request.form.get("comment") or "").strip() or None
+    decision = PurchaseOrderDecision(
+        purchase_order_id=purchase_order.id,
+        action="approve",
+        from_status=purchase_order.status,
+        to_status=next_status,
+        comment=comment,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(decision)
+    purchase_order.status = next_status
+    db.session.commit()
+
+    flash("تم اعتماد أمر الشراء بنجاح.", "success")
+    return redirect(url_for("purchase_orders.detail", id=id))
+
+
+@purchase_orders_bp.route("/<int:id>/reject", methods=["POST"])
+@role_required("project_manager", "engineering_manager", "finance", "admin")
+def reject(id: int):
+    purchase_order = PurchaseOrder.query.get_or_404(id)
+
+    normalized_role, scoped_ids = _scoped_project_ids()
+    _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
+
+    approval_target = _get_approval_target(purchase_order.status, normalized_role)
+    if approval_target is None:
+        flash("لا يمكن رفض أمر الشراء في هذه المرحلة.", "warning")
+        return redirect(url_for("purchase_orders.detail", id=id))
+
+    comment = (request.form.get("comment") or "").strip() or None
+    decision = PurchaseOrderDecision(
+        purchase_order_id=purchase_order.id,
+        action="reject",
+        from_status=purchase_order.status,
+        to_status=PURCHASE_ORDER_STATUS_REJECTED,
+        comment=comment,
+        decided_by_id=current_user.id,
+    )
+    db.session.add(decision)
+    purchase_order.status = PURCHASE_ORDER_STATUS_REJECTED
+    db.session.commit()
+
+    flash("تم رفض أمر الشراء.", "success")
     return redirect(url_for("purchase_orders.detail", id=id))

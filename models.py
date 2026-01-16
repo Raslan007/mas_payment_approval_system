@@ -346,6 +346,47 @@ class PurchaseOrder(db.Model):
         return f"<PurchaseOrder {self.id} - {self.bo_number}>"
 
 
+class PurchaseOrderDecision(db.Model):
+    __tablename__ = "purchase_order_decisions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    purchase_order_id = db.Column(
+        db.Integer,
+        db.ForeignKey("purchase_orders.id"),
+        nullable=False,
+        index=True,
+    )
+    action = db.Column(db.String(20), nullable=False)
+    from_status = db.Column(db.String(30), nullable=False)
+    to_status = db.Column(db.String(30), nullable=False)
+    comment = db.Column(db.Text, nullable=True)
+    decided_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    decided_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+
+    purchase_order = db.relationship(
+        "PurchaseOrder",
+        backref=db.backref(
+            "decisions",
+            cascade="all, delete-orphan",
+            order_by="PurchaseOrderDecision.decided_at.asc()",
+        ),
+    )
+    decided_by = db.relationship("User")
+
+    def __repr__(self) -> str:  # type: ignore
+        return f"<PurchaseOrderDecision {self.id} for PO {self.purchase_order_id}>"
+
+
 @event.listens_for(PurchaseOrder, "before_insert")
 @event.listens_for(PurchaseOrder, "before_update")
 def _purchase_order_before_save(mapper, connection, target: PurchaseOrder) -> None:
