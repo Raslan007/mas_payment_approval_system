@@ -259,6 +259,24 @@ def _supports_for_update() -> bool:
     return db.session.get_bind().dialect.name != "sqlite"
 
 
+def _show_po_debug() -> bool:
+    return os.environ.get("APP_ENV") != "production" and os.environ.get("FLASK_ENV") != "production"
+
+
+def _purchase_order_access_allowed(project_id: int | None) -> bool:
+    if project_id is None:
+        return False
+    role_name = _get_role()
+    if role_name == "engineer":
+        return project_access_allowed(current_user, project_id, role_name="engineer")
+    if role_name == "project_manager":
+        pm_project_ids = _project_manager_project_ids() or []
+        return project_id in pm_project_ids
+    if role_name == "procurement":
+        return _procurement_has_project_access(project_id)
+    return True
+
+
 def _purchase_order_base_query():
     normalized_role, scoped_ids = _purchase_order_scoped_project_ids()
     query = PurchaseOrder.query
@@ -1871,15 +1889,18 @@ def purchase_order_options():
 def purchase_order_prefill(purchase_order_id: int):
     project_id = _safe_int_arg("project_id", None, min_value=1)
     if project_id is None:
-        return jsonify({"ok": False}), 404
+        return jsonify({"ok": False, "error": "project_id_required"}), 400
+
+    if not _purchase_order_access_allowed(project_id):
+        return jsonify({"ok": False, "error": "project_access_denied"}), 403
 
     purchase_order = _get_valid_purchase_order(purchase_order_id, project_id)
     if purchase_order is None:
-        return jsonify({"ok": False}), 404
+        return jsonify({"ok": False, "error": "purchase_order_not_found"}), 404
 
     supplier = _purchase_order_supplier(purchase_order)
     if supplier is None:
-        return jsonify({"ok": False}), 404
+        return jsonify({"ok": False, "error": "supplier_not_found"}), 404
 
     remaining_amount = _purchase_order_remaining_amount(purchase_order)
     suggested_amount = remaining_amount
@@ -1909,6 +1930,7 @@ def create_payment():
     # يمكن استخدام نفس قائمة أنواع الدفعات إن احتجناها في القالب
     _, request_types, _ = _get_filter_lists()
     purchase_orders: list[PurchaseOrder] = []
+    show_po_debug = _show_po_debug()
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -1941,6 +1963,7 @@ def create_payment():
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title="إضافة دفعة جديدة",
+                show_po_debug=show_po_debug,
             )
 
         try:
@@ -1961,6 +1984,7 @@ def create_payment():
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title="إضافة دفعة جديدة",
+                show_po_debug=show_po_debug,
             )
 
         project = db.session.get(Project, project_id_value)
@@ -1975,6 +1999,7 @@ def create_payment():
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title="إضافة دفعة جديدة",
+                show_po_debug=show_po_debug,
             )
 
         role_name = _get_role()
@@ -2011,6 +2036,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
             try:
                 purchase_order_id_value = int(purchase_order_id)
@@ -2024,6 +2050,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
             purchase_order = _get_valid_purchase_order(
                 purchase_order_id_value,
@@ -2039,6 +2066,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
             supplier = _purchase_order_supplier(purchase_order)
             if supplier is None:
@@ -2051,6 +2079,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
             amount_decimal = _purchase_order_remaining_amount(purchase_order)
             if amount_decimal <= 0:
@@ -2063,6 +2092,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
         else:
             try:
@@ -2076,6 +2106,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
             supplier = db.session.get(Supplier, supplier_id_value)
             if supplier is None:
@@ -2087,6 +2118,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
 
             amount_decimal = _parse_decimal_amount(amount_str)
@@ -2099,6 +2131,7 @@ def create_payment():
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title="إضافة دفعة جديدة",
+                    show_po_debug=show_po_debug,
                 )
 
             amount_decimal = _quantize_amount(amount_decimal)
@@ -2138,6 +2171,7 @@ def create_payment():
         request_types=request_types,
         purchase_orders=purchase_orders,
         page_title="إضافة دفعة جديدة",
+        show_po_debug=show_po_debug,
     )
 
 
@@ -2454,6 +2488,7 @@ def edit_payment(payment_id):
     purchase_orders: list[PurchaseOrder] = []
     if payment.request_type == PURCHASE_ORDER_REQUEST_TYPE:
         purchase_orders = _purchase_orders_for_form(payment.project_id)
+    show_po_debug = _show_po_debug()
 
     if request.method == "POST":
         project_id = request.form.get("project_id")
@@ -2487,6 +2522,7 @@ def edit_payment(payment_id):
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title=f"تعديل الدفعة رقم {payment.id}",
+                show_po_debug=show_po_debug,
             )
 
         try:
@@ -2508,6 +2544,7 @@ def edit_payment(payment_id):
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title=f"تعديل الدفعة رقم {payment.id}",
+                show_po_debug=show_po_debug,
             )
 
         project = db.session.get(Project, project_id_value)
@@ -2523,6 +2560,7 @@ def edit_payment(payment_id):
                 request_types=request_types,
                 purchase_orders=purchase_orders,
                 page_title=f"تعديل الدفعة رقم {payment.id}",
+                show_po_debug=show_po_debug,
             )
 
         role_name = _get_role()
@@ -2554,6 +2592,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
             try:
                 purchase_order_id_value = int(purchase_order_id)
@@ -2568,6 +2607,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
             purchase_order = _get_valid_purchase_order(
                 purchase_order_id_value,
@@ -2584,6 +2624,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
             supplier = _purchase_order_supplier(purchase_order)
             if supplier is None:
@@ -2597,6 +2638,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
             amount_decimal = _purchase_order_remaining_amount(purchase_order)
             if amount_decimal <= 0:
@@ -2610,6 +2652,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
         else:
             try:
@@ -2624,6 +2667,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
             supplier = db.session.get(Supplier, supplier_id_value)
             if supplier is None:
@@ -2636,6 +2680,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
 
             amount_decimal = _parse_decimal_amount(amount_str)
@@ -2649,6 +2694,7 @@ def edit_payment(payment_id):
                     request_types=request_types,
                     purchase_orders=purchase_orders,
                     page_title=f"تعديل الدفعة رقم {payment.id}",
+                    show_po_debug=show_po_debug,
                 )
 
             amount_decimal = _quantize_amount(amount_decimal)
@@ -2720,6 +2766,7 @@ def edit_payment(payment_id):
         request_types=request_types,
         purchase_orders=purchase_orders,
         page_title=f"تعديل الدفعة رقم {payment.id}",
+        show_po_debug=show_po_debug,
     )
 
 
