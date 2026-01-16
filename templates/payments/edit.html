@@ -64,6 +64,7 @@
                             </option>
                         {% endfor %}
                     </select>
+                    <input type="hidden" id="supplier_id_hidden" name="supplier_id" disabled>
                 </div>
 
                 <!-- نوع الدفعة -->
@@ -112,6 +113,7 @@
                     <div class="form-text xsmall d-none" id="po_autofill_hint">
                         تم تعبئة المورد والمبلغ تلقائيًا حسب أمر الشراء المختار.
                     </div>
+                    <div class="form-text xsmall text-danger d-none" id="po_autofill_error"></div>
                 </div>
 
                 <!-- نسبة الإنجاز -->
@@ -200,14 +202,19 @@
 </div>
 
 <script>
-    (function () {
+    document.addEventListener("DOMContentLoaded", () => {
         const requestType = document.getElementById("request_type");
         const projectSelect = document.getElementById("project_id");
         const purchaseOrderField = document.getElementById("purchase_order_field");
         const purchaseOrderSelect = document.getElementById("purchase_order_id");
         const supplierSelect = document.getElementById("supplier_id");
+        const supplierHidden = document.getElementById("supplier_id_hidden");
         const amountInput = document.getElementById("amount");
         const poHint = document.getElementById("po_autofill_hint");
+        const poError = document.getElementById("po_autofill_error");
+        const isDev =
+            typeof window !== "undefined"
+            && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
         if (
             !requestType
@@ -215,24 +222,76 @@
             || !purchaseOrderField
             || !purchaseOrderSelect
             || !supplierSelect
+            || !supplierHidden
             || !amountInput
             || !poHint
+            || !poError
         ) {
             return;
         }
 
+        let isLocked = false;
+        let manualSupplierId = supplierSelect.value;
+        let manualAmount = amountInput.value;
+
+        const updateManualValues = () => {
+            if (!isLocked) {
+                manualSupplierId = supplierSelect.value;
+                manualAmount = amountInput.value;
+            }
+        };
+
+        const clearError = () => {
+            poError.textContent = "";
+            poError.classList.add("d-none");
+        };
+
+        const showError = (message) => {
+            if (!message) {
+                return;
+            }
+            poError.textContent = message;
+            poError.classList.remove("d-none");
+        };
+
+        const setLockedState = (locked) => {
+            isLocked = locked;
+            supplierSelect.disabled = locked;
+            amountInput.readOnly = locked;
+            supplierHidden.disabled = !locked;
+            if (locked) {
+                supplierHidden.value = supplierSelect.value || "";
+                poHint.classList.remove("d-none");
+            } else {
+                supplierHidden.value = "";
+                poHint.classList.add("d-none");
+            }
+        };
+
+        const restoreManualValues = () => {
+            supplierSelect.value = manualSupplierId || "";
+            supplierSelect.dispatchEvent(new Event("change", { bubbles: true }));
+            amountInput.value = manualAmount || "";
+            amountInput.dispatchEvent(new Event("input", { bubbles: true }));
+            amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+
         const clearPrefill = () => {
-            supplierSelect.disabled = false;
-            amountInput.readOnly = false;
-            poHint.classList.add("d-none");
+            setLockedState(false);
+            restoreManualValues();
+            clearError();
         };
 
         const applyPrefill = (payload) => {
-            supplierSelect.value = String(payload.supplier_id || "");
-            supplierSelect.disabled = true;
-            amountInput.value = payload.suggested_amount || "";
-            amountInput.readOnly = true;
-            poHint.classList.remove("d-none");
+            const supplierId = payload.supplier_id ? String(payload.supplier_id) : "";
+            const amountValue = payload.amount || payload.suggested_amount || "";
+            supplierSelect.value = supplierId;
+            supplierSelect.dispatchEvent(new Event("change", { bubbles: true }));
+            amountInput.value = amountValue;
+            amountInput.dispatchEvent(new Event("input", { bubbles: true }));
+            amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+            setLockedState(true);
+            clearError();
         };
 
         const resetPurchaseOrderOptions = () => {
@@ -294,6 +353,9 @@
                 populatePurchaseOrders(purchaseOrders, selectedValue);
                 purchaseOrderSelect.disabled = purchaseOrders.length === 0;
             } catch (error) {
+                if (isDev) {
+                    console.error("Failed to load purchase orders", error);
+                }
                 resetPurchaseOrderOptions();
                 purchaseOrderSelect.disabled = true;
                 clearPrefill();
@@ -321,9 +383,12 @@
                     return;
                 }
             } catch (error) {
-                // ignore
+                if (isDev) {
+                    console.error("Purchase order prefill failed", error);
+                }
             }
-            clearPrefill();
+            showError("تعذر تعبئة بيانات أمر الشراء. يرجى المحاولة مرة أخرى.");
+            setLockedState(false);
         };
 
         requestType.addEventListener("change", () => {
@@ -339,12 +404,14 @@
             loadPurchaseOrders(purchaseOrderSelect.value);
         });
         purchaseOrderSelect.addEventListener("change", handlePurchaseOrderChange);
+        supplierSelect.addEventListener("change", updateManualValues);
+        amountInput.addEventListener("input", updateManualValues);
 
         loadPurchaseOrders(purchaseOrderSelect.value).then(() => {
             if (purchaseOrderSelect.value) {
                 handlePurchaseOrderChange();
             }
         });
-    })();
+    });
 </script>
 {% endblock %}
