@@ -70,7 +70,7 @@
             <!-- نوع الدفعة -->
             <div class="col-md-4">
                 <label class="form-label">نوع الدفعة</label>
-                <select name="request_type" class="form-select" title="اختر نوع الدفعة">
+                <select name="request_type" id="request_type" class="form-select" title="اختر نوع الدفعة">
                     {% if is_procurement %}
                         <option value="مشتريات" selected>مشتريات</option>
                     {% else %}
@@ -79,6 +79,22 @@
                         <option value="عهدة">عهدة</option>
                     {% endif %}
                 </select>
+            </div>
+
+            <!-- أمر الشراء -->
+            <div class="col-md-4 d-none" id="purchase_order_field">
+                <label class="form-label">أمر الشراء</label>
+                <select name="purchase_order_id" id="purchase_order_id" class="form-select" title="اختر أمر الشراء">
+                    <option value="">اختر أمر الشراء...</option>
+                    {% for po in purchase_orders %}
+                        <option value="{{ po.id }}" data-project-id="{{ po.project_id }}">
+                            أمر شراء {{ po.bo_number }} - المتبقي {{ po.remaining_amount | num(2) }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <small class="text-muted xsmall">
+                    اختر أمر الشراء المرتبط بالمشروع، ويظهر الرصيد المتبقي لكل أمر.
+                </small>
             </div>
 
             <!-- المبلغ -->
@@ -119,4 +135,55 @@
         </div>
     </form>
 </div>
+
+<script>
+    (function () {
+        const requestType = document.getElementById("request_type");
+        const projectSelect = document.querySelector("select[name='project_id']");
+        const purchaseOrderField = document.getElementById("purchase_order_field");
+        const purchaseOrderSelect = document.getElementById("purchase_order_id");
+
+        if (!requestType || !purchaseOrderField || !purchaseOrderSelect) {
+            return;
+        }
+
+        const togglePurchaseOrderField = () => {
+            const isPurchase = (requestType.value || "").trim() === "مشتريات";
+            purchaseOrderField.classList.toggle("d-none", !isPurchase);
+            purchaseOrderSelect.required = isPurchase;
+            if (!isPurchase) {
+                purchaseOrderSelect.value = "";
+            }
+            filterPurchaseOrders();
+        };
+
+        const filterPurchaseOrders = () => {
+            if (!projectSelect) {
+                return;
+            }
+            const projectId = projectSelect.value;
+            const options = purchaseOrderSelect.querySelectorAll("option[data-project-id]");
+            options.forEach((option) => {
+                const matches = !projectId || option.dataset.projectId === projectId;
+                option.hidden = !matches;
+                option.disabled = !matches;
+            });
+            if (
+                purchaseOrderSelect.value
+                && purchaseOrderSelect.selectedOptions.length
+                && purchaseOrderSelect.selectedOptions[0].hidden
+            ) {
+                purchaseOrderSelect.value = "";
+            }
+        };
+
+        requestType.addEventListener("change", togglePurchaseOrderField);
+        if (projectSelect) {
+            projectSelect.addEventListener("change", filterPurchaseOrders);
+        }
+
+        filterPurchaseOrders();
+        togglePurchaseOrderField();
+    })();
+</script>
 {% endblock %}
