@@ -375,8 +375,10 @@ def _po_reserved_amount(payment: PaymentRequest) -> Decimal | None:
 
 
 def _po_reserve(payment: PaymentRequest) -> bool:
+    if not _is_purchase_order(payment):
+        return True
     if not payment.purchase_order_id:
-        flash("يجب اختيار أمر الشراء قبل إرسال الدفعة.", "danger")
+        flash("يجب اختيار أمر الشراء لدفعات المشتريات قبل إرسال الدفعة.", "danger")
         return False
 
     if (
