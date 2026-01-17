@@ -250,10 +250,26 @@ class PaymentRequest(db.Model):
 
     @property
     def finance_effective_amount(self) -> Decimal:
-        base_amount = Decimal("0.00")
-        if self.finance_amount is not None:
-            base_amount = Decimal(str(self.finance_amount))
-        return base_amount + self.finance_adjustments_total
+        cached = getattr(self, "_finance_effective_amount", None)
+        if cached is not None:
+            return cached
+        return calculate_finance_effective_amount(
+            self.finance_amount,
+            self.finance_adjustments_total,
+        )
+
+
+def calculate_finance_effective_amount(
+    finance_amount: Decimal | None,
+    adjustments_total: Decimal | None,
+) -> Decimal:
+    base_amount = Decimal("0.00")
+    if finance_amount is not None:
+        base_amount = Decimal(str(finance_amount))
+    adjustments_value = adjustments_total or Decimal("0.00")
+    if not isinstance(adjustments_value, Decimal):
+        adjustments_value = Decimal(str(adjustments_value))
+    return (base_amount + adjustments_value).quantize(Decimal("0.01"))
 
 
 class PaymentFinanceAdjustment(db.Model):
