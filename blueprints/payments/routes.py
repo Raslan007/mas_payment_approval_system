@@ -328,9 +328,65 @@ def _purchase_order_remaining_amount(purchase_order: PurchaseOrder) -> Decimal:
     return _quantize_amount(remaining_amount)
 
 
+def _purchase_order_total_amount(purchase_order: PurchaseOrder) -> Decimal:
+    total_amount = Decimal(str(purchase_order.total_amount or Decimal("0.00")))
+    return _quantize_amount(total_amount)
+
+
 def _purchase_order_advance_amount(purchase_order: PurchaseOrder) -> Decimal:
     advance_amount = Decimal(str(purchase_order.advance_amount or Decimal("0.00")))
     return _quantize_amount(advance_amount)
+
+
+def _purchase_order_has_active_payments(
+    purchase_order_id: int,
+    *,
+    exclude_payment_id: int | None = None,
+) -> bool:
+    query = PaymentRequest.query.filter(
+        PaymentRequest.purchase_order_id == purchase_order_id,
+        PaymentRequest.status != STATUS_REJECTED,
+    )
+    if exclude_payment_id is not None:
+        query = query.filter(PaymentRequest.id != exclude_payment_id)
+    return db.session.query(query.exists()).scalar()
+
+
+def _validate_purchase_order_amount(
+    purchase_order: PurchaseOrder,
+    amount_decimal: Decimal,
+    *,
+    payment_id: int | None = None,
+) -> tuple[bool, str, str]:
+    amount_decimal = _quantize_amount(Decimal(str(amount_decimal)))
+    remaining_amount = _purchase_order_remaining_amount(purchase_order)
+    advance_amount = _purchase_order_advance_amount(purchase_order)
+    total_amount = _purchase_order_total_amount(purchase_order)
+
+    if remaining_amount >= amount_decimal:
+        return True, "", ""
+
+    if (
+        remaining_amount == Decimal("0.00")
+        and amount_decimal == advance_amount
+        and amount_decimal == total_amount
+    ):
+        if _purchase_order_has_active_payments(
+            purchase_order.id,
+            exclude_payment_id=payment_id,
+        ):
+            return (
+                False,
+                "full_advance_already_paid",
+                "تم صرف كامل مبلغ أمر الشراء ولا يمكن إضافة دفعة أخرى.",
+            )
+        return True, "", ""
+
+    return (
+        False,
+        "insufficient_available",
+        "رصيد أمر الشراء المتاح غير كافٍ لهذه الدفعة.",
+    )
 
 
 def _purchase_order_supplier(purchase_order: PurchaseOrder) -> Supplier | None:
@@ -412,14 +468,25 @@ def _po_reserve(payment: PaymentRequest) -> bool:
         flash("أمر الشراء المختار غير متاح للاستخدام.", "danger")
         return False
 
-    remaining_amount = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
-    if remaining_amount < amount_decimal:
-        flash("رصيد أمر الشراء المتبقي غير كافٍ لهذه الدفعة.", "danger")
+    allowed, reason, message = _validate_purchase_order_amount(
+        purchase_order,
+        amount_decimal,
+        payment_id=payment.id,
+    )
+    if not allowed:
+        flash(message, "danger")
+        if reason == "full_advance_already_paid":
+            logger.info(
+                "PO reserve blocked reason=advance_already_paid purchase_order_id=%s payment_id=%s",
+                purchase_order.id,
+                payment.id,
+            )
         return False
 
-    purchase_order.reserved_amount = (
-        Decimal(str(purchase_order.reserved_amount or Decimal("0.00"))) + amount_decimal
+    current_reserved = _quantize_amount(
+        Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
     )
+    purchase_order.reserved_amount = _quantize_amount(current_reserved + amount_decimal)
     payment.purchase_order_reserved_at = datetime.utcnow()
     payment.purchase_order_reserved_amount = amount_decimal
     return True
@@ -444,11 +511,13 @@ def _po_release(payment: PaymentRequest) -> None:
     if purchase_order is None:
         return
 
-    current_reserved = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    current_reserved = _quantize_amount(
+        Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    )
     new_reserved = current_reserved - reserved_amount
     if new_reserved < 0:
         new_reserved = Decimal("0.00")
-    purchase_order.reserved_amount = new_reserved
+    purchase_order.reserved_amount = _quantize_amount(new_reserved)
     payment.purchase_order_reserved_at = None
     payment.purchase_order_reserved_amount = None
 
@@ -480,22 +549,35 @@ def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
         flash("أمر الشراء المحدد غير موجود أو لم يعد متاحاً.", "danger")
         return False
 
-    current_remaining = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
-    if current_remaining < amount_to_apply:
-        flash("رصيد أمر الشراء المتبقي غير كافٍ لإتمام الصرف.", "danger")
+    allowed, reason, message = _validate_purchase_order_amount(
+        purchase_order,
+        amount_to_apply,
+        payment_id=payment.id,
+    )
+    if not allowed:
+        flash(message, "danger")
+        if reason == "full_advance_already_paid":
+            logger.info(
+                "PO finalize blocked reason=advance_already_paid purchase_order_id=%s payment_id=%s",
+                purchase_order.id,
+                payment.id,
+            )
         return False
 
-    current_reserved = Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    current_reserved = _quantize_amount(
+        Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    )
     if current_reserved < amount_to_apply:
         flash("رصيد الحجز في أمر الشراء غير كافٍ لإتمام الصرف.", "danger")
         return False
     if reserved_amount is not None and reserved_amount < amount_to_apply:
         flash("مبلغ الصرف يتجاوز قيمة الحجز المسجلة لهذه الدفعة.", "danger")
         return False
-    new_reserved = current_reserved - amount_to_apply
+    new_reserved = _quantize_amount(current_reserved - amount_to_apply)
     purchase_order.reserved_amount = new_reserved
 
-    new_remaining = current_remaining - amount_to_apply
+    current_remaining = _purchase_order_remaining_amount(purchase_order)
+    new_remaining = _quantize_amount(current_remaining - amount_to_apply)
     purchase_order.remaining_amount = new_remaining
 
     payment.purchase_order_reserved_amount = None
@@ -2123,7 +2205,6 @@ def create_payment():
                     page_title="إضافة دفعة جديدة",
                     show_po_debug=show_po_debug,
                 )
-            remaining_amount = _purchase_order_remaining_amount(purchase_order)
             amount_decimal = _purchase_order_advance_amount(purchase_order)
             if amount_decimal <= 0:
                 logger.info(
@@ -2143,14 +2224,19 @@ def create_payment():
                     page_title="إضافة دفعة جديدة",
                     show_po_debug=show_po_debug,
                 )
-            if amount_decimal > remaining_amount:
+            allowed, reason, message = _validate_purchase_order_amount(
+                purchase_order,
+                amount_decimal,
+            )
+            if not allowed:
                 logger.info(
-                    "PO create blocked reason=advance_exceeds_remaining project_id=%s purchase_order_id=%s user_id=%s",
+                    "PO create blocked reason=%s project_id=%s purchase_order_id=%s user_id=%s",
+                    reason,
                     project_id_value,
                     purchase_order.id,
                     current_user.id if current_user.is_authenticated else None,
                 )
-                flash("الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.", "danger")
+                flash(message, "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
                 return render_template(
                     "payments/create.html",
@@ -2708,7 +2794,6 @@ def edit_payment(payment_id):
                     page_title=f"تعديل الدفعة رقم {payment.id}",
                     show_po_debug=show_po_debug,
                 )
-            remaining_amount = _purchase_order_remaining_amount(purchase_order)
             amount_decimal = _purchase_order_advance_amount(purchase_order)
             if amount_decimal <= 0:
                 logger.info(
@@ -2730,15 +2815,21 @@ def edit_payment(payment_id):
                     page_title=f"تعديل الدفعة رقم {payment.id}",
                     show_po_debug=show_po_debug,
                 )
-            if amount_decimal > remaining_amount:
+            allowed, reason, message = _validate_purchase_order_amount(
+                purchase_order,
+                amount_decimal,
+                payment_id=payment.id,
+            )
+            if not allowed:
                 logger.info(
-                    "PO edit blocked reason=advance_exceeds_remaining project_id=%s purchase_order_id=%s user_id=%s payment_id=%s",
+                    "PO edit blocked reason=%s project_id=%s purchase_order_id=%s user_id=%s payment_id=%s",
+                    reason,
                     project_id_value,
                     purchase_order.id,
                     current_user.id if current_user.is_authenticated else None,
                     payment.id,
                 )
-                flash("الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.", "danger")
+                flash(message, "danger")
                 purchase_orders = _purchase_orders_for_form(project_id_value)
                 return render_template(
                     "payments/edit.html",
