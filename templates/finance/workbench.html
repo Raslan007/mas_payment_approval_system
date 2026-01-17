@@ -290,7 +290,7 @@
                         <td class="text-end fw-semibold">{{ p.amount | num(2) }}</td>
                         <td class="text-end fw-semibold">
                             {% if p.finance_amount is not none %}
-                                {{ p.finance_amount | num(2) }}
+                                {{ p.finance_effective_amount | num(2) }}
                             {% else %}
                                 <span class="text-muted">—</span>
                             {% endif %}

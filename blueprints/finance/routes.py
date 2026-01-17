@@ -9,7 +9,8 @@ from flask import Response, render_template, request
 from sqlalchemy import case, func
 
 from permissions import role_required
-from models import PaymentRequest, Project, Supplier
+from extensions import db
+from models import PaymentFinanceAdjustment, PaymentRequest, Project, Supplier
 from blueprints.finance import finance_bp
 from blueprints.payments import routes as payment_routes
 
@@ -41,8 +42,32 @@ def _finance_workbench_ordering(status_filter: str) -> tuple:
 
 
 def _finance_workbench_query():
-    q = PaymentRequest.query.options(*payment_routes.PAYMENT_RELATION_OPTIONS).filter(
-        PaymentRequest.status.in_(FINANCE_ALLOWED_STATUSES)
+    adjustments_subq = (
+        db.session.query(
+            PaymentFinanceAdjustment.payment_id.label("payment_id"),
+            func.coalesce(func.sum(PaymentFinanceAdjustment.delta_amount), 0).label(
+                "adjustments_total"
+            ),
+        )
+        .filter(PaymentFinanceAdjustment.is_void.is_(False))
+        .group_by(PaymentFinanceAdjustment.payment_id)
+        .subquery()
+    )
+    effective_amount_expr = (
+        func.coalesce(PaymentRequest.finance_amount, 0)
+        + func.coalesce(adjustments_subq.c.adjustments_total, 0)
+    )
+    adjustments_total_expr = func.coalesce(
+        adjustments_subq.c.adjustments_total, 0
+    ).label("finance_adjustments_total")
+
+    q = (
+        PaymentRequest.query.options(*payment_routes.PAYMENT_RELATION_OPTIONS)
+        .outerjoin(
+            adjustments_subq,
+            PaymentRequest.id == adjustments_subq.c.payment_id,
+        )
+        .filter(PaymentRequest.status.in_(FINANCE_ALLOWED_STATUSES))
     )
 
     projects = Project.query.order_by(Project.project_name.asc()).all()
@@ -110,14 +135,28 @@ def _finance_workbench_query():
     finance_amount_min = _safe_float_arg("finance_amount_min")
     if finance_amount_min is not None:
         filters["finance_amount_min"] = (request.args.get("finance_amount_min") or "").strip()
-        q = q.filter(PaymentRequest.finance_amount >= finance_amount_min)
+        q = q.filter(effective_amount_expr >= finance_amount_min)
 
     finance_amount_max = _safe_float_arg("finance_amount_max")
     if finance_amount_max is not None:
         filters["finance_amount_max"] = (request.args.get("finance_amount_max") or "").strip()
-        q = q.filter(PaymentRequest.finance_amount <= finance_amount_max)
+        q = q.filter(effective_amount_expr <= finance_amount_max)
 
-    return q, filters, projects, suppliers, request_types, status_filter, _finance_workbench_ordering(status_filter)
+    q = q.add_columns(
+        adjustments_total_expr,
+        effective_amount_expr.label("finance_effective_amount"),
+    )
+
+    return (
+        q,
+        filters,
+        projects,
+        suppliers,
+        request_types,
+        status_filter,
+        _finance_workbench_ordering(status_filter),
+        effective_amount_expr,
+    )
 
 
 def _paginate_finance_query(q, order_clause: tuple):
@@ -139,14 +178,14 @@ def _paginate_finance_query(q, order_clause: tuple):
     return pagination, page, per_page
 
 
-def _finance_workbench_kpis(q) -> dict:
-    base_value = func.coalesce(PaymentRequest.finance_amount, PaymentRequest.amount, 0)
+def _finance_workbench_kpis(q, effective_amount_expr) -> dict:
+    base_value = func.coalesce(effective_amount_expr, PaymentRequest.amount, 0)
     aggregates = (
         q.order_by(None)
         .with_entities(
             func.count(PaymentRequest.id),
             func.coalesce(func.sum(PaymentRequest.amount), 0.0),
-            func.coalesce(func.sum(PaymentRequest.finance_amount), 0.0),
+            func.coalesce(func.sum(effective_amount_expr), 0.0),
             func.coalesce(
                 func.sum(
                     case(
@@ -216,7 +255,13 @@ def _export_finance_workbench(q, order_clause: tuple):
             "created_at",
         ]
     )
-    for payment in rows:
+    for payment_row in rows:
+        if isinstance(payment_row, PaymentRequest):
+            payment = payment_row
+            effective_amount = payment.finance_effective_amount
+        else:
+            payment = payment_row[0]
+            effective_amount = payment_row.finance_effective_amount
         writer.writerow(
             [
                 payment.id,
@@ -225,7 +270,11 @@ def _export_finance_workbench(q, order_clause: tuple):
                 payment.request_type,
                 payment.status,
                 payment.amount,
-                payment.finance_amount if payment.finance_amount is not None else "",
+                (
+                    effective_amount
+                    if payment.finance_amount is not None
+                    else ""
+                ),
                 payment_routes._format_ts(payment.created_at),
             ]
         )
@@ -241,8 +290,17 @@ def _export_finance_workbench(q, order_clause: tuple):
 @finance_bp.route("/workbench")
 @role_required("admin", "finance", "engineering_manager")
 def workbench():
-    q, filters, projects, suppliers, request_types, status_filter, order_clause = _finance_workbench_query()
-    kpis = _finance_workbench_kpis(q)
+    (
+        q,
+        filters,
+        projects,
+        suppliers,
+        request_types,
+        status_filter,
+        order_clause,
+        effective_amount_expr,
+    ) = _finance_workbench_query()
+    kpis = _finance_workbench_kpis(q, effective_amount_expr)
     pagination, page, per_page = _paginate_finance_query(q, order_clause)
 
     query_params = {k: v for k, v in filters.items() if v}
@@ -253,9 +311,20 @@ def workbench():
     export_params = {k: v for k, v in filters.items() if v}
     export_params["status"] = status_filter
 
+    payments = []
+    for row in pagination.items:
+        if isinstance(row, PaymentRequest):
+            payment = row
+        else:
+            payment = row[0]
+            payment._finance_effective_amount = Decimal(
+                str(row.finance_effective_amount or 0)
+            ).quantize(Decimal("0.01"))
+        payments.append(payment)
+
     return render_template(
         "finance/workbench.html",
-        payments=pagination.items,
+        payments=payments,
         pagination=pagination,
         query_params=query_params,
         filters=filters,
@@ -277,5 +346,5 @@ def workbench():
 @finance_bp.route("/workbench/export")
 @role_required("admin", "finance", "engineering_manager")
 def export_workbench():
-    q, _, _, _, _, status_filter, order_clause = _finance_workbench_query()
+    q, _, _, _, _, status_filter, order_clause, _ = _finance_workbench_query()
     return _export_finance_workbench(q, order_clause)
