@@ -1,11 +1,13 @@
 import csv
 import unittest
+from datetime import datetime
+from decimal import Decimal
 from io import StringIO
 
 from config import Config
 from app import create_app
 from extensions import db
-from models import PaymentRequest, Project, Role, Supplier, User
+from models import PaymentFinanceAdjustment, PaymentRequest, Project, Role, Supplier, User
 from blueprints.payments import routes as payment_routes
 
 
@@ -109,6 +111,46 @@ class FinanceWorkbenchTestCase(unittest.TestCase):
         self.assertEqual(rows[0][:3], ["id", "project", "supplier"])
         exported_ids = [row[0] for row in rows[1:]]
         self.assertIn(str(payment.id), exported_ids)
+
+    def test_workbench_uses_effective_finance_amounts(self):
+        payment = self._create_payment(
+            status=payment_routes.STATUS_PENDING_FIN,
+            amount=250.0,
+            finance_amount=8000,
+        )
+        adjustments = [
+            PaymentFinanceAdjustment(
+                payment_id=payment.id,
+                delta_amount=Decimal("72000.00"),
+                reason="Increase",
+                notes="",
+                created_by_user_id=self.finance_user.id,
+            ),
+            PaymentFinanceAdjustment(
+                payment_id=payment.id,
+                delta_amount=Decimal("999.00"),
+                reason="Voided",
+                notes="",
+                created_by_user_id=self.finance_user.id,
+                is_void=True,
+                void_reason="Ignore",
+                voided_by_user_id=self.finance_user.id,
+                voided_at=datetime.utcnow(),
+            ),
+        ]
+        db.session.add_all(adjustments)
+        db.session.commit()
+
+        self._login(self.finance_user)
+        response = self.client.get("/finance/workbench")
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data.count(b"80,000.00"), 2)
+
+        export_response = self.client.get("/finance/workbench/export")
+        self.assertEqual(export_response.status_code, 200)
+        rows = list(csv.reader(StringIO(export_response.get_data(as_text=True))))
+        payment_row = next(row for row in rows[1:] if row[0] == str(payment.id))
+        self.assertEqual(payment_row[6], "80000.00")
 
 
 if __name__ == "__main__":
