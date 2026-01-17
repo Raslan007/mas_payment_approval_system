@@ -6,6 +6,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
+from db_patches.purchase_orders_soft_delete import (
+    ensure_purchase_orders_soft_delete_columns,
+)
 
 logger = logging.getLogger(__name__)
 STARTUP_ADVISORY_LOCK_ID = 74290315
@@ -263,6 +266,7 @@ def run_startup_tasks() -> None:
         ensure_finance_amount_column()
         ensure_purchase_order_supplier_id_column()
         ensure_suppliers_lower_name_index()
+        ensure_purchase_orders_soft_delete_columns()
         run_startup_migrations()
         return
 
@@ -275,6 +279,7 @@ def run_startup_tasks() -> None:
         ensure_finance_amount_column()
         ensure_purchase_order_supplier_id_column()
         ensure_suppliers_lower_name_index()
+        ensure_purchase_orders_soft_delete_columns()
         run_startup_migrations()
     finally:
         db.session.execute(
