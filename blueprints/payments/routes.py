@@ -279,7 +279,7 @@ def _purchase_order_access_allowed(project_id: int | None) -> bool:
 
 def _purchase_order_base_query():
     normalized_role, scoped_ids = _purchase_order_scoped_project_ids()
-    query = PurchaseOrder.query
+    query = PurchaseOrder.query.filter(PurchaseOrder.deleted_at.is_(None))
     if scoped_ids:
         query = query.filter(PurchaseOrder.project_id.in_(scoped_ids))
     elif normalized_role in {"project_manager", "engineer", "procurement"}:
@@ -1888,7 +1888,11 @@ def purchase_order_options():
 def purchase_order_prefill(purchase_order_id: int):
     project_id = _safe_int_arg("project_id", None, min_value=1)
     user_id = current_user.id if current_user.is_authenticated else None
-    purchase_order = PurchaseOrder.query.get(purchase_order_id)
+    purchase_order = (
+        PurchaseOrder.query.filter(PurchaseOrder.deleted_at.is_(None))
+        .filter(PurchaseOrder.id == purchase_order_id)
+        .first()
+    )
     if purchase_order is None:
         logger.info(
             "PO prefill failed reason=not_found project_id=%s purchase_order_id=%s user_id=%s",

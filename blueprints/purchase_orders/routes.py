@@ -171,6 +171,10 @@ def _get_approval_target(status: str, normalized_role: str | None) -> str | None
     return stage["next_status"]
 
 
+def _active_purchase_orders_query():
+    return PurchaseOrder.query.filter(PurchaseOrder.deleted_at.is_(None))
+
+
 @purchase_orders_bp.route("/")
 @role_required(*VIEW_ROLES)
 def index():
@@ -183,7 +187,7 @@ def index():
         "supplier_name": (request.args.get("supplier_name") or "").strip(),
     }
 
-    query = PurchaseOrder.query.options(
+    query = _active_purchase_orders_query().options(
         selectinload(PurchaseOrder.project),
         selectinload(PurchaseOrder.created_by),
     )
@@ -224,6 +228,7 @@ def index():
 
     projects = _load_projects(normalized_role, scoped_ids)
     can_create = normalized_role in EDIT_ROLES
+    can_delete = normalized_role == "admin"
     pagination_params = {
         key: value
         for key, value in request.args.items()
@@ -238,6 +243,7 @@ def index():
         projects=projects,
         status_meta=STATUS_META,
         can_create=can_create,
+        can_delete=can_delete,
         pagination_params=pagination_params,
         page=page,
         per_page=per_page,
@@ -363,11 +369,11 @@ def create():
 @purchase_orders_bp.route("/<int:id>")
 @role_required(*VIEW_ROLES)
 def detail(id: int):
-    purchase_order = PurchaseOrder.query.options(
+    purchase_order = _active_purchase_orders_query().options(
         selectinload(PurchaseOrder.project),
         selectinload(PurchaseOrder.created_by),
         selectinload(PurchaseOrder.decisions).selectinload(PurchaseOrderDecision.decided_by),
-    ).get_or_404(id)
+    ).filter(PurchaseOrder.id == id).first_or_404()
 
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
@@ -392,7 +398,7 @@ def detail(id: int):
 @purchase_orders_bp.route("/<int:id>/edit")
 @role_required(*EDIT_ROLES)
 def edit(id: int):
-    purchase_order = PurchaseOrder.query.get_or_404(id)
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
     if purchase_order.status != PURCHASE_ORDER_STATUS_DRAFT:
         flash("لا يمكن تعديل أمر شراء بعد الإرسال.", "warning")
         return redirect(url_for("purchase_orders.detail", id=id))
@@ -417,7 +423,7 @@ def edit(id: int):
 @purchase_orders_bp.route("/<int:id>/update", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def update(id: int):
-    purchase_order = PurchaseOrder.query.get_or_404(id)
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
     if purchase_order.status != PURCHASE_ORDER_STATUS_DRAFT:
         flash("لا يمكن تعديل أمر شراء بعد الإرسال.", "warning")
         return redirect(url_for("purchase_orders.detail", id=id))
@@ -513,7 +519,7 @@ def update(id: int):
 @purchase_orders_bp.route("/<int:id>/submit", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def submit(id: int):
-    purchase_order = PurchaseOrder.query.get_or_404(id)
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
 
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
@@ -541,7 +547,7 @@ def submit(id: int):
 @purchase_orders_bp.route("/<int:id>/approve", methods=["POST"])
 @role_required("project_manager", "engineering_manager", "finance", "admin")
 def approve(id: int):
-    purchase_order = PurchaseOrder.query.get_or_404(id)
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
 
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
@@ -571,7 +577,7 @@ def approve(id: int):
 @purchase_orders_bp.route("/<int:id>/reject", methods=["POST"])
 @role_required("project_manager", "engineering_manager", "finance", "admin")
 def reject(id: int):
-    purchase_order = PurchaseOrder.query.get_or_404(id)
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
 
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
@@ -596,3 +602,19 @@ def reject(id: int):
 
     flash("تم رفض أمر الشراء.", "success")
     return redirect(url_for("purchase_orders.detail", id=id))
+
+
+@purchase_orders_bp.route("/<int:id>/delete", methods=["POST"])
+@role_required("admin")
+def delete(id: int):
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
+    purchase_order.soft_delete(current_user)
+    db.session.commit()
+    logger.info(
+        "PO soft delete id=%s bo_number=%s deleted_by_id=%s",
+        purchase_order.id,
+        purchase_order.bo_number,
+        current_user.id if current_user.is_authenticated else None,
+    )
+    flash("تم حذف أمر الشراء بنجاح.", "success")
+    return redirect(url_for("purchase_orders.index"))

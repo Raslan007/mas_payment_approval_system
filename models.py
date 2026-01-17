@@ -372,10 +372,32 @@ class PurchaseOrder(db.Model):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+    deleted_at = db.Column(db.DateTime, nullable=True, index=True)
+    deleted_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
 
     project = db.relationship("Project", backref="purchase_orders")
     supplier = db.relationship("Supplier", backref="purchase_orders")
-    created_by = db.relationship("User", backref="purchase_orders")
+    created_by = db.relationship(
+        "User",
+        backref="purchase_orders",
+        foreign_keys=[created_by_id],
+    )
+    deleted_by = db.relationship("User", foreign_keys=[deleted_by_id])
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
+
+    def soft_delete(self, user: User | None) -> None:
+        if self.deleted_at is not None:
+            return
+        self.deleted_at = datetime.utcnow()
+        self.deleted_by_id = user.id if user else None
 
     def recalculate_remaining_amount(self) -> None:
         if self.total_amount is None:

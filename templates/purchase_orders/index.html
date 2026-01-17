@@ -128,6 +128,15 @@
                                     </button>
                                 </form>
                             {% endif %}
+                            {% if can_delete %}
+                                <form action="{{ url_for('purchase_orders.delete', id=po.id) }}" method="post" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('هل أنت متأكد من حذف أمر الشراء؟');">
+                                        <i class="bi bi-trash ms-1"></i>
+                                        حذف
+                                    </button>
+                                </form>
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}
