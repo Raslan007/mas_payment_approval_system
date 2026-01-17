@@ -664,10 +664,59 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(
-            "الدفعة المقدمة أكبر من الرصيد المتبقي لأمر الشراء.".encode("utf-8"),
+            "رصيد أمر الشراء المتاح غير كافٍ لهذه الدفعة.".encode("utf-8"),
             response.data,
         )
         self.assertEqual(PaymentRequest.query.count(), 0)
+
+    def test_create_purchase_order_payment_allows_full_advance_once(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("41000.00"),
+            advance_amount=Decimal("41000.00"),
+        )
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": PURCHASE_ORDER_REQUEST_TYPE,
+                "amount": "10.00",
+                "description": "prefill test",
+                "purchase_order_id": purchase_order.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        payment = PaymentRequest.query.order_by(PaymentRequest.id.desc()).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.purchase_order_id, purchase_order.id)
+        self.assertEqual(Decimal(str(payment.amount)), Decimal("41000.00"))
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        response_second = self.client.post(
+            "/payments/create",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "request_type": PURCHASE_ORDER_REQUEST_TYPE,
+                "amount": "10.00",
+                "description": "prefill test",
+                "purchase_order_id": purchase_order.id,
+            },
+        )
+
+        self.assertEqual(response_second.status_code, 200)
+        self.assertIn(
+            "تم صرف كامل مبلغ أمر الشراء ولا يمكن إضافة دفعة أخرى.".encode("utf-8"),
+            response_second.data,
+        )
+        self.assertEqual(PaymentRequest.query.count(), 1)
 
     def test_engineer_cannot_edit_payment_to_other_project(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
