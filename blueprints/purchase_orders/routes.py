@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import logging
 
 from flask import render_template, request, redirect, url_for, flash, abort
 from flask_login import current_user
-from sqlalchemy import false, func
+from sqlalchemy import false, func, inspect
 from sqlalchemy.orm import selectinload
 
 from extensions import db
@@ -171,8 +172,27 @@ def _get_approval_target(status: str, normalized_role: str | None) -> str | None
     return stage["next_status"]
 
 
+@lru_cache(maxsize=1)
+def _purchase_orders_column_names() -> set[str]:
+    inspector = inspect(db.engine)
+    if not inspector.has_table("purchase_orders"):
+        return set()
+    return {column["name"] for column in inspector.get_columns("purchase_orders")}
+
+
+def _purchase_orders_has_deleted_at() -> bool:
+    return "deleted_at" in _purchase_orders_column_names()
+
+
+def _purchase_orders_has_soft_delete_fields() -> bool:
+    column_names = _purchase_orders_column_names()
+    return "deleted_at" in column_names and "deleted_by_id" in column_names
+
+
 def _active_purchase_orders_query():
-    return PurchaseOrder.query.filter(PurchaseOrder.deleted_at.is_(None))
+    if _purchase_orders_has_deleted_at():
+        return PurchaseOrder.query.filter(PurchaseOrder.deleted_at.is_(None))
+    return PurchaseOrder.query
 
 
 @purchase_orders_bp.route("/")
@@ -607,6 +627,14 @@ def reject(id: int):
 @purchase_orders_bp.route("/<int:id>/delete", methods=["POST"])
 @role_required("admin")
 def delete(id: int):
+    if not _purchase_orders_has_soft_delete_fields():
+        flash("لا يمكن حذف أمر الشراء حالياً. يرجى إعادة المحاولة لاحقاً.", "danger")
+        logger.warning(
+            "PO soft delete attempted before schema patch; id=%s",
+            id,
+        )
+        return redirect(url_for("purchase_orders.detail", id=id))
+
     purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
     purchase_order.soft_delete(current_user)
     db.session.commit()
