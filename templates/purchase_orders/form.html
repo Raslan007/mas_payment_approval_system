@@ -3,6 +3,7 @@
 
 {% block content %}
 {% set is_edit = purchase_order is not none %}
+{% set due_date_missing = (not is_edit) or (purchase_order and not purchase_order.due_date) %}
 
 <div class="mb-3">
     <h1 class="h5 mb-1">{{ page_title or ("تعديل أمر شراء" if is_edit else "إضافة أمر شراء") }}</h1>
@@ -13,6 +14,11 @@
 
 <div class="card border-0 shadow-sm">
     <div class="card-body">
+        {% if due_date_missing %}
+            <div class="alert alert-warning small mb-3" role="alert">
+                يفضل إضافة تاريخ الاستحقاق لتسهيل متابعة الالتزامات.
+            </div>
+        {% endif %}
         <form method="post" action="{{ action_url }}" class="row g-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -95,6 +101,19 @@
                     id="advance_amount"
                     name="advance_amount"
                     value="{{ purchase_order.advance_amount if is_edit else '' }}">
+            </div>
+
+            <div class="col-12 col-md-4">
+                <label for="due_date" class="form-label">تاريخ الاستحقاق</label>
+                <input
+                    type="date"
+                    class="form-control"
+                    id="due_date"
+                    name="due_date"
+                    value="{{ purchase_order.due_date.strftime('%Y-%m-%d') if is_edit and purchase_order.due_date else '' }}">
+                {% if due_date_missing %}
+                    <div class="form-text text-warning">يُستحسن تحديد تاريخ الاستحقاق عند توفره.</div>
+                {% endif %}
             </div>
 
             <div class="col-12 col-md-4">
