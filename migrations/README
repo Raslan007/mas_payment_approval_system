@@ -1,0 +1,4 @@
+Alembic migration scripts for the application.
+
+This directory is managed by Flask-Migrate and Alembic. The versions/ folder
+contains migration scripts; do not delete existing revisions.
