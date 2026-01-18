@@ -16,28 +16,31 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(inspector, table_name: str, column_name: str) -> bool:
+    return any(c["name"] == column_name for c in inspector.get_columns(table_name))
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
-    def has_column(table: str, column: str) -> bool:
-        return any(
-            c["name"] == column for c in inspector.get_columns(table)
-        )
-
-    if not has_column("payment_requests", "purchase_order_reserved_at"):
+    if not _has_column(inspector, "payment_requests", "purchase_order_reserved_at"):
         op.add_column(
             "payment_requests",
             sa.Column("purchase_order_reserved_at", sa.DateTime(), nullable=True),
         )
-    if not has_column("payment_requests", "purchase_order_reserved_amount"):
+
+    if not _has_column(
+        inspector, "payment_requests", "purchase_order_reserved_amount"
+    ):
         op.add_column(
             "payment_requests",
             sa.Column(
                 "purchase_order_reserved_amount", sa.Numeric(14, 2), nullable=True
             ),
         )
-    if not has_column("payment_requests", "purchase_order_finalized_at"):
+
+    if not _has_column(inspector, "payment_requests", "purchase_order_finalized_at"):
         op.add_column(
             "payment_requests",
             sa.Column("purchase_order_finalized_at", sa.DateTime(), nullable=True),
@@ -48,14 +51,11 @@ def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
-    def has_column(table: str, column: str) -> bool:
-        return any(
-            c["name"] == column for c in inspector.get_columns(table)
-        )
-
-    if has_column("payment_requests", "purchase_order_reserved_amount"):
-        op.drop_column("payment_requests", "purchase_order_reserved_amount")
-    if has_column("payment_requests", "purchase_order_reserved_at"):
-        op.drop_column("payment_requests", "purchase_order_reserved_at")
-    if has_column("payment_requests", "purchase_order_finalized_at"):
+    if _has_column(inspector, "payment_requests", "purchase_order_finalized_at"):
         op.drop_column("payment_requests", "purchase_order_finalized_at")
+
+    if _has_column(inspector, "payment_requests", "purchase_order_reserved_amount"):
+        op.drop_column("payment_requests", "purchase_order_reserved_amount")
+
+    if _has_column(inspector, "payment_requests", "purchase_order_reserved_at"):
+        op.drop_column("payment_requests", "purchase_order_reserved_at")
