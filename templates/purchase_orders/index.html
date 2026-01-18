@@ -115,11 +115,13 @@
                                 <i class="bi bi-eye ms-1"></i>
                                 عرض
                             </a>
-                            {% if can_create and po.status == 'draft' %}
+                            {% if (can_create or can_edit_override) and (po.status != 'eng_approved' or can_edit_override) %}
                                 <a href="{{ url_for('purchase_orders.edit', id=po.id) }}" class="btn btn-sm btn-outline-primary me-1">
                                     <i class="bi bi-pencil-square ms-1"></i>
                                     تعديل
                                 </a>
+                            {% endif %}
+                            {% if can_create and po.status == 'draft' %}
                                 <form action="{{ url_for('purchase_orders.submit', id=po.id) }}" method="post" class="d-inline">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-sm btn-outline-success" onclick="return confirm('هل تريد إرسال أمر الشراء؟');">

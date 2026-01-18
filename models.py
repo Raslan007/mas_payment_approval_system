@@ -370,6 +370,7 @@ class PurchaseOrder(db.Model):
         default=Decimal("0.00"),
     )
     remaining_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    due_date = db.Column(db.Date, nullable=True)
     status = db.Column(
         db.String(30),
         nullable=False,

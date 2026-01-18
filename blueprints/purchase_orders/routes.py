@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 import logging
@@ -42,6 +43,7 @@ VIEW_ROLES = (
 )
 
 EDIT_ROLES = ("procurement", "admin")
+EDIT_OVERRIDE_ROLES = ("engineering_manager",)
 
 STATUS_META = {
     PURCHASE_ORDER_STATUS_DRAFT: {
@@ -136,6 +138,31 @@ def _parse_decimal_amount(value: str | None) -> Decimal | None:
     if not parsed.is_finite():
         return None
     return parsed
+
+
+def _parse_due_date(value: str | None) -> date | None:
+    if value is None:
+        return None
+    raw_value = value.strip()
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _is_edit_locked(purchase_order: PurchaseOrder, normalized_role: str | None) -> bool:
+    return (
+        purchase_order.status == PURCHASE_ORDER_STATUS_ENG_APPROVED
+        and normalized_role != "engineering_manager"
+    )
+
+
+def _can_edit_purchase_order(purchase_order: PurchaseOrder, normalized_role: str | None) -> bool:
+    return (
+        normalized_role in EDIT_ROLES or normalized_role in EDIT_OVERRIDE_ROLES
+    ) and not _is_edit_locked(purchase_order, normalized_role)
 
 
 def _quantize_amount(value: Decimal) -> Decimal:
@@ -248,6 +275,7 @@ def index():
 
     projects = _load_projects(normalized_role, scoped_ids)
     can_create = normalized_role in EDIT_ROLES
+    can_edit_override = normalized_role in EDIT_OVERRIDE_ROLES
     can_delete = normalized_role == "admin"
     pagination_params = {
         key: value
@@ -263,6 +291,7 @@ def index():
         projects=projects,
         status_meta=STATUS_META,
         can_create=can_create,
+        can_edit_override=can_edit_override,
         can_delete=can_delete,
         pagination_params=pagination_params,
         page=page,
@@ -301,8 +330,10 @@ def create():
     project_id = request.form.get("project_id", type=int)
     total_amount_raw = request.form.get("total_amount")
     advance_amount_raw = request.form.get("advance_amount")
+    due_date_raw = request.form.get("due_date")
     total_amount = _parse_decimal_amount(total_amount_raw)
     advance_amount = _parse_decimal_amount(advance_amount_raw)
+    due_date = _parse_due_date(due_date_raw)
     if advance_amount_raw is None or not advance_amount_raw.strip():
         advance_amount = Decimal("0.00")
     if total_amount is not None:
@@ -321,6 +352,8 @@ def create():
         errors.append("يرجى إدخال إجمالي المبلغ بشكل صحيح.")
     if advance_amount_raw and advance_amount is None:
         errors.append("يرجى إدخال مبلغ الدفعة المقدمة بشكل صحيح.")
+    if due_date_raw and due_date is None:
+        errors.append("يرجى إدخال تاريخ الاستحقاق بشكل صحيح.")
 
     if total_amount is not None and total_amount < 0:
         errors.append("إجمالي المبلغ يجب ألا يكون سالباً.")
@@ -376,6 +409,7 @@ def create():
         total_amount=total_amount,
         advance_amount=advance_amount,
         remaining_amount=remaining_amount,
+        due_date=due_date,
         status=PURCHASE_ORDER_STATUS_DRAFT,
         created_by_id=current_user.id,
     )
@@ -383,6 +417,8 @@ def create():
     db.session.add(purchase_order)
     db.session.commit()
     flash("تم إنشاء أمر الشراء بنجاح.", "success")
+    if due_date is None:
+        flash("يفضل إضافة تاريخ الاستحقاق لتسهيل المتابعة.", "warning")
     return redirect(url_for("purchase_orders.detail", id=purchase_order.id))
 
 
@@ -401,7 +437,8 @@ def detail(id: int):
     approval_target = _get_approval_target(purchase_order.status, normalized_role)
     can_approve = approval_target is not None
     can_reject = approval_target is not None
-    can_edit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
+    can_edit = _can_edit_purchase_order(purchase_order, normalized_role)
+    can_submit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
 
     return render_template(
         "purchase_orders/detail.html",
@@ -409,6 +446,7 @@ def detail(id: int):
         status_meta=_status_meta(purchase_order.status),
         status_meta_map=STATUS_META,
         can_edit=can_edit,
+        can_submit=can_submit,
         can_approve=can_approve,
         can_reject=can_reject,
         page_title=f"أمر شراء رقم {purchase_order.bo_number}",
@@ -416,14 +454,13 @@ def detail(id: int):
 
 
 @purchase_orders_bp.route("/<int:id>/edit")
-@role_required(*EDIT_ROLES)
+@role_required(*EDIT_ROLES, *EDIT_OVERRIDE_ROLES)
 def edit(id: int):
     purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
-    if purchase_order.status != PURCHASE_ORDER_STATUS_DRAFT:
-        flash("لا يمكن تعديل أمر شراء بعد الإرسال.", "warning")
-        return redirect(url_for("purchase_orders.detail", id=id))
-
     normalized_role, scoped_ids = _scoped_project_ids()
+    if _is_edit_locked(purchase_order, normalized_role):
+        flash("لا يمكن تعديل أمر الشراء بعد الاعتماد الهندسي.", "warning")
+        return redirect(url_for("purchase_orders.detail", id=id))
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
     projects = _load_projects(normalized_role, scoped_ids)
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
@@ -441,14 +478,13 @@ def edit(id: int):
 
 
 @purchase_orders_bp.route("/<int:id>/update", methods=["POST"])
-@role_required(*EDIT_ROLES)
+@role_required(*EDIT_ROLES, *EDIT_OVERRIDE_ROLES)
 def update(id: int):
     purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
-    if purchase_order.status != PURCHASE_ORDER_STATUS_DRAFT:
-        flash("لا يمكن تعديل أمر شراء بعد الإرسال.", "warning")
-        return redirect(url_for("purchase_orders.detail", id=id))
-
     normalized_role, scoped_ids = _scoped_project_ids()
+    if _is_edit_locked(purchase_order, normalized_role):
+        flash("لا يمكن تعديل أمر الشراء بعد الاعتماد الهندسي.", "warning")
+        return redirect(url_for("purchase_orders.detail", id=id))
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
     bo_number = (request.form.get("bo_number") or "").strip()
@@ -457,8 +493,10 @@ def update(id: int):
     project_id = request.form.get("project_id", type=int)
     total_amount_raw = request.form.get("total_amount")
     advance_amount_raw = request.form.get("advance_amount")
+    due_date_raw = request.form.get("due_date")
     total_amount = _parse_decimal_amount(total_amount_raw)
     advance_amount = _parse_decimal_amount(advance_amount_raw)
+    due_date = _parse_due_date(due_date_raw)
     if advance_amount_raw is None or not advance_amount_raw.strip():
         advance_amount = Decimal("0.00")
     if total_amount is not None:
@@ -477,6 +515,8 @@ def update(id: int):
         errors.append("يرجى إدخال إجمالي المبلغ بشكل صحيح.")
     if advance_amount_raw and advance_amount is None:
         errors.append("يرجى إدخال مبلغ الدفعة المقدمة بشكل صحيح.")
+    if due_date_raw and due_date is None:
+        errors.append("يرجى إدخال تاريخ الاستحقاق بشكل صحيح.")
 
     if total_amount is not None and total_amount < 0:
         errors.append("إجمالي المبلغ يجب ألا يكون سالباً.")
@@ -527,12 +567,15 @@ def update(id: int):
     purchase_order.supplier_name = supplier.name
     purchase_order.total_amount = total_amount
     purchase_order.advance_amount = advance_amount
+    purchase_order.due_date = due_date
     purchase_order.remaining_amount = _quantize_amount(
         (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
     )
 
     db.session.commit()
     flash("تم تحديث أمر الشراء بنجاح.", "success")
+    if due_date is None:
+        flash("يفضل إضافة تاريخ الاستحقاق لتسهيل المتابعة.", "warning")
     return redirect(url_for("purchase_orders.detail", id=id))
 
 
