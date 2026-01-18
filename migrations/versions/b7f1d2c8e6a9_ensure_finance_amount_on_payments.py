@@ -1,7 +1,7 @@
 """Ensure finance_amount column exists on payment_requests.
 
 Revision ID: b7f1d2c8e6a9
-Revises: a4b2c1d9f0ab
+Revises: 
 Create Date: 2025-02-15 00:00:01.000000
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy import inspect, text
 
 # revision identifiers, used by Alembic.
 revision = "b7f1d2c8e6a9"
-down_revision = "a4b2c1d9f0ab"
+down_revision = None
 branch_labels = None
 depends_on = None
 
