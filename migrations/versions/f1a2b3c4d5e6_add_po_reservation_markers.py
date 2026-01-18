@@ -23,6 +23,8 @@ def _has_column(inspector, table_name: str, column_name: str) -> bool:
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    if not inspector.has_table("payment_requests"):
+        return
 
     if not _has_column(inspector, "payment_requests", "purchase_order_reserved_at"):
         op.add_column(
@@ -50,6 +52,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    if not inspector.has_table("payment_requests"):
+        return
 
     if _has_column(inspector, "payment_requests", "purchase_order_finalized_at"):
         op.drop_column("payment_requests", "purchase_order_finalized_at")

@@ -8,9 +8,11 @@
 ## Build & start commands (Render)
 - **Build Command:** `pip install -r requirements.txt`
 - **Pre-Deploy Command:** `flask --app app:app db upgrade`
-- **Start Command:** `gunicorn "app:app" --bind 0.0.0.0:$PORT`
+- **Start Command:** `gunicorn app:app`
 
 Use Render's **Pre-Deploy Command** to apply Flask-Migrate migrations before the web service starts. This keeps schema changes in sync while keeping the runtime start command focused on launching the server. The `--app app:app` flag makes the command work in non-interactive environments without relying on `FLASK_APP`.
+
+Set `RUN_STARTUP_MIGRATIONS=0` (or remove the variable entirely) in Render production so startup migrations only run when explicitly enabled.
 
 If you add or upgrade dependencies, use **Settings → Clear build cache** in Render before redeploying to ensure a clean environment.
 

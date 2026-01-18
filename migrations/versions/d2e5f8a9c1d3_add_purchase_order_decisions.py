@@ -69,16 +69,22 @@ def downgrade() -> None:
     inspector = sa.inspect(bind)
     if "purchase_order_decisions" not in inspector.get_table_names():
         return
-    op.drop_index(
-        "ix_purchase_order_decisions_decided_at",
-        table_name="purchase_order_decisions",
-    )
-    op.drop_index(
-        "ix_purchase_order_decisions_decided_by_id",
-        table_name="purchase_order_decisions",
-    )
-    op.drop_index(
-        "ix_purchase_order_decisions_purchase_order_id",
-        table_name="purchase_order_decisions",
-    )
+    indexes = {
+        index["name"] for index in inspector.get_indexes("purchase_order_decisions")
+    }
+    if "ix_purchase_order_decisions_decided_at" in indexes:
+        op.drop_index(
+            "ix_purchase_order_decisions_decided_at",
+            table_name="purchase_order_decisions",
+        )
+    if "ix_purchase_order_decisions_decided_by_id" in indexes:
+        op.drop_index(
+            "ix_purchase_order_decisions_decided_by_id",
+            table_name="purchase_order_decisions",
+        )
+    if "ix_purchase_order_decisions_purchase_order_id" in indexes:
+        op.drop_index(
+            "ix_purchase_order_decisions_purchase_order_id",
+            table_name="purchase_order_decisions",
+        )
     op.drop_table("purchase_order_decisions")

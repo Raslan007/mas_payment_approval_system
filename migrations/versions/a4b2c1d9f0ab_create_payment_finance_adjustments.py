@@ -89,24 +89,32 @@ def downgrade() -> None:
     if "payment_finance_adjustments" not in inspector.get_table_names():
         return
 
-    op.drop_index(
-        "ix_payment_finance_adjustments_voided_by_user_id",
-        table_name="payment_finance_adjustments",
-    )
-    op.drop_index(
-        "ix_payment_finance_adjustments_is_void",
-        table_name="payment_finance_adjustments",
-    )
-    op.drop_index(
-        "ix_payment_finance_adjustments_created_at",
-        table_name="payment_finance_adjustments",
-    )
-    op.drop_index(
-        "ix_payment_finance_adjustments_created_by_user_id",
-        table_name="payment_finance_adjustments",
-    )
-    op.drop_index(
-        "ix_payment_finance_adjustments_payment_id",
-        table_name="payment_finance_adjustments",
-    )
+    indexes = {
+        index["name"] for index in inspector.get_indexes("payment_finance_adjustments")
+    }
+    if "ix_payment_finance_adjustments_voided_by_user_id" in indexes:
+        op.drop_index(
+            "ix_payment_finance_adjustments_voided_by_user_id",
+            table_name="payment_finance_adjustments",
+        )
+    if "ix_payment_finance_adjustments_is_void" in indexes:
+        op.drop_index(
+            "ix_payment_finance_adjustments_is_void",
+            table_name="payment_finance_adjustments",
+        )
+    if "ix_payment_finance_adjustments_created_at" in indexes:
+        op.drop_index(
+            "ix_payment_finance_adjustments_created_at",
+            table_name="payment_finance_adjustments",
+        )
+    if "ix_payment_finance_adjustments_created_by_user_id" in indexes:
+        op.drop_index(
+            "ix_payment_finance_adjustments_created_by_user_id",
+            table_name="payment_finance_adjustments",
+        )
+    if "ix_payment_finance_adjustments_payment_id" in indexes:
+        op.drop_index(
+            "ix_payment_finance_adjustments_payment_id",
+            table_name="payment_finance_adjustments",
+        )
     op.drop_table("payment_finance_adjustments")

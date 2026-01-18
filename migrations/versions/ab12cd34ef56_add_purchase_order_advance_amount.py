@@ -19,6 +19,8 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    if not inspector.has_table("purchase_orders"):
+        return
     columns = {column["name"] for column in inspector.get_columns("purchase_orders")}
     if "advance_amount" not in columns:
         op.add_column(
@@ -42,6 +44,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    if not inspector.has_table("purchase_orders"):
+        return
     columns = {column["name"] for column in inspector.get_columns("purchase_orders")}
     if "advance_amount" in columns:
         op.drop_column("purchase_orders", "advance_amount")
