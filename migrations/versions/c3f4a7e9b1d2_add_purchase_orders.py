@@ -1,7 +1,7 @@
 """Add purchase orders table.
 
 Revision ID: c3f4a7e9b1d2
-Revises: b7f1d2c8e6a9
+Revises: a4b2c1d9f0ab
 Create Date: 2025-02-16 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "c3f4a7e9b1d2"
-down_revision = "b7f1d2c8e6a9"
+down_revision = "a4b2c1d9f0ab"
 branch_labels = None
 depends_on = None
 

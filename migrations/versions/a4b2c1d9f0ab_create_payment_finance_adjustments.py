@@ -1,7 +1,7 @@
 """Create payment finance adjustments table.
 
 Revision ID: a4b2c1d9f0ab
-Revises: 
+Revises: b7f1d2c8e6a9
 Create Date: 2025-02-15 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "a4b2c1d9f0ab"
-down_revision = None
+down_revision = "b7f1d2c8e6a9"
 branch_labels = None
 depends_on = None
 
