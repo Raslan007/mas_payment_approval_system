@@ -37,6 +37,11 @@ def upgrade() -> None:
                 "purchase_order_reserved_amount", sa.Numeric(14, 2), nullable=True
             ),
         )
+    if not has_column("payment_requests", "purchase_order_finalized_at"):
+        op.add_column(
+            "payment_requests",
+            sa.Column("purchase_order_finalized_at", sa.DateTime(), nullable=True),
+        )
 
 
 def downgrade() -> None:
@@ -52,3 +57,5 @@ def downgrade() -> None:
         op.drop_column("payment_requests", "purchase_order_reserved_amount")
     if has_column("payment_requests", "purchase_order_reserved_at"):
         op.drop_column("payment_requests", "purchase_order_reserved_at")
+    if has_column("payment_requests", "purchase_order_finalized_at"):
+        op.drop_column("payment_requests", "purchase_order_finalized_at")
