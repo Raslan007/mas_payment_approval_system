@@ -17,6 +17,10 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "purchase_orders" in inspector.get_table_names():
+        return
     op.create_table(
         "purchase_orders",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -80,6 +84,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "purchase_orders" not in inspector.get_table_names():
+        return
     op.drop_index("uq_purchase_orders_bo_number_ci", table_name="purchase_orders")
     op.drop_index("ix_purchase_orders_created_by_id", table_name="purchase_orders")
     op.drop_index("ix_purchase_orders_project_id", table_name="purchase_orders")
