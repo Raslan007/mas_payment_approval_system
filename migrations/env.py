@@ -1,6 +1,7 @@
 from __future__ import with_statement
 
 import logging
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -8,8 +9,11 @@ from flask import current_app
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+config_file_name = config.config_file_name
+if config_file_name:
+    config_path = os.path.abspath(config_file_name)
+    if os.path.exists(config_path):
+        fileConfig(config_path)
 
 logger = logging.getLogger("alembic.env")
 
