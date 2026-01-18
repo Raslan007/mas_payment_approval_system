@@ -7,10 +7,10 @@
 
 ## Build & start commands (Render)
 - **Build Command:** `pip install -r requirements.txt`
-- **Pre-Deploy Command:** `alembic upgrade head`
+- **Pre-Deploy Command:** `flask --app app:app db upgrade`
 - **Start Command:** `gunicorn "app:app" --bind 0.0.0.0:$PORT`
 
-Use Render's **Pre-Deploy Command** to apply Alembic migrations before the web service starts. This keeps schema changes in sync while keeping the runtime start command focused on launching the server.
+Use Render's **Pre-Deploy Command** to apply Flask-Migrate migrations before the web service starts. This keeps schema changes in sync while keeping the runtime start command focused on launching the server. The `--app app:app` flag makes the command work in non-interactive environments without relying on `FLASK_APP`.
 
 If you add or upgrade dependencies, use **Settings → Clear build cache** in Render before redeploying to ensure a clean environment.
 
