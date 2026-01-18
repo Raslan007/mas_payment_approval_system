@@ -17,6 +17,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "payment_finance_adjustments" in inspector.get_table_names():
+        return
+
     op.create_table(
         "payment_finance_adjustments",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -79,6 +84,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "payment_finance_adjustments" not in inspector.get_table_names():
+        return
+
     op.drop_index(
         "ix_payment_finance_adjustments_voided_by_user_id",
         table_name="payment_finance_adjustments",
