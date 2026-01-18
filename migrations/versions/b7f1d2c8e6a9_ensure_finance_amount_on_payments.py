@@ -20,6 +20,8 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = inspect(bind)
+    if not inspector.has_table("payment_requests"):
+        return
     columns = {col["name"] for col in inspector.get_columns("payment_requests")}
 
     if "finance_amount" not in columns:

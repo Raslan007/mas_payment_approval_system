@@ -17,8 +17,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("purchase_orders", sa.Column("due_date", sa.Date(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("purchase_orders"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("purchase_orders")}
+    if "due_date" not in columns:
+        op.add_column("purchase_orders", sa.Column("due_date", sa.Date(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("purchase_orders", "due_date")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("purchase_orders"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("purchase_orders")}
+    if "due_date" in columns:
+        op.drop_column("purchase_orders", "due_date")

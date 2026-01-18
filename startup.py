@@ -252,11 +252,21 @@ def ensure_purchase_order_supplier_id_column() -> None:
 
 
 def run_startup_tasks() -> None:
-    if os.getenv("RUN_STARTUP_MIGRATIONS") != "1":
+    run_startup_migrations = os.getenv("RUN_STARTUP_MIGRATIONS")
+    if run_startup_migrations != "1":
+        reason = (
+            "not set"
+            if run_startup_migrations is None
+            else f"set to '{run_startup_migrations}'"
+        )
         current_app.logger.info(
-            "Skipping startup tasks; RUN_STARTUP_MIGRATIONS is not set to '1'."
+            "Skipping startup tasks; RUN_STARTUP_MIGRATIONS is %s (expected '1').",
+            reason,
         )
         return
+    current_app.logger.info(
+        "Startup migrations enabled; RUN_STARTUP_MIGRATIONS=1."
+    )
 
     if db.engine.dialect.name != "postgresql":
         current_app.logger.info(

@@ -17,11 +17,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "payment_requests",
-        sa.Column("purchase_order_finalized_at", sa.DateTime(), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("payment_requests"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("payment_requests")}
+    if "purchase_order_finalized_at" not in columns:
+        op.add_column(
+            "payment_requests",
+            sa.Column("purchase_order_finalized_at", sa.DateTime(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("payment_requests", "purchase_order_finalized_at")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("payment_requests"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("payment_requests")}
+    if "purchase_order_finalized_at" in columns:
+        op.drop_column("payment_requests", "purchase_order_finalized_at")
