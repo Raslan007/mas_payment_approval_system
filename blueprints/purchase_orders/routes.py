@@ -48,27 +48,27 @@ EDIT_OVERRIDE_ROLES = ("engineering_manager",)
 STATUS_META = {
     PURCHASE_ORDER_STATUS_DRAFT: {
         "label": "مسودة",
-        "class": "badge-status status-draft",
+        "class": "bg-secondary",
     },
     PURCHASE_ORDER_STATUS_SUBMITTED: {
         "label": "مرسل",
-        "class": "badge-status badge-status--pending",
+        "class": "bg-warning",
     },
     PURCHASE_ORDER_STATUS_PM_APPROVED: {
         "label": "معتمد من مدير المشروع",
-        "class": "badge-status badge-status--pending",
+        "class": "bg-warning",
     },
     PURCHASE_ORDER_STATUS_ENG_APPROVED: {
         "label": "معتمد من الإدارة الهندسية",
-        "class": "badge-status badge-status--pending",
+        "class": "bg-warning",
     },
     PURCHASE_ORDER_STATUS_FINANCE_APPROVED: {
         "label": "معتمد من المالية",
-        "class": "badge-status badge-status--success",
+        "class": "bg-success",
     },
     PURCHASE_ORDER_STATUS_REJECTED: {
         "label": "مرفوض",
-        "class": "badge-status badge-status--danger",
+        "class": "bg-danger",
     },
 }
 
@@ -179,7 +179,7 @@ def _load_projects(normalized_role: str | None, scoped_ids: list[int]) -> list[P
 
 
 def _status_meta(status: str) -> dict[str, str]:
-    return STATUS_META.get(status, {"label": status, "class": "badge bg-secondary"})
+    return STATUS_META.get(status, {"label": status, "class": "bg-secondary"})
 
 
 def _approval_stage(status: str) -> dict[str, str] | None:

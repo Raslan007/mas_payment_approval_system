@@ -2,7 +2,7 @@
 {% block title %}{{ page_title or "تفاصيل أمر الشراء" }}{% endblock %}
 
 {% block content %}
-{% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'badge bg-secondary'} %}
+{% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'bg-secondary'} %}
 {% set status_labels = status_meta_map if status_meta_map is defined else {} %}
 {% set action_labels = {'submit': 'إرسال', 'approve': 'اعتماد', 'reject': 'رفض'} %}
 

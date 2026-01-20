@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}التعهدات / أوامر الشراء{% endblock %}
+
+{% block content %}
+{% set page_title = "التعهدات / أوامر الشراء" %}
+{% set sort = filters.sort %}
+{% set direction = filters.direction %}
+
+<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h5 mb-1">{{ page_title }}</h1>
+        <p class="text-muted mb-0">
+            متابعة التزامات أوامر الشراء بما يشمل الدفعات المسددة والرصيد المتبقي.
+        </p>
+    </div>
+    <div class="d-flex align-items-center">
+        <a href="{{ url_for('main.eng_dashboard') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-diagram-3 ms-1"></i>
+            لوحة الإدارة الهندسية
+        </a>
+    </div>
+</div>
+
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-5 g-3 mb-3">
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">عدد أوامر الشراء</span>
+                <i class="bi bi-card-checklist text-primary"></i>
+            </div>
+            <div class="h4 mb-0">{{ total_count }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي الالتزامات</span>
+                <i class="bi bi-wallet2 text-primary"></i>
+            </div>
+            <div class="h4 mb-0">{{ total_commitments | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي المبالغ المحجوزة</span>
+                <i class="bi bi-shield-check text-info"></i>
+            </div>
+            <div class="h4 mb-0">{{ total_reserved | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي المدفوع</span>
+                <i class="bi bi-cash-coin text-success"></i>
+            </div>
+            <div class="h4 mb-0">{{ total_paid | num(2) }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="bg-white rounded-3 shadow-sm h-100 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">إجمالي المتبقي</span>
+                <i class="bi bi-hourglass-split text-warning"></i>
+            </div>
+            <div class="h4 mb-0">{{ total_remaining | num(2) }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="filter_project">المشروع</label>
+                <select class="form-select form-select-sm" name="project_id" id="filter_project">
+                    <option value="">كل المشاريع</option>
+                    {% for project in projects %}
+                        <option value="{{ project.id }}" {% if filters.project_id == project.id %}selected{% endif %}>
+                            {{ project.project_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label" for="filter_status">الحالة</label>
+                <select class="form-select form-select-sm" name="status" id="filter_status">
+                    <option value="">كل الحالات</option>
+                    {% for key, meta in status_meta.items() %}
+                        <option value="{{ key }}" {% if filters.status == key %}selected{% endif %}>
+                            {{ meta.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label" for="filter_bo_number">رقم BO</label>
+                <input
+                    type="text"
+                    class="form-control form-control-sm"
+                    name="bo_number"
+                    id="filter_bo_number"
+                    value="{{ filters.bo_number }}"
+                    placeholder="مثل BO-123">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="filter_supplier">المورد</label>
+                <input
+                    type="text"
+                    class="form-control form-control-sm"
+                    name="supplier_name"
+                    id="filter_supplier"
+                    value="{{ filters.supplier_name }}"
+                    placeholder="اسم المورد">
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+                <button type="submit" class="btn btn-outline-primary btn-sm">بحث</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% macro sort_indicator(field) -%}
+    {% if sort == field %}
+        <span class="text-muted small">{% if direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+    {% endif %}
+{%- endmacro %}
+
+<div class="bg-white p-3 rounded-3 shadow-sm card-table">
+    <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0">
+            <thead>
+            <tr>
+                <th class="text-center" style="width: 70px;">#</th>
+                <th>
+                    {% set next_direction = 'asc' if sort != 'bo_number' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='bo_number', direction=next_direction) }}">
+                        رقم BO {{ sort_indicator('bo_number') }}
+                    </a>
+                </th>
+                <th>
+                    {% set next_direction = 'asc' if sort != 'project' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='project', direction=next_direction) }}">
+                        المشروع {{ sort_indicator('project') }}
+                    </a>
+                </th>
+                <th>
+                    {% set next_direction = 'asc' if sort != 'supplier' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='supplier', direction=next_direction) }}">
+                        المورد {{ sort_indicator('supplier') }}
+                    </a>
+                </th>
+                <th>
+                    {% set next_direction = 'asc' if sort != 'status' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='status', direction=next_direction) }}">
+                        الحالة {{ sort_indicator('status') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'due_date' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='due_date', direction=next_direction) }}">
+                        تاريخ الاستحقاق {{ sort_indicator('due_date') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'total_amount' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='total_amount', direction=next_direction) }}">
+                        الإجمالي {{ sort_indicator('total_amount') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'advance_amount' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='advance_amount', direction=next_direction) }}">
+                        الدفعة المقدمة {{ sort_indicator('advance_amount') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'reserved_amount' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='reserved_amount', direction=next_direction) }}">
+                        المحجوز {{ sort_indicator('reserved_amount') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'paid_amount' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='paid_amount', direction=next_direction) }}">
+                        المدفوع {{ sort_indicator('paid_amount') }}
+                    </a>
+                </th>
+                <th class="text-nowrap">
+                    {% set next_direction = 'asc' if sort != 'remaining_amount' or direction == 'desc' else 'desc' %}
+                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='remaining_amount', direction=next_direction) }}">
+                        المتبقي {{ sort_indicator('remaining_amount') }}
+                    </a>
+                </th>
+                <th class="text-center" style="width: 140px;">التفاصيل</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if purchase_orders %}
+                {% for po, paid_amount in purchase_orders %}
+                    {% set meta = status_meta.get(po.status, {'label': po.status, 'class': 'bg-secondary'}) %}
+                    <tr>
+                        <td class="text-center text-muted">{{ po.id }}</td>
+                        <td class="fw-semibold">{{ po.bo_number }}</td>
+                        <td>{{ po.project.project_name if po.project else '-' }}</td>
+                        <td>{{ po.supplier.name if po.supplier else po.supplier_name }}</td>
+                        <td>
+                            <span class="badge {{ meta.class }}">{{ meta.label }}</span>
+                        </td>
+                        <td class="text-muted">
+                            {{ po.due_date.strftime('%Y-%m-%d') if po.due_date else '-' }}
+                        </td>
+                        <td>{{ po.total_amount | num(2) }}</td>
+                        <td>{{ po.advance_amount | num(2) }}</td>
+                        <td>{{ po.reserved_amount | num(2) }}</td>
+                        <td>{{ paid_amount | num(2) }}</td>
+                        <td>{{ po.remaining_amount | num(2) }}</td>
+                        <td class="text-center">
+                            <a href="{{ url_for('purchase_orders.detail', id=po.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-eye ms-1"></i>
+                                عرض
+                            </a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if not purchase_orders %}
+        <p class="text-muted text-center xsmall mt-3 mb-0">
+            لا توجد أوامر شراء مطابقة لخيارات البحث.
+        </p>
+    {% endif %}
+
+    {% if pagination and pagination.pages > 1 %}
+        <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح أوامر الشراء">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('main.eng_commitments', page=pagination.prev_num if pagination.has_prev else 1, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                </li>
+
+                {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('main.eng_commitments', page=p, per_page=pagination.per_page, **pagination_params) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('main.eng_commitments', page=pagination.next_num if pagination.has_next else pagination.page, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                </li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                <span>عدد السجلات في الصفحة:</span>
+                <form method="get" action="{{ url_for('main.eng_commitments') }}" class="d-flex align-items-center gap-2 mb-0">
+                    {% for key, value in pagination_params.items() %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <input type="hidden" name="page" value="1">
+                    <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for size in [20, 50, 100, 200] %}
+                            <option value="{{ size }}" {% if pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </nav>
+    {% endif %}
+</div>
+{% endblock %}

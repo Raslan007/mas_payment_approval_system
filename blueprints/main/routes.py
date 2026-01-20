@@ -1,17 +1,26 @@
 # blueprints/main/routes.py
 
 from datetime import datetime, timedelta
+from functools import lru_cache
 
 from flask import redirect, url_for, render_template, request, flash, current_app, g
 from flask_login import login_required, current_user
-from sqlalchemy import case, func
+from sqlalchemy import case, func, false, or_, inspect
 from sqlalchemy.orm import selectinload
 
 from extensions import db
 from permissions import role_required
 from . import main_bp
 from .dashboard_metrics import build_status_chips
-from models import PaymentRequest, Project, PaymentApproval
+from models import (
+    PaymentRequest,
+    Project,
+    PaymentApproval,
+    PurchaseOrder,
+    Supplier,
+    PaymentFinanceAdjustment,
+)
+from project_scopes import get_scoped_project_ids
 from .navigation import get_launcher_modules
 from .dashboard_helpers import (
     compute_overdue_items,
@@ -19,6 +28,11 @@ from .dashboard_helpers import (
     resolve_sla_thresholds,
 )
 from blueprints.payments.inbox_queries import scoped_inbox_base_query
+from blueprints.payments.routes import PURCHASE_ORDER_EXCLUDED_STATUSES
+from blueprints.purchase_orders.routes import (
+    STATUS_META as PURCHASE_ORDER_STATUS_META,
+    ALLOWED_STATUSES as PURCHASE_ORDER_ALLOWED_STATUSES,
+)
 
 # تعريف الحالات مثل ملف payments.routes
 STATUS_DRAFT = "draft"
@@ -48,6 +62,18 @@ STATUS_GROUPS: dict[str, set[str]] = {
         STATUS_PAID,
     },
 }
+
+
+@lru_cache(maxsize=1)
+def _purchase_orders_column_names() -> set[str]:
+    inspector = inspect(db.engine)
+    if not inspector.has_table("purchase_orders"):
+        return set()
+    return {column["name"] for column in inspector.get_columns("purchase_orders")}
+
+
+def _purchase_orders_has_deleted_at() -> bool:
+    return "deleted_at" in _purchase_orders_column_names()
 
 
 def _scoped_dashboard_query():
@@ -795,4 +821,205 @@ def eng_dashboard():
         pending_by_project=pending_by_project,
         waiting_by_project=waiting_by_project,
         recent_eng_logs=recent_eng_logs,
+    )
+
+
+@main_bp.route("/eng-dashboard/commitments")
+@role_required("admin", "engineering_manager", "chairman")
+def eng_commitments():
+    normalized_role = current_user.role.name if current_user.role else None
+    if normalized_role == "project_engineer":
+        normalized_role = "engineer"
+
+    scoped_ids = get_scoped_project_ids(current_user, role_name=normalized_role)
+
+    filters = {
+        "project_id": request.args.get("project_id", type=int),
+        "status": (request.args.get("status") or "").strip(),
+        "bo_number": (request.args.get("bo_number") or "").strip(),
+        "supplier_name": (request.args.get("supplier_name") or "").strip(),
+        "sort": (request.args.get("sort") or "due_date").strip(),
+        "direction": (request.args.get("direction") or "asc").strip(),
+    }
+
+    if filters["status"] not in PURCHASE_ORDER_ALLOWED_STATUSES:
+        filters["status"] = ""
+
+    if filters["direction"] not in {"asc", "desc"}:
+        filters["direction"] = "asc"
+
+    adjustments_subq = (
+        db.session.query(
+            PaymentFinanceAdjustment.payment_id.label("payment_id"),
+            func.coalesce(func.sum(PaymentFinanceAdjustment.delta_amount), 0).label(
+                "adjustments_total"
+            ),
+        )
+        .filter(PaymentFinanceAdjustment.is_void.is_(False))
+        .group_by(PaymentFinanceAdjustment.payment_id)
+        .subquery()
+    )
+
+    effective_amount_expr = (
+        func.coalesce(PaymentRequest.finance_amount, 0)
+        + func.coalesce(adjustments_subq.c.adjustments_total, 0)
+    )
+
+    paid_subq = (
+        db.session.query(
+            PaymentRequest.purchase_order_id.label("purchase_order_id"),
+            func.coalesce(func.sum(effective_amount_expr), 0).label("paid_amount"),
+        )
+        .outerjoin(
+            adjustments_subq,
+            PaymentRequest.id == adjustments_subq.c.payment_id,
+        )
+        .filter(
+            PaymentRequest.purchase_order_id.isnot(None),
+            PaymentRequest.status == STATUS_PAID,
+            PaymentRequest.purchase_order_finalized_at.isnot(None),
+        )
+        .group_by(PaymentRequest.purchase_order_id)
+        .subquery()
+    )
+
+    paid_amount_expr = func.coalesce(paid_subq.c.paid_amount, 0)
+
+    base_filters = [
+        PurchaseOrder.status.notin_(PURCHASE_ORDER_EXCLUDED_STATUSES),
+    ]
+    if _purchase_orders_has_deleted_at():
+        base_filters.append(PurchaseOrder.deleted_at.is_(None))
+
+    if scoped_ids:
+        base_filters.append(PurchaseOrder.project_id.in_(scoped_ids))
+    elif normalized_role in {"project_manager", "engineer", "procurement"}:
+        base_filters.append(false())
+
+    if filters["project_id"]:
+        base_filters.append(PurchaseOrder.project_id == filters["project_id"])
+    if filters["status"]:
+        base_filters.append(PurchaseOrder.status == filters["status"])
+    if filters["bo_number"]:
+        base_filters.append(PurchaseOrder.bo_number.ilike(f"%{filters['bo_number']}%"))
+    if filters["supplier_name"]:
+        supplier_filter = or_(
+            Supplier.name.ilike(f"%{filters['supplier_name']}%"),
+            PurchaseOrder.supplier_name.ilike(f"%{filters['supplier_name']}%"),
+        )
+        base_filters.append(supplier_filter)
+
+    sort_map = {
+        "bo_number": PurchaseOrder.bo_number,
+        "project": Project.project_name,
+        "supplier": func.coalesce(Supplier.name, PurchaseOrder.supplier_name),
+        "status": PurchaseOrder.status,
+        "due_date": PurchaseOrder.due_date,
+        "total_amount": PurchaseOrder.total_amount,
+        "advance_amount": PurchaseOrder.advance_amount,
+        "reserved_amount": PurchaseOrder.reserved_amount,
+        "paid_amount": paid_amount_expr,
+        "remaining_amount": PurchaseOrder.remaining_amount,
+    }
+    sort_key = filters["sort"] if filters["sort"] in sort_map else "due_date"
+    sort_expr = (
+        sort_map[sort_key].desc()
+        if filters["direction"] == "desc"
+        else sort_map[sort_key].asc()
+    )
+    if sort_key == "due_date":
+        nulls_last_flag = case((PurchaseOrder.due_date.is_(None), 1), else_=0)
+        sort_expr = (
+            nulls_last_flag.asc(),
+            PurchaseOrder.due_date.desc()
+            if filters["direction"] == "desc"
+            else PurchaseOrder.due_date.asc(),
+        )
+
+    commitments_query = (
+        PurchaseOrder.query.outerjoin(Project)
+        .outerjoin(Supplier)
+        .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.purchase_order_id)
+        .options(selectinload(PurchaseOrder.project), selectinload(PurchaseOrder.supplier))
+        .filter(*base_filters)
+        .add_columns(paid_amount_expr.label("paid_amount"))
+    )
+
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+
+    try:
+        per_page = int(request.args.get("per_page", 50))
+    except (TypeError, ValueError):
+        per_page = 50
+
+    page = max(page, 1)
+    per_page = min(max(per_page, 1), 200)
+
+    if isinstance(sort_expr, tuple):
+        ordered_query = commitments_query.order_by(*sort_expr, PurchaseOrder.id.desc())
+    else:
+        ordered_query = commitments_query.order_by(sort_expr, PurchaseOrder.id.desc())
+
+    pagination = ordered_query.paginate(page=page, per_page=per_page, error_out=False)
+    purchase_orders = pagination.items
+
+    totals_query = (
+        db.session.query(
+            func.count(PurchaseOrder.id),
+            func.coalesce(func.sum(PurchaseOrder.total_amount), 0),
+            func.coalesce(func.sum(PurchaseOrder.reserved_amount), 0),
+            func.coalesce(func.sum(paid_amount_expr), 0),
+            func.coalesce(func.sum(PurchaseOrder.remaining_amount), 0),
+        )
+        .select_from(PurchaseOrder)
+        .outerjoin(Project)
+        .outerjoin(Supplier)
+        .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.purchase_order_id)
+        .filter(*base_filters)
+        .first()
+    )
+
+    total_count = totals_query[0] if totals_query else 0
+    total_commitments = totals_query[1] if totals_query else 0
+    total_reserved = totals_query[2] if totals_query else 0
+    total_paid = totals_query[3] if totals_query else 0
+    total_remaining = totals_query[4] if totals_query else 0
+
+    projects_query = Project.query.order_by(Project.project_name.asc())
+    if scoped_ids:
+        projects_query = projects_query.filter(Project.id.in_(scoped_ids))
+    elif normalized_role in {"project_manager", "engineer", "procurement"}:
+        projects_query = projects_query.filter(false())
+    projects = projects_query.all()
+
+    query_params = {
+        key: value
+        for key, value in request.args.items()
+        if value and key not in {"sort", "direction", "page"}
+    }
+    pagination_params = {
+        key: value
+        for key, value in request.args.items()
+        if value and key not in {"page", "per_page"}
+    }
+
+    return render_template(
+        "eng_commitments.html",
+        purchase_orders=purchase_orders,
+        pagination=pagination,
+        page=page,
+        per_page=per_page,
+        filters=filters,
+        projects=projects,
+        status_meta=PURCHASE_ORDER_STATUS_META,
+        total_count=total_count,
+        total_commitments=total_commitments,
+        total_reserved=total_reserved,
+        total_paid=total_paid,
+        total_remaining=total_remaining,
+        query_params=query_params,
+        pagination_params=pagination_params,
     )

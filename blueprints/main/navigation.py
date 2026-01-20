@@ -67,6 +67,14 @@ MODULE_DEFINITIONS: list[dict[str, Any]] = [
         "roles": {"admin", "engineering_manager", "chairman"},
     },
     {
+        "key": "eng_commitments",
+        "title": "الالتزامات / أوامر الشراء",
+        "description": "متابعة أوامر الشراء والالتزامات المالية",
+        "icon": "fa-solid fa-clipboard-list",
+        "endpoint": "main.eng_commitments",
+        "roles": {"admin", "engineering_manager", "chairman"},
+    },
+    {
         "key": "projects",
         "title": "المشروعات",
         "description": "إدارة قائمة المشروعات والمعلومات الأساسية",
