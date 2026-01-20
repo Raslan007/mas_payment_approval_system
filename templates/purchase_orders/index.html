@@ -95,7 +95,7 @@
             <tbody>
             {% if purchase_orders %}
                 {% for po in purchase_orders %}
-                    {% set meta = status_meta.get(po.status, {'label': po.status, 'class': 'badge bg-secondary'}) %}
+                    {% set meta = status_meta.get(po.status, {'label': po.status, 'class': 'bg-secondary'}) %}
                     <tr>
                         <td class="text-center text-muted">{{ po.id }}</td>
                         <td class="fw-semibold">{{ po.bo_number }}</td>

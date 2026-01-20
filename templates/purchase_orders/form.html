@@ -26,7 +26,7 @@
                 <div class="col-12">
                     <div class="d-flex align-items-center gap-2">
                         <span class="text-muted xsmall">الحالة الحالية:</span>
-                        {% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'badge bg-secondary'} %}
+                        {% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'bg-secondary'} %}
                         <span class="badge {{ status_info.class }}">{{ status_info.label }}</span>
                     </div>
                 </div>
