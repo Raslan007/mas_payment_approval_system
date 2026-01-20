@@ -5,6 +5,9 @@
 {% set page_title = "التعهدات / أوامر الشراء" %}
 {% set sort = filters.sort %}
 {% set direction = filters.direction %}
+{% set base_url = url_for('main.eng_commitments') %}
+{% set sort_qs = query_params|urlencode %}
+{% set pagination_qs = pagination_params|urlencode %}
 
 <div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-2 mb-3">
     <div>
@@ -135,61 +138,61 @@
                 <th class="text-center" style="width: 70px;">#</th>
                 <th>
                     {% set next_direction = 'asc' if sort != 'bo_number' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='bo_number', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=bo_number&direction={{ next_direction }}{% else %}?sort=bo_number&direction={{ next_direction }}{% endif %}">
                         رقم BO {{ sort_indicator('bo_number') }}
                     </a>
                 </th>
                 <th>
                     {% set next_direction = 'asc' if sort != 'project' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='project', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=project&direction={{ next_direction }}{% else %}?sort=project&direction={{ next_direction }}{% endif %}">
                         المشروع {{ sort_indicator('project') }}
                     </a>
                 </th>
                 <th>
                     {% set next_direction = 'asc' if sort != 'supplier' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='supplier', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=supplier&direction={{ next_direction }}{% else %}?sort=supplier&direction={{ next_direction }}{% endif %}">
                         المورد {{ sort_indicator('supplier') }}
                     </a>
                 </th>
                 <th>
                     {% set next_direction = 'asc' if sort != 'status' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='status', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=status&direction={{ next_direction }}{% else %}?sort=status&direction={{ next_direction }}{% endif %}">
                         الحالة {{ sort_indicator('status') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'due_date' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='due_date', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=due_date&direction={{ next_direction }}{% else %}?sort=due_date&direction={{ next_direction }}{% endif %}">
                         تاريخ الاستحقاق {{ sort_indicator('due_date') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'total_amount' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='total_amount', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=total_amount&direction={{ next_direction }}{% else %}?sort=total_amount&direction={{ next_direction }}{% endif %}">
                         الإجمالي {{ sort_indicator('total_amount') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'advance_amount' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='advance_amount', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=advance_amount&direction={{ next_direction }}{% else %}?sort=advance_amount&direction={{ next_direction }}{% endif %}">
                         الدفعة المقدمة {{ sort_indicator('advance_amount') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'reserved_amount' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='reserved_amount', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=reserved_amount&direction={{ next_direction }}{% else %}?sort=reserved_amount&direction={{ next_direction }}{% endif %}">
                         المحجوز {{ sort_indicator('reserved_amount') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'paid_amount' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='paid_amount', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=paid_amount&direction={{ next_direction }}{% else %}?sort=paid_amount&direction={{ next_direction }}{% endif %}">
                         المدفوع {{ sort_indicator('paid_amount') }}
                     </a>
                 </th>
                 <th class="text-nowrap">
                     {% set next_direction = 'asc' if sort != 'remaining_amount' or direction == 'desc' else 'desc' %}
-                    <a class="text-decoration-none" href="{{ url_for('main.eng_commitments', **query_params, sort='remaining_amount', direction=next_direction) }}">
+                    <a class="text-decoration-none" href="{{ base_url }}{% if sort_qs %}?{{ sort_qs }}&sort=remaining_amount&direction={{ next_direction }}{% else %}?sort=remaining_amount&direction={{ next_direction }}{% endif %}">
                         المتبقي {{ sort_indicator('remaining_amount') }}
                     </a>
                 </th>
@@ -239,13 +242,13 @@
         <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح أوامر الشراء">
             <ul class="pagination pagination-sm mb-0">
                 <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.eng_commitments', page=pagination.prev_num if pagination.has_prev else 1, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                    <a class="page-link" href="{{ base_url }}{% if pagination_qs %}?{{ pagination_qs }}&page={{ pagination.prev_num if pagination.has_prev else 1 }}&per_page={{ pagination.per_page }}{% else %}?page={{ pagination.prev_num if pagination.has_prev else 1 }}&per_page={{ pagination.per_page }}{% endif %}" tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
                 </li>
 
                 {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                     {% if p %}
                         <li class="page-item {% if p == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('main.eng_commitments', page=p, per_page=pagination.per_page, **pagination_params) }}">{{ p }}</a>
+                            <a class="page-link" href="{{ base_url }}{% if pagination_qs %}?{{ pagination_qs }}&page={{ p }}&per_page={{ pagination.per_page }}{% else %}?page={{ p }}&per_page={{ pagination.per_page }}{% endif %}">{{ p }}</a>
                         </li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">…</span></li>
@@ -253,7 +256,7 @@
                 {% endfor %}
 
                 <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.eng_commitments', page=pagination.next_num if pagination.has_next else pagination.page, per_page=pagination.per_page, **pagination_params) }}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                    <a class="page-link" href="{{ base_url }}{% if pagination_qs %}?{{ pagination_qs }}&page={{ pagination.next_num if pagination.has_next else pagination.page }}&per_page={{ pagination.per_page }}{% else %}?page={{ pagination.next_num if pagination.has_next else pagination.page }}&per_page={{ pagination.per_page }}{% endif %}" tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
                 </li>
             </ul>
 
