@@ -10,7 +10,13 @@ from sqlalchemy import case, func
 
 from permissions import role_required
 from extensions import db
-from models import PaymentFinanceAdjustment, PaymentRequest, Project, Supplier
+from models import (
+    PaymentFinanceAdjustment,
+    PaymentRequest,
+    Project,
+    Supplier,
+    SupplierLedgerEntry,
+)
 from blueprints.finance import finance_bp
 from blueprints.payments import routes as payment_routes
 
@@ -22,6 +28,15 @@ FINANCE_ALLOWED_STATUSES = (
     STATUS_PENDING_FIN,
     STATUS_READY_FOR_PAYMENT,
     STATUS_PAID,
+)
+
+LEGACY_LIABILITY_ROLES = (
+    "admin",
+    "engineering_manager",
+    "procurement",
+    "accounts",
+    "chairman",
+    "finance",
 )
 
 
@@ -226,6 +241,96 @@ def _finance_workbench_kpis(q, effective_amount_expr) -> dict:
     }
 
 
+def _legacy_liabilities_query():
+    ledger_aggregate = (
+        db.session.query(
+            SupplierLedgerEntry.supplier_id.label("supplier_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (SupplierLedgerEntry.direction == "debit", SupplierLedgerEntry.amount),
+                        (SupplierLedgerEntry.direction == "credit", -SupplierLedgerEntry.amount),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("legacy_balance"),
+            func.count(SupplierLedgerEntry.id).label("entry_count"),
+        )
+        .filter(SupplierLedgerEntry.voided_at.is_(None))
+        .group_by(SupplierLedgerEntry.supplier_id)
+        .subquery()
+    )
+
+    legacy_balance_expr = func.coalesce(ledger_aggregate.c.legacy_balance, 0).label(
+        "legacy_balance"
+    )
+    entry_count_expr = func.coalesce(ledger_aggregate.c.entry_count, 0).label("entry_count")
+
+    q = (
+        Supplier.query.outerjoin(
+            ledger_aggregate, Supplier.id == ledger_aggregate.c.supplier_id
+        )
+        .add_columns(legacy_balance_expr, entry_count_expr)
+    )
+
+    filters = {
+        "q": "",
+        "supplier_type": "",
+        "min_balance": "",
+        "max_balance": "",
+    }
+
+    search_query = (request.args.get("q") or "").strip()
+    if search_query:
+        filters["q"] = search_query
+        q = q.filter(func.lower(Supplier.name).like(f"%{search_query.lower()}%"))
+
+    supplier_type = (request.args.get("supplier_type") or "").strip()
+    if supplier_type:
+        filters["supplier_type"] = supplier_type
+        q = q.filter(Supplier.supplier_type == supplier_type)
+
+    min_balance = _safe_float_arg("min_balance")
+    if min_balance is not None:
+        filters["min_balance"] = (request.args.get("min_balance") or "").strip()
+        q = q.filter(legacy_balance_expr >= min_balance)
+
+    max_balance = _safe_float_arg("max_balance")
+    if max_balance is not None:
+        filters["max_balance"] = (request.args.get("max_balance") or "").strip()
+        q = q.filter(legacy_balance_expr <= max_balance)
+
+    supplier_types = [
+        row[0]
+        for row in db.session.query(Supplier.supplier_type)
+        .order_by(Supplier.supplier_type.asc())
+        .distinct()
+        .all()
+    ]
+
+    return (
+        q,
+        filters,
+        supplier_types,
+        legacy_balance_expr,
+    )
+
+
+def _paginate_legacy_liabilities(q, order_clause: tuple):
+    page = payment_routes._safe_int_arg("page", 1, min_value=1) or 1
+    per_page = payment_routes._safe_int_arg("per_page", 20, min_value=1, max_value=100) or 20
+
+    total_count = q.order_by(None).with_entities(func.count(Supplier.id)).scalar() or 0
+
+    ordered_q = q.order_by(*order_clause)
+    pagination = ordered_q.paginate(
+        page=page, per_page=per_page, error_out=False, count=False
+    )
+    pagination.total = total_count
+    return pagination, page, per_page
+
+
 def _export_finance_workbench(q, order_clause: tuple):
     total = payment_routes._count_query(q)
     if total > payment_routes.EXPORT_ROW_LIMIT:
@@ -348,3 +453,36 @@ def workbench():
 def export_workbench():
     q, _, _, _, _, status_filter, order_clause, _ = _finance_workbench_query()
     return _export_finance_workbench(q, order_clause)
+
+
+@finance_bp.route("/suppliers")
+@role_required(*LEGACY_LIABILITY_ROLES)
+def legacy_liabilities_directory():
+    (
+        q,
+        filters,
+        supplier_types,
+        legacy_balance_expr,
+    ) = _legacy_liabilities_query()
+
+    order_clause = (legacy_balance_expr.desc(), Supplier.name.asc(), Supplier.id.asc())
+    pagination, page, per_page = _paginate_legacy_liabilities(q, order_clause)
+
+    query_params = {
+        "q": filters["q"],
+        "supplier_type": filters["supplier_type"],
+        "min_balance": filters["min_balance"],
+        "max_balance": filters["max_balance"],
+        "per_page": per_page,
+    }
+
+    return render_template(
+        "finance/suppliers_legacy_liabilities.html",
+        suppliers=pagination.items,
+        pagination=pagination,
+        page=page,
+        per_page=per_page,
+        filters=filters,
+        supplier_types=supplier_types,
+        query_params=query_params,
+    )
