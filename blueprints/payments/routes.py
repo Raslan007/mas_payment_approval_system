@@ -784,6 +784,7 @@ def _safe_date_arg(name: str) -> datetime | None:
 def _default_filters() -> dict[str, str]:
     return {
         "project_id": "",
+        "supplier_id": "",
         "request_type": "",
         "status": "",
         "status_group": "",
@@ -807,6 +808,11 @@ def _apply_filters(q, *, role_name: str | None, allowed_request_types: set[str],
                 q = q.filter(PaymentRequest.project_id == project_id)
         else:
             q = q.filter(PaymentRequest.project_id == project_id)
+
+    supplier_id = _safe_int_arg("supplier_id", None, min_value=1)
+    if supplier_id:
+        filters["supplier_id"] = str(supplier_id)
+        q = q.filter(PaymentRequest.supplier_id == supplier_id)
 
     raw_request_type = (request.args.get("request_type") or "").strip()
     if raw_request_type and raw_request_type in allowed_request_types:
@@ -1585,6 +1591,50 @@ def index():
 
     q, filters, projects, request_types, status_choices = _scoped_payments_query_for_listing()
 
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    supplier_summary = None
+    if filters.get("supplier_id"):
+        summary_base = q.order_by(None)
+        total_count = (
+            summary_base.with_entities(func.count(PaymentRequest.id)).scalar() or 0
+        )
+        total_amount = (
+            summary_base.with_entities(
+                func.coalesce(func.sum(PaymentRequest.amount), 0)
+            ).scalar()
+            or 0
+        )
+        status_rows = (
+            summary_base.with_entities(
+                PaymentRequest.status, func.count(PaymentRequest.id)
+            )
+            .group_by(PaymentRequest.status)
+            .all()
+        )
+        status_label_map = {
+            value: label for value, label in status_choices if value
+        }
+        status_counts_map = {status: count for status, count in status_rows}
+        status_counts = [
+            {
+                "status": value,
+                "label": status_label_map.get(value, value),
+                "count": status_counts_map[value],
+            }
+            for value, _ in status_choices
+            if value and value in status_counts_map
+        ]
+        for status, count in status_counts_map.items():
+            if status not in status_label_map:
+                status_counts.append(
+                    {"status": status, "label": status, "count": count}
+                )
+        supplier_summary = {
+            "total_count": total_count,
+            "total_amount": total_amount,
+            "status_counts": status_counts,
+        }
+
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
 
@@ -1600,8 +1650,10 @@ def index():
         page_title="دفعات حسب صلاحياتي",
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
+        supplier_summary=supplier_summary,
         export_endpoint="payments.export_my",
         export_params={k: v for k, v in filters.items() if v},
         can_create_payment=_can_create_payment(),

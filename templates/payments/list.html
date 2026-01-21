@@ -16,11 +16,23 @@
 {% set can_edit_payment = can_edit_payment if can_edit_payment is not none else None %}
 {% set can_take_action = can_take_action if can_take_action is not none else None %}
 {% set current_project_id = filters.get('project_id') or request.args.get('project_id', '') %}
+{% set current_supplier_id = filters.get('supplier_id') or request.args.get('supplier_id', '') %}
 {% set current_request_type = filters.get('request_type') or request.args.get('request_type', '') %}
 {% set current_status = filters.get('status') or request.args.get('status', '') %}
+{% set current_status_group = filters.get('status_group') or request.args.get('status_group', '') %}
 {% set current_week_number = filters.get('week_number') or request.args.get('week_number', '') %}
+{% set current_date_from = filters.get('date_from') or request.args.get('date_from', '') %}
+{% set current_date_to = filters.get('date_to') or request.args.get('date_to', '') %}
 {% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
 {% set current_query_string = request.query_string.decode('utf-8') if request.query_string else '' %}
+{% set selected_supplier_name = '' %}
+{% if suppliers %}
+    {% for s in suppliers %}
+        {% if current_supplier_id == s.id|string %}
+            {% set selected_supplier_name = s.name %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
 
 <div class="d-flex justify-content-between	align-items-center mb-3">
     <div>
@@ -88,6 +100,26 @@
                 </select>
             </div>
 
+            <!-- المقاول / المورد -->
+            {% if suppliers %}
+                <div class="col-md-3">
+                    <label class="form-label small mb-1" for="supplier_id">المقاول / المورد</label>
+                    <input type="text"
+                           id="supplier_search"
+                           class="form-control form-control-sm mb-1"
+                           placeholder="ابحث بالاسم أو الرقم"
+                           autocomplete="off">
+                    <select name="supplier_id" id="supplier_id" class="form-select form-select-sm">
+                        <option value="">الكل</option>
+                        {% for s in suppliers %}
+                            <option value="{{ s.id }}" {% if current_supplier_id == s.id|string %}selected{% endif %}>
+                                ({{ s.id }}) {{ s.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+
             <!-- نوع الدفعة -->
             <div class="col-md-3">
                 <label class="form-label small mb-1">نوع الدفعة</label>
@@ -105,7 +137,6 @@
             <div class="col-md-3">
                 <label class="form-label small mb-1">الحالة</label>
                 <select name="status" class="form-select form-select-sm">
-                    <option value="">الكل</option>
                     {# هنا كان الخطأ: كنا بنستخدم status_list بدل status_choices #}
                     {% for val, label in status_choices %}
                         <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>
@@ -126,7 +157,28 @@
                        value="{{ current_week_number }}">
             </div>
 
+            <!-- من تاريخ -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">من تاريخ</label>
+                <input type="date"
+                       name="date_from"
+                       class="form-control form-control-sm"
+                       value="{{ current_date_from }}">
+            </div>
+
+            <!-- إلى تاريخ -->
+            <div class="col-md-3">
+                <label class="form-label small mb-1">إلى تاريخ</label>
+                <input type="date"
+                       name="date_to"
+                       class="form-control form-control-sm"
+                       value="{{ current_date_to }}">
+            </div>
+
             <input type="hidden" name="per_page" value="{{ current_per_page }}">
+            {% if current_status_group %}
+                <input type="hidden" name="status_group" value="{{ current_status_group }}">
+            {% endif %}
 
             <div class="col-12 text-end mt-2">
                 <button type="submit" class="btn btn-primary btn-sm">
@@ -140,6 +192,42 @@
         </form>
     </div>
 </div>
+
+{% if supplier_summary %}
+    <div class="card mb-3 border-primary-subtle">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <div class="text-muted small mb-1">إجمالي عدد الدفعات</div>
+                    <div class="h5 mb-0">{{ supplier_summary.total_count }}</div>
+                </div>
+                <div>
+                    <div class="text-muted small mb-1">إجمالي المبالغ</div>
+                    <div class="h5 mb-0">{{ "%.2f"|format(supplier_summary.total_amount) }}</div>
+                </div>
+                {% if selected_supplier_name %}
+                    <div>
+                        <div class="text-muted small mb-1">المقاول / المورد المختار</div>
+                        <div class="h6 mb-0">{{ selected_supplier_name }}</div>
+                    </div>
+                {% endif %}
+                <div class="flex-grow-1">
+                    <div class="text-muted small mb-2">التجميع حسب الحالة</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for status in supplier_summary.status_counts %}
+                            <span class="badge bg-light text-dark border">
+                                {{ status.label }}: {{ status.count }}
+                            </span>
+                        {% endfor %}
+                        {% if not supplier_summary.status_counts %}
+                            <span class="text-muted xsmall">لا توجد حالات مسجلة.</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
 
 {# --------------------  جدول الدفعات  -------------------- #}
 <div class="card shadow-sm">
@@ -338,4 +426,49 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+    (function () {
+        const searchInput = document.getElementById("supplier_search");
+        const supplierSelect = document.getElementById("supplier_id");
+        if (!searchInput || !supplierSelect) {
+            return;
+        }
+
+        const options = Array.from(supplierSelect.options);
+        const normalize = (value) => (value || "").toString().toLowerCase();
+
+        const filterOptions = () => {
+            const term = normalize(searchInput.value.trim());
+            options.forEach((option) => {
+                if (!option.value) {
+                    option.style.display = "";
+                    return;
+                }
+                option.style.display = term && !normalize(option.text).includes(term) ? "none" : "";
+            });
+        };
+
+        const syncSearchWithSelection = () => {
+            const selectedOption = supplierSelect.options[supplierSelect.selectedIndex];
+            if (selectedOption && selectedOption.value) {
+                searchInput.value = selectedOption.text;
+            } else {
+                searchInput.value = "";
+            }
+        };
+
+        searchInput.addEventListener("input", filterOptions);
+        supplierSelect.addEventListener("change", () => {
+            syncSearchWithSelection();
+            filterOptions();
+        });
+
+        syncSearchWithSelection();
+        filterOptions();
+    })();
+</script>
 {% endblock %}
