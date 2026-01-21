@@ -17,10 +17,15 @@ depends_on = None
 
 
 def upgrade():
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "supplier_ledger_entries" in inspector.get_table_names():
+        return
+
     op.create_table(
         "supplier_ledger_entries",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("supplier_id", sa.Integer(), nullable=False, index=True),
+        sa.Column("supplier_id", sa.Integer(), nullable=False),
         sa.Column("project_id", sa.Integer(), nullable=True),
         sa.Column("entry_type", sa.String(length=30), nullable=False),
         sa.Column("direction", sa.String(length=10), nullable=False),
@@ -63,6 +68,11 @@ def upgrade():
 
 
 def downgrade():
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "supplier_ledger_entries" not in inspector.get_table_names():
+        return
+
     op.drop_index(
         "ix_supplier_ledger_entries_supplier_date",
         table_name="supplier_ledger_entries",
