@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 import logging
+from urllib.parse import urljoin, urlparse
 
 from flask import render_template, request, redirect, url_for, flash, abort
 from flask_login import current_user
@@ -199,6 +200,36 @@ def _get_approval_target(status: str, normalized_role: str | None) -> str | None
     return stage["next_status"]
 
 
+def _normalize_return_to(target: str | None) -> str | None:
+    if not target:
+        return None
+    target = target.strip()
+    if target.endswith("?"):
+        target = target[:-1]
+    return target
+
+
+def _is_safe_return_to(target: str | None) -> bool:
+    if not target:
+        return False
+
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return (
+        test_url.scheme in ("http", "https")
+        and ref_url.netloc == test_url.netloc
+    )
+
+
+def _get_return_to(default_endpoint: str = "purchase_orders.index", **default_kwargs) -> str:
+    for candidate in (request.values.get("return_to"), request.referrer):
+        normalized = _normalize_return_to(candidate)
+        if normalized and _is_safe_return_to(normalized):
+            return normalized
+
+    return url_for(default_endpoint, **default_kwargs)
+
+
 @lru_cache(maxsize=1)
 def _purchase_orders_column_names() -> set[str]:
     inspector = inspect(db.engine)
@@ -306,6 +337,7 @@ def new():
     normalized_role, scoped_ids = _scoped_project_ids()
     projects = _load_projects(normalized_role, scoped_ids)
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    back_url = _get_return_to()
 
     return render_template(
         "purchase_orders/form.html",
@@ -315,6 +347,7 @@ def new():
         status_meta=_status_meta(PURCHASE_ORDER_STATUS_DRAFT),
         action_url=url_for("purchase_orders.create"),
         submit_label="إضافة أمر شراء",
+        back_url=back_url,
         page_title="إضافة أمر شراء",
     )
 
@@ -439,6 +472,7 @@ def detail(id: int):
     can_reject = approval_target is not None
     can_edit = _can_edit_purchase_order(purchase_order, normalized_role)
     can_submit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
+    back_url = _get_return_to()
 
     return render_template(
         "purchase_orders/detail.html",
@@ -449,6 +483,7 @@ def detail(id: int):
         can_submit=can_submit,
         can_approve=can_approve,
         can_reject=can_reject,
+        back_url=back_url,
         page_title=f"أمر شراء رقم {purchase_order.bo_number}",
     )
 
@@ -464,6 +499,7 @@ def edit(id: int):
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
     projects = _load_projects(normalized_role, scoped_ids)
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    back_url = _get_return_to()
 
     return render_template(
         "purchase_orders/form.html",
@@ -473,6 +509,7 @@ def edit(id: int):
         status_meta=_status_meta(purchase_order.status),
         action_url=url_for("purchase_orders.update", id=id),
         submit_label="حفظ التعديلات",
+        back_url=back_url,
         page_title=f"تعديل أمر شراء {purchase_order.bo_number}",
     )
 
