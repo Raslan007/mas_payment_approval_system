@@ -362,6 +362,28 @@ def test_ledger_view_permissions(client, user_factory, login, supplier, role_nam
     assert response.status_code == expected_status
 
 
+def test_procurement_ledger_hides_edit_link(client, user_factory, login, supplier):
+    user = user_factory("procurement")
+    login(user)
+
+    response = client.get(f"/suppliers/{supplier.id}/ledger")
+    assert response.status_code == 200
+
+    edit_href = f'href="/suppliers/{supplier.id}/edit"'
+    assert edit_href not in response.get_data(as_text=True)
+
+
+def test_admin_ledger_shows_edit_link(client, user_factory, login, supplier):
+    user = user_factory("admin")
+    login(user)
+
+    response = client.get(f"/suppliers/{supplier.id}/ledger")
+    assert response.status_code == 200
+
+    edit_href = f'href="/suppliers/{supplier.id}/edit"'
+    assert edit_href in response.get_data(as_text=True)
+
+
 def test_dc_cannot_view_legacy_liabilities_kpi(client, user_factory, login, supplier):
     dc_user = user_factory("dc")
     entry = SupplierLedgerEntry(
