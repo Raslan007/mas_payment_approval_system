@@ -91,6 +91,21 @@ MODULE_DEFINITIONS: list[dict[str, Any]] = [
         "roles": {"admin", "engineering_manager", "chairman", "dc"},
     },
     {
+        "key": "legacy_liabilities",
+        "title": "مديونيات الموردين (قبل النظام)",
+        "description": "دليل مديونيات الموردين السابقة",
+        "icon": "fa-solid fa-folder-open",
+        "endpoint": "finance.legacy_liabilities_directory",
+        "roles": {
+            "admin",
+            "engineering_manager",
+            "procurement",
+            "accounts",
+            "chairman",
+            "finance",
+        },
+    },
+    {
         "key": "users",
         "title": "المستخدمون",
         "description": "إدارة صلاحيات وحسابات المستخدمين",
