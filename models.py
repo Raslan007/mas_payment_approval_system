@@ -6,7 +6,7 @@ import logging
 
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import inspect, text, column
+from sqlalchemy import inspect, text, column, case
 from sqlalchemy import event
 
 from extensions import db
@@ -89,9 +89,38 @@ class Supplier(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     supplier_type = db.Column(db.String(50), nullable=False)  # مقاول / مورد مواد / ...
+    ledger_entries = db.relationship(
+        "SupplierLedgerEntry",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierLedgerEntry.entry_date.asc()",
+    )
 
     def __repr__(self):
         return f"<Supplier {self.name}>"
+
+    @property
+    def legacy_balance(self) -> Decimal:
+        total = (
+            db.session.query(
+                db.func.coalesce(
+                    db.func.sum(
+                        case(
+                            (SupplierLedgerEntry.direction == "debit", SupplierLedgerEntry.amount),
+                            (SupplierLedgerEntry.direction == "credit", -SupplierLedgerEntry.amount),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                )
+            )
+            .filter(
+                SupplierLedgerEntry.supplier_id == self.id,
+                SupplierLedgerEntry.voided_at.is_(None),
+            )
+            .scalar()
+        )
+        return Decimal(str(total or 0)).quantize(Decimal("0.01"))
 
 
 DEFAULT_SUPPLIER_TYPE = "غير محدد"
@@ -115,6 +144,49 @@ def get_or_create_supplier_by_name(name: str) -> Supplier:
     db.session.add(supplier)
     db.session.flush()
     return supplier
+
+
+class SupplierLedgerEntry(db.Model):
+    __tablename__ = "supplier_ledger_entries"
+    __table_args__ = (
+        db.Index("ix_supplier_ledger_entries_supplier_date", "supplier_id", "entry_date"),
+        db.Index("ix_supplier_ledger_entries_project_id", "project_id"),
+        db.CheckConstraint("amount > 0", name="ck_supplier_ledger_entries_amount_positive"),
+        db.CheckConstraint(
+            "direction in ('debit','credit')",
+            name="ck_supplier_ledger_entries_direction_valid",
+        ),
+        db.CheckConstraint(
+            "entry_type in ('opening_balance','adjustment')",
+            name="ck_supplier_ledger_entries_entry_type_valid",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_id = db.Column(
+        db.Integer,
+        db.ForeignKey("suppliers.id"),
+        nullable=False,
+        index=True,
+    )
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=True)
+    entry_type = db.Column(db.String(30), nullable=False)
+    direction = db.Column(db.String(10), nullable=False)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+    entry_date = db.Column(db.Date, nullable=False)
+    note = db.Column(db.Text, nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    voided_at = db.Column(db.DateTime, nullable=True)
+    voided_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    supplier = db.relationship("Supplier", back_populates="ledger_entries")
+    project = db.relationship("Project")
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+    voided_by = db.relationship("User", foreign_keys=[voided_by_id])
+
+    def __repr__(self) -> str:  # type: ignore
+        return f"<SupplierLedgerEntry {self.id} for supplier {self.supplier_id}>"
 
 
 class PaymentRequest(db.Model):
@@ -653,6 +725,7 @@ REQUIRED_ROLES: tuple[tuple[str, str], ...] = (
     ("project_engineer", "مهندس مشروع"),
     ("engineer", "مهندس موقع"),
     ("finance", "المالية"),
+    ("accounts", "الحسابات"),
     ("chairman", "رئيس مجلس الإدارة"),
     ("dc", "Data Entry / Data Control"),
     ("payment_notifier", "مسؤول إشعار المقاولين"),

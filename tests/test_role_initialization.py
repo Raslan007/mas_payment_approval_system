@@ -33,6 +33,7 @@ class EnsureRolesTestCase(unittest.TestCase):
 
         role_names = {role.name for role in Role.query.all()}
         self.assertIn("payment_notifier", role_names)
+        self.assertIn("accounts", role_names)
         self.assertEqual(Role.query.count(), len(role_names))
 
         # A second call should be idempotent and not create duplicates
