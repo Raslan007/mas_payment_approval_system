@@ -495,7 +495,10 @@ class PurchaseOrder(db.Model):
         advance = Decimal(str(self.advance_amount or Decimal("0.00")))
         reserved = Decimal(str(self.reserved_amount or Decimal("0.00")))
         paid = Decimal(str(self.paid_amount or Decimal("0.00")))
-        self.remaining_amount = total - advance - reserved - paid
+        remaining = total - advance - reserved - paid
+        if remaining < 0:
+            remaining = Decimal("0.00")
+        self.remaining_amount = remaining
 
     def validate_amounts(self) -> None:
         amounts = {
@@ -536,6 +539,7 @@ class PurchaseOrderDecision(db.Model):
     from_status = db.Column(db.String(30), nullable=False)
     to_status = db.Column(db.String(30), nullable=False)
     comment = db.Column(db.Text, nullable=True)
+    proxy_for_role = db.Column(db.String(50), nullable=True)
     decided_by_id = db.Column(
         db.Integer,
         db.ForeignKey("users.id"),

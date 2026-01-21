@@ -73,6 +73,13 @@ STATUS_META = {
     },
 }
 
+ROLE_LABELS = {
+    "project_manager": "مدير المشروع",
+    "engineering_manager": "مدير الإدارة الهندسية",
+    "finance": "المالية",
+    "admin": "مسؤول النظام",
+}
+
 ALLOWED_STATUSES = {
     PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_SUBMITTED,
@@ -188,7 +195,17 @@ def _approval_stage(status: str) -> dict[str, str] | None:
 
 
 def _role_can_act(normalized_role: str | None, required_role: str) -> bool:
-    return normalized_role == required_role or normalized_role == "admin"
+    if normalized_role == "admin":
+        return True
+    if normalized_role == required_role:
+        return True
+    return normalized_role == "engineering_manager" and required_role == "project_manager"
+
+
+def _proxy_for_role(normalized_role: str | None, required_role: str | None) -> str | None:
+    if normalized_role == "engineering_manager" and required_role == "project_manager":
+        return required_role
+    return None
 
 
 def _get_approval_target(status: str, normalized_role: str | None) -> str | None:
@@ -467,11 +484,17 @@ def detail(id: int):
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
+    stage = _approval_stage(purchase_order.status)
+    approval_required_role = stage["required_role"] if stage else None
     approval_target = _get_approval_target(purchase_order.status, normalized_role)
     can_approve = approval_target is not None
     can_reject = approval_target is not None
     can_edit = _can_edit_purchase_order(purchase_order, normalized_role)
     can_submit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
+    is_proxy_action = (
+        normalized_role == "engineering_manager"
+        and approval_required_role == "project_manager"
+    )
     back_url = _get_return_to()
 
     return render_template(
@@ -479,6 +502,9 @@ def detail(id: int):
         purchase_order=purchase_order,
         status_meta=_status_meta(purchase_order.status),
         status_meta_map=STATUS_META,
+        role_labels=ROLE_LABELS,
+        approval_required_role=approval_required_role,
+        is_proxy_action=is_proxy_action,
         can_edit=can_edit,
         can_submit=can_submit,
         can_approve=can_approve,
@@ -652,6 +678,8 @@ def approve(id: int):
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
+    stage = _approval_stage(purchase_order.status)
+    required_role = stage["required_role"] if stage else None
     next_status = _get_approval_target(purchase_order.status, normalized_role)
     if next_status is None:
         flash("لا يمكن اعتماد أمر الشراء في هذه المرحلة.", "warning")
@@ -664,6 +692,7 @@ def approve(id: int):
         from_status=purchase_order.status,
         to_status=next_status,
         comment=comment,
+        proxy_for_role=_proxy_for_role(normalized_role, required_role),
         decided_by_id=current_user.id,
     )
     db.session.add(decision)
@@ -682,6 +711,8 @@ def reject(id: int):
     normalized_role, scoped_ids = _scoped_project_ids()
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
+    stage = _approval_stage(purchase_order.status)
+    required_role = stage["required_role"] if stage else None
     approval_target = _get_approval_target(purchase_order.status, normalized_role)
     if approval_target is None:
         flash("لا يمكن رفض أمر الشراء في هذه المرحلة.", "warning")
@@ -694,6 +725,7 @@ def reject(id: int):
         from_status=purchase_order.status,
         to_status=PURCHASE_ORDER_STATUS_REJECTED,
         comment=comment,
+        proxy_for_role=_proxy_for_role(normalized_role, required_role),
         decided_by_id=current_user.id,
     )
     db.session.add(decision)
