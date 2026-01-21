@@ -15,12 +15,16 @@ from models import (
     PaymentRequest,
     Project,
     PurchaseOrder,
+    PurchaseOrderDecision,
     Supplier,
     Role,
     User,
     PURCHASE_ORDER_REQUEST_TYPE,
     PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_SUBMITTED,
+    PURCHASE_ORDER_STATUS_PM_APPROVED,
+    PURCHASE_ORDER_STATUS_ENG_APPROVED,
+    PURCHASE_ORDER_STATUS_REJECTED,
     DEFAULT_SUPPLIER_TYPE,
 )
 from blueprints.payments import routes as payment_routes
@@ -481,6 +485,103 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(Supplier.query.count(), initial_supplier_count + 1)
         supplier = Supplier.query.get(purchase_order.supplier_id)
         self.assertEqual(supplier.name, "Edited Supplier Name")
+
+    def test_engineering_manager_can_proxy_pm_approve_purchase_order(self):
+        purchase_order = self._make_purchase_order(status=PURCHASE_ORDER_STATUS_SUBMITTED)
+        self._login(self.users["engineering_manager"])
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/approve",
+            data={"comment": "proxy approve"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertEqual(purchase_order.status, PURCHASE_ORDER_STATUS_PM_APPROVED)
+        decision = (
+            PurchaseOrderDecision.query.filter_by(purchase_order_id=purchase_order.id)
+            .order_by(PurchaseOrderDecision.id.desc())
+            .first()
+        )
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.proxy_for_role, "project_manager")
+        self.assertEqual(decision.decided_by_id, self.users["engineering_manager"].id)
+
+    def test_engineering_manager_can_proxy_pm_reject_purchase_order(self):
+        purchase_order = self._make_purchase_order(status=PURCHASE_ORDER_STATUS_SUBMITTED)
+        self._login(self.users["engineering_manager"])
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/reject",
+            data={"comment": "proxy reject"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertEqual(purchase_order.status, PURCHASE_ORDER_STATUS_REJECTED)
+        decision = (
+            PurchaseOrderDecision.query.filter_by(purchase_order_id=purchase_order.id)
+            .order_by(PurchaseOrderDecision.id.desc())
+            .first()
+        )
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.proxy_for_role, "project_manager")
+        self.assertEqual(decision.decided_by_id, self.users["engineering_manager"].id)
+
+    def test_engineering_manager_cannot_proxy_finance_stage(self):
+        purchase_order = self._make_purchase_order(status=PURCHASE_ORDER_STATUS_ENG_APPROVED)
+        self._login(self.users["engineering_manager"])
+        initial_decisions = PurchaseOrderDecision.query.count()
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/approve",
+            data={"comment": "should not approve"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertEqual(purchase_order.status, PURCHASE_ORDER_STATUS_ENG_APPROVED)
+        self.assertEqual(PurchaseOrderDecision.query.count(), initial_decisions)
+
+    def test_project_manager_approval_has_no_proxy_role(self):
+        purchase_order = self._make_purchase_order(status=PURCHASE_ORDER_STATUS_SUBMITTED)
+        self._login(self.users["project_manager"])
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/approve",
+            data={"comment": "pm approve"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertEqual(purchase_order.status, PURCHASE_ORDER_STATUS_PM_APPROVED)
+        decision = (
+            PurchaseOrderDecision.query.filter_by(purchase_order_id=purchase_order.id)
+            .order_by(PurchaseOrderDecision.id.desc())
+            .first()
+        )
+        self.assertIsNotNone(decision)
+        self.assertIsNone(decision.proxy_for_role)
+
+    def test_admin_approval_has_no_proxy_role(self):
+        purchase_order = self._make_purchase_order(status=PURCHASE_ORDER_STATUS_SUBMITTED)
+        self._login(self.users["admin"])
+
+        response = self.client.post(
+            f"/purchase-orders/{purchase_order.id}/approve",
+            data={"comment": "admin approve"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(purchase_order)
+        self.assertEqual(purchase_order.status, PURCHASE_ORDER_STATUS_PM_APPROVED)
+        decision = (
+            PurchaseOrderDecision.query.filter_by(purchase_order_id=purchase_order.id)
+            .order_by(PurchaseOrderDecision.id.desc())
+            .first()
+        )
+        self.assertIsNotNone(decision)
+        self.assertIsNone(decision.proxy_for_role)
 
     def test_purchase_order_prefill_endpoint_returns_supplier_and_amount(self):
         purchase_order = self._make_purchase_order(

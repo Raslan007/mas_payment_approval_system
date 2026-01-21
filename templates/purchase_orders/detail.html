@@ -4,7 +4,9 @@
 {% block content %}
 {% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'bg-secondary'} %}
 {% set status_labels = status_meta_map if status_meta_map is defined else {} %}
+{% set role_labels = role_labels if role_labels is defined else {} %}
 {% set action_labels = {'submit': 'إرسال', 'approve': 'اعتماد', 'reject': 'رفض'} %}
+{% set proxy_role_label = role_labels.get(approval_required_role) if is_proxy_action else None %}
 
 <div class="mb-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
     <div>
@@ -113,7 +115,7 @@
                                 </div>
                                 <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('هل تريد اعتماد أمر الشراء؟');">
                                     <i class="bi bi-check-circle ms-1"></i>
-                                    اعتماد
+                                    اعتماد{% if proxy_role_label %} (بالنيابة عن {{ proxy_role_label }}){% endif %}
                                 </button>
                             </form>
                         {% endif %}
@@ -126,7 +128,7 @@
                                 </div>
                                 <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('هل تريد رفض أمر الشراء؟');">
                                     <i class="bi bi-x-circle ms-1"></i>
-                                    رفض
+                                    رفض{% if proxy_role_label %} (بالنيابة عن {{ proxy_role_label }}){% endif %}
                                 </button>
                             </form>
                         {% endif %}
@@ -159,11 +161,17 @@
                             {% for decision in purchase_order.decisions %}
                                 {% set from_meta = status_labels.get(decision.from_status, {'label': decision.from_status}) %}
                                 {% set to_meta = status_labels.get(decision.to_status, {'label': decision.to_status}) %}
+                                {% set decision_proxy_label = role_labels.get(decision.proxy_for_role) if decision.proxy_for_role else None %}
                                 <tr>
                                     <td class="text-nowrap text-muted">
                                         {{ decision.decided_at.strftime('%Y-%m-%d %H:%M') if decision.decided_at else '-' }}
                                     </td>
-                                    <td>{{ decision.decided_by.full_name if decision.decided_by else '-' }}</td>
+                                    <td>
+                                        {{ decision.decided_by.full_name if decision.decided_by else '-' }}
+                                        {% if decision_proxy_label %}
+                                            <span class="text-muted"> (بالنيابة عن {{ decision_proxy_label }})</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ action_labels.get(decision.action, decision.action) }}</td>
                                     <td class="text-nowrap">
                                         {{ from_meta.label }} → {{ to_meta.label }}
