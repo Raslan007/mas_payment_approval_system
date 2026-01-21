@@ -1,4 +1,6 @@
-{% set can_edit_ledger = current_user.is_authenticated and current_user.role and (current_user.role.name in ["admin", "finance"]) %}
+{% set can_create_ledger = can_create_ledger if can_create_ledger is defined else false %}
+{% set can_void_ledger = can_void_ledger if can_void_ledger is defined else false %}
+{% set action_columns = 1 if can_void_ledger else 0 %}
 
 <div class="bg-white p-4 rounded-3 shadow-sm mt-4">
     <div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-2 mb-3">
@@ -14,7 +16,7 @@
         </div>
     </div>
 
-    {% if can_edit_ledger %}
+    {% if can_create_ledger %}
         <div class="row g-3 mb-4">
             <div class="col-lg-6">
                 <div class="border rounded-3 p-3 h-100">
@@ -110,7 +112,7 @@
                     <th>ملاحظة</th>
                     <th>أنشئ بواسطة</th>
                     <th>الحالة</th>
-                    {% if can_edit_ledger %}
+                    {% if can_void_ledger %}
                         <th></th>
                     {% endif %}
                 </tr>
@@ -145,7 +147,7 @@
                                     <span class="badge bg-light text-success border">نشط</span>
                                 {% endif %}
                             </td>
-                            {% if can_edit_ledger %}
+                            {% if can_void_ledger %}
                                 <td class="text-end">
                                     {% if not entry.voided_at %}
                                         <form method="post" action="{{ url_for('suppliers.void_ledger_entry', supplier_id=supplier.id, entry_id=entry.id) }}">
@@ -161,7 +163,7 @@
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="9" class="text-center text-muted small">لا توجد قيود سابقة مسجلة.</td>
+                        <td colspan="{{ 8 + action_columns }}" class="text-center text-muted small">لا توجد قيود سابقة مسجلة.</td>
                     </tr>
                 {% endif %}
             </tbody>

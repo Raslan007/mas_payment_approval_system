@@ -138,9 +138,50 @@ def test_engineer_cannot_create_opening_balance(client, user_factory, login, sup
     assert SupplierLedgerEntry.query.count() == 0
 
 
+def test_procurement_can_create_opening_balance(client, user_factory, login, supplier):
+    procurement = user_factory("procurement")
+    login(procurement)
+
+    response = client.post(
+        f"/suppliers/{supplier.id}/ledger/opening-balance",
+        data={
+            "amount": "750.00",
+            "entry_date": "2024-01-12",
+            "note": "Legacy opening",
+        },
+    )
+
+    assert response.status_code == 302
+    entry = SupplierLedgerEntry.query.one()
+    assert entry.entry_type == "opening_balance"
+    assert entry.direction == "debit"
+    assert entry.amount == Decimal("750.00")
+
+
+def test_procurement_can_create_adjustment(client, user_factory, login, supplier):
+    procurement = user_factory("procurement")
+    login(procurement)
+
+    response = client.post(
+        f"/suppliers/{supplier.id}/ledger/adjustment",
+        data={
+            "direction": "credit",
+            "amount": "200.00",
+            "entry_date": "2024-01-13",
+            "note": "Legacy adjustment",
+        },
+    )
+
+    assert response.status_code == 302
+    entry = SupplierLedgerEntry.query.one()
+    assert entry.entry_type == "adjustment"
+    assert entry.direction == "credit"
+    assert entry.amount == Decimal("200.00")
+
+
 @pytest.mark.parametrize(
     "role_name",
-    ["accounts", "procurement", "engineering_manager", "chairman"],
+    ["accounts", "engineering_manager", "chairman"],
 )
 def test_viewer_roles_cannot_create_opening_balance(client, user_factory, login, supplier, role_name):
     user = user_factory(role_name)
@@ -156,6 +197,29 @@ def test_viewer_roles_cannot_create_opening_balance(client, user_factory, login,
 
     assert response.status_code == 403
     assert SupplierLedgerEntry.query.count() == 0
+
+
+def test_procurement_cannot_void_ledger_entry(client, user_factory, login, supplier):
+    finance_user = user_factory("finance")
+    entry = SupplierLedgerEntry(
+        supplier_id=supplier.id,
+        entry_type="adjustment",
+        direction="debit",
+        amount=Decimal("300.00"),
+        entry_date=date(2024, 1, 5),
+        created_by_id=finance_user.id,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    procurement = user_factory("procurement")
+    login(procurement)
+
+    response = client.post(f"/suppliers/{supplier.id}/ledger/{entry.id}/void")
+    assert response.status_code == 403
+
+    db.session.refresh(entry)
+    assert entry.voided_at is None
 
 
 def test_voiding_excludes_entry_from_legacy_balance(client, user_factory, login, supplier):

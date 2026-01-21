@@ -22,7 +22,8 @@ LEDGER_VIEW_ROLES = {
     "chairman",
     "finance",
 }
-LEDGER_EDIT_ROLES = {"admin", "finance"}
+LEDGER_CREATE_ROLES = {"admin", "finance", "procurement"}
+LEDGER_VOID_ROLES = {"admin", "finance"}
 
 def _quantize_amount(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"))
@@ -36,6 +37,16 @@ def _parse_amount(value: str) -> Decimal | None:
 
 
 def _ledger_context(supplier: Supplier):
+    can_create_ledger = bool(
+        current_user.is_authenticated
+        and current_user.role
+        and current_user.role.name in LEDGER_CREATE_ROLES
+    )
+    can_void_ledger = bool(
+        current_user.is_authenticated
+        and current_user.role
+        and current_user.role.name in LEDGER_VOID_ROLES
+    )
     ledger_entries = (
         SupplierLedgerEntry.query.options(
             selectinload(SupplierLedgerEntry.project),
@@ -52,6 +63,8 @@ def _ledger_context(supplier: Supplier):
     )
     projects = Project.query.order_by(Project.project_name.asc()).all()
     return {
+        "can_create_ledger": can_create_ledger,
+        "can_void_ledger": can_void_ledger,
         "ledger_entries": ledger_entries,
         "legacy_balance": supplier.legacy_balance,
         "projects": projects,
@@ -192,10 +205,10 @@ def view_ledger(supplier_id):
 
 
 @suppliers_bp.route("/<int:supplier_id>/ledger/opening-balance", methods=["POST"])
-@role_required("admin", "finance")
+@role_required("admin", "finance", "procurement")
 def create_opening_balance(supplier_id):
     supplier = Supplier.query.get_or_404(supplier_id)
-    if not (current_user.role and current_user.role.name in LEDGER_EDIT_ROLES):
+    if not (current_user.role and current_user.role.name in LEDGER_CREATE_ROLES):
         flash("ليست لديك صلاحية لإضافة رصيد افتتاحي.", "danger")
         return redirect(url_for("suppliers.view_ledger", supplier_id=supplier.id))
 
@@ -231,10 +244,10 @@ def create_opening_balance(supplier_id):
 
 
 @suppliers_bp.route("/<int:supplier_id>/ledger/adjustment", methods=["POST"])
-@role_required("admin", "finance")
+@role_required("admin", "finance", "procurement")
 def create_adjustment(supplier_id):
     supplier = Supplier.query.get_or_404(supplier_id)
-    if not (current_user.role and current_user.role.name in LEDGER_EDIT_ROLES):
+    if not (current_user.role and current_user.role.name in LEDGER_CREATE_ROLES):
         flash("ليست لديك صلاحية لإضافة تسوية.", "danger")
         return redirect(url_for("suppliers.view_ledger", supplier_id=supplier.id))
 
@@ -283,7 +296,7 @@ def void_ledger_entry(supplier_id, entry_id):
         SupplierLedgerEntry.supplier_id == supplier.id,
     ).first_or_404()
 
-    if not (current_user.role and current_user.role.name in LEDGER_EDIT_ROLES):
+    if not (current_user.role and current_user.role.name in LEDGER_VOID_ROLES):
         flash("ليست لديك صلاحية لإلغاء القيد.", "danger")
         return redirect(url_for("suppliers.view_ledger", supplier_id=supplier.id))
 
