@@ -118,7 +118,7 @@ def test_procurement_can_view_directory(client, user_factory, login, suppliers):
     procurement = user_factory("procurement")
     login(procurement)
 
-    response = client.get("/finance/suppliers")
+    response = client.get("/finance/legacy-liabilities")
 
     assert response.status_code == 200
 
@@ -127,7 +127,7 @@ def test_directory_shows_suppliers_and_ledger_links(client, user_factory, login,
     procurement = user_factory("procurement")
     login(procurement)
 
-    response = client.get("/finance/suppliers")
+    response = client.get("/finance/legacy-liabilities")
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -140,7 +140,7 @@ def test_directory_hides_supplier_admin_links(client, user_factory, login, suppl
     procurement = user_factory("procurement")
     login(procurement)
 
-    response = client.get("/finance/suppliers")
+    response = client.get("/finance/legacy-liabilities")
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -154,7 +154,7 @@ def test_dc_is_denied_directory(client, user_factory, login, suppliers):
     dc_user = user_factory("dc")
     login(dc_user)
 
-    response = client.get("/finance/suppliers")
+    response = client.get("/finance/legacy-liabilities")
 
     assert response.status_code == 403
 
@@ -163,6 +163,18 @@ def test_admin_can_view_directory(client, user_factory, login, suppliers):
     admin = user_factory("admin")
     login(admin)
 
-    response = client.get("/finance/suppliers")
+    response = client.get("/finance/legacy-liabilities")
 
     assert response.status_code == 200
+
+
+def test_procurement_dashboard_includes_legacy_liabilities_link(client, user_factory, login):
+    procurement = user_factory("procurement")
+    login(procurement)
+
+    response = client.get("/dashboard")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "/finance/legacy-liabilities" in body
+    assert "مديونيات الموردين (قبل النظام)" in body

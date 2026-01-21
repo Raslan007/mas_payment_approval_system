@@ -456,6 +456,7 @@ def export_workbench():
 
 
 @finance_bp.route("/suppliers")
+@finance_bp.route("/legacy-liabilities")
 @role_required(*LEGACY_LIABILITY_ROLES)
 def legacy_liabilities_directory():
     (
@@ -477,7 +478,7 @@ def legacy_liabilities_directory():
     }
 
     return render_template(
-        "finance/suppliers_legacy_liabilities.html",
+        "finance/legacy_liabilities_directory.html",
         suppliers=pagination.items,
         pagination=pagination,
         page=page,
