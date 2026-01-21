@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}مديونيات الموردين (قبل النظام){% endblock %}
+
+{% block content %}
+{% set page_title = "مديونيات الموردين (قبل النظام)" %}
+{% set filters = filters or {} %}
+{% set pagination = pagination or None %}
+{% set query_params = query_params or {} %}
+
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+    <div>
+        <h1 class="h5 mb-1">مديونيات الموردين (قبل النظام)</h1>
+        <p class="text-muted xsmall mb-0">
+            دليل مرجعي لعرض مديونيات الموردين السابقة وربطها بسجل المديونيات دون تعديل البيانات.
+        </p>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label small mb-1">بحث بالاسم</label>
+                <input
+                    type="search"
+                    name="q"
+                    class="form-control form-control-sm"
+                    placeholder="اسم المورد"
+                    value="{{ filters.get('q', '') }}">
+            </div>
+
+            <input type="hidden" name="per_page" value="{{ pagination.per_page if pagination else 20 }}">
+
+            <div class="col-md-2 text-end">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel ms-1"></i>
+                    بحث
+                </button>
+            </div>
+
+            <div class="col-12 text-end">
+                <a href="{{ url_for('finance.legacy_liabilities_directory') }}" class="btn btn-outline-secondary btn-sm">
+                    مسح الفلاتر
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        {% if pagination and pagination.total %}
+            {% set start_item = ((pagination.page - 1) * pagination.per_page) + 1 %}
+            {% set end_item = (pagination.page * pagination.per_page) if (pagination.page * pagination.per_page) < pagination.total else pagination.total %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 text-muted xsmall">
+                <div>
+                    عرض {{ start_item }}–{{ end_item }} من {{ pagination.total }}
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                <tr>
+                    <th class="text-muted text-center small">#</th>
+                    <th>اسم المورد</th>
+                    <th class="text-nowrap">نوع المورد</th>
+                    <th class="text-end text-nowrap">رصيد المديونية</th>
+                    <th class="text-center text-nowrap">الإجراءات</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% if suppliers %}
+                    {% for supplier, legacy_balance, entry_count in suppliers %}
+                        <tr>
+                            <td class="text-center text-muted">
+                                {{ supplier.id }}
+                            </td>
+                            <td class="fw-semibold">
+                                {{ supplier.name }}
+                            </td>
+                            <td>
+                                {{ supplier.supplier_type }}
+                            </td>
+                            <td class="text-end fw-semibold">
+                                {{ "%.2f"|format(legacy_balance or 0) }}
+                            </td>
+                            <td class="text-center">
+                                <a href="{{ url_for('suppliers.view_ledger', supplier_id=supplier.id) }}"
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-folder2-open ms-1"></i>
+                                    عرض المديونيات
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">
+                            لا توجد نتائج مطابقة للفلاتر الحالية.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination and pagination.pages > 1 %}
+            <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" aria-label="تصفح الموردين">
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                        <a class="page-link"
+                           href="{{ url_for('finance.legacy_liabilities_directory', page=pagination.prev_num if pagination.has_prev else 1, **query_params) }}"
+                           tabindex="{% if not pagination.has_prev %}-1{% else %}0{% endif %}">السابق</a>
+                    </li>
+
+                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                                <a class="page-link" href="{{ url_for('finance.legacy_liabilities_directory', page=p, **query_params) }}">{{ p }}</a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endfor %}
+
+                    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                        <a class="page-link"
+                           href="{{ url_for('finance.legacy_liabilities_directory', page=pagination.next_num if pagination.has_next else pagination.page, **query_params) }}"
+                           tabindex="{% if not pagination.has_next %}-1{% else %}0{% endif %}">التالي</a>
+                    </li>
+                </ul>
+
+                <div class="d-flex align-items-center gap-2 text-muted xsmall">
+                    <span>عدد السجلات في الصفحة:</span>
+                    <form method="get" action="{{ url_for('finance.legacy_liabilities_directory') }}" class="d-flex align-items-center gap-2 mb-0">
+                        {% for key, value in query_params.items() %}
+                            {% if key != 'per_page' and value %}
+                                <input type="hidden" name="{{ key }}" value="{{ value }}">
+                            {% endif %}
+                        {% endfor %}
+                        <input type="hidden" name="page" value="1">
+                        <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                            {% for size in [10, 20, 50, 100] %}
+                                <option value="{{ size }}" {% if pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+            </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
