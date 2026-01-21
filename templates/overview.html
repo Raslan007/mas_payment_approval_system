@@ -8,7 +8,7 @@
    الأدوار المسموح لها: admin, engineering_manager, finance, chairman
    عدّل القائمة حسب ما تريده بالضبط
 ------------------------------------------ #}
-{% set allowed_roles = ["admin", "engineering_manager", "finance", "chairman"] %}
+{% set allowed_roles = ["admin", "engineering_manager", "finance", "chairman", "procurement", "accounts"] %}
 
 {% if (not current_user.is_authenticated)
       or (not current_user.role)
@@ -99,6 +99,20 @@
             <div class="text-muted xsmall">دفعات قيد المراجعة ومعتمدة للصرف.</div>
         </div>
     </div>
+    {% if show_legacy_liabilities and kpis.legacy_liabilities is not none %}
+        <div class="col">
+            <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="legacy_liabilities" data-kpi-value="{{ kpis.legacy_liabilities }}">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small">Legacy Liabilities (Pre-system)</span>
+                    <i class="bi bi-journal-text text-secondary"></i>
+                </div>
+                <div class="h4 mb-1">
+                    {{ kpis.legacy_liabilities|num(2) }} <span class="h6 text-muted">ج.م</span>
+                </div>
+                <div class="text-muted xsmall">رصيد تاريخي منفصل عن التزامات أوامر الشراء.</div>
+            </div>
+        </div>
+    {% endif %}
     <div class="col">
         <div class="bg-white rounded-3 shadow-sm h-100 p-3" data-kpi="paid_this_month" data-kpi-value="{{ kpis.paid_this_month }}">
             <div class="d-flex justify-content-between align-items-center mb-2">

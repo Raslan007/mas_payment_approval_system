@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}سجل المورد{% endblock %}
+
+{% block content %}
+{% set page_title = "سجل المورد - " ~ (supplier.name or '') %}
+
+<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h5 mb-1">{{ page_title }}</h1>
+        <p class="text-muted mb-0">
+            عرض سجل الالتزامات السابقة للمورد بشكل منفصل عن أوامر الشراء.
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('suppliers.edit_supplier', supplier_id=supplier.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-pencil-square ms-1"></i>
+            بيانات المورد
+        </a>
+        <a href="{{ url_for('suppliers.list_suppliers') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-return-right ms-1"></i>
+            قائمة الموردين
+        </a>
+    </div>
+</div>
+
+{% include "suppliers/_ledger_section.html" %}
+{% endblock %}

@@ -60,4 +60,8 @@
         </div>
     </form>
 </div>
+
+{% if can_view_ledger %}
+    {% include "suppliers/_ledger_section.html" %}
+{% endif %}
 {% endblock %}

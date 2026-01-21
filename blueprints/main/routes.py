@@ -19,6 +19,7 @@ from models import (
     PurchaseOrder,
     Supplier,
     PaymentFinanceAdjustment,
+    SupplierLedgerEntry,
 )
 from project_scopes import get_scoped_project_ids
 from .navigation import get_launcher_modules
@@ -203,7 +204,7 @@ def dashboard():
 
 
 @main_bp.route("/overview")
-@role_required("admin", "engineering_manager", "chairman", "finance")
+@role_required("admin", "engineering_manager", "chairman", "finance", "procurement", "accounts")
 def overview():
     """
     نظرة إجمالية على مبالغ وعدد الدفعات حسب الحالة والمشروعات.
@@ -399,6 +400,35 @@ def overview():
         for status in pending_review_statuses
     )
     total_outstanding_amount = pending_amount + ready_for_payment_amount
+
+    legacy_view_roles = {
+        "admin",
+        "engineering_manager",
+        "procurement",
+        "accounts",
+        "chairman",
+        "finance",
+    }
+    show_legacy_liabilities = role_name in legacy_view_roles
+    legacy_liabilities_total = None
+    if show_legacy_liabilities:
+        legacy_liabilities_total = (
+            db.session.query(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (SupplierLedgerEntry.direction == "debit", SupplierLedgerEntry.amount),
+                            (SupplierLedgerEntry.direction == "credit", -SupplierLedgerEntry.amount),
+                            else_=0,
+                        )
+                    ),
+                    0.0,
+                )
+            )
+            .filter(SupplierLedgerEntry.voided_at.is_(None))
+            .scalar()
+            or 0.0
+        )
 
     sla_thresholds = resolve_sla_thresholds(current_app.config)
     sla_statuses = {stage for stage in sla_thresholds.keys()}
@@ -614,6 +644,7 @@ def overview():
         "rejected": rejected_count,
         "total_amount": total_amount,
         "oldest_overdue": aging_kpis["oldest_overdue_days"],
+        "legacy_liabilities": legacy_liabilities_total if legacy_liabilities_total is not None else None,
     }
 
     return render_template(
@@ -640,6 +671,7 @@ def overview():
         sla_metrics=sla_metrics,
         dashboard_alerts=dashboard_alerts,
         action_required=action_required,
+        show_legacy_liabilities=show_legacy_liabilities,
         daily_chart={"labels": daily_labels, "values": daily_values},
         status_chart={"labels": status_chart_labels, "values": status_chart_values},
         workflow_funnel=workflow_funnel,
