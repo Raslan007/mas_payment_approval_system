@@ -100,6 +100,8 @@ ALLOWED_STATUSES: set[str] = {
 
 EXPORT_ROW_LIMIT = 10000
 
+ALLOWED_SORT_FIELDS: set[str] = {"vendor"}
+
 ALLOWED_SAVED_VIEW_ENDPOINTS: set[str] = {
     "payments.index",
     "payments.list_all",
@@ -891,9 +893,25 @@ def _paginate_payments_query(q, *, default_per_page: int = 20):
         or 0
     )
 
-    ordered_q = q.order_by(
-        PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
-    )
+    sort_field = (request.args.get("sort") or "").strip()
+    sort_dir = (request.args.get("dir") or "asc").strip().lower()
+    if sort_dir not in {"asc", "desc"}:
+        sort_dir = "asc"
+
+    if sort_field in ALLOWED_SORT_FIELDS and sort_field == "vendor":
+        order_column = func.lower(Supplier.name)
+        if sort_dir == "desc":
+            order_column = order_column.desc()
+        else:
+            order_column = order_column.asc()
+        ordered_q = q.outerjoin(PaymentRequest.supplier).order_by(
+            order_column, PaymentRequest.id.desc()
+        )
+    else:
+        ordered_q = q.order_by(
+            PaymentRequest.created_at.desc(), PaymentRequest.id.desc()
+        )
+
     pagination = ordered_q.paginate(
         page=page, per_page=per_page, error_out=False, count=False
     )
@@ -902,13 +920,27 @@ def _paginate_payments_query(q, *, default_per_page: int = 20):
     return pagination, page, per_page
 
 
+def _sorting_query_params() -> dict[str, str]:
+    sort_field = (request.args.get("sort") or "").strip()
+    if sort_field not in ALLOWED_SORT_FIELDS:
+        return {}
+
+    sort_dir = (request.args.get("dir") or "asc").strip().lower()
+    if sort_dir not in {"asc", "desc"}:
+        sort_dir = "asc"
+    return {"sort": sort_field, "dir": sort_dir}
+
+
 def _render_inbox_list(q, *, page_title: str, filters: dict[str, str], pagination_endpoint: str):
     q = q.options(*PAYMENT_RELATION_OPTIONS)
     pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    sorting_params = _sorting_query_params()
 
     query_params = {k: v for k, v in filters.items() if v}
+    query_params.update(sorting_params)
     query_params["page"] = page
     query_params["per_page"] = per_page
 
@@ -920,6 +952,7 @@ def _render_inbox_list(q, *, page_title: str, filters: dict[str, str], paginatio
         page_title=page_title,
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
         pagination_endpoint=pagination_endpoint,
@@ -1638,7 +1671,9 @@ def index():
     pagination, page, per_page = _paginate_payments_query(q)
     payments = pagination.items
 
+    sorting_params = _sorting_query_params()
     query_params = {k: v for k, v in filters.items() if v}
+    query_params.update(sorting_params)
     query_params["page"] = page
     query_params["per_page"] = per_page
 
@@ -1655,7 +1690,7 @@ def index():
         status_choices=status_choices,
         supplier_summary=supplier_summary,
         export_endpoint="payments.export_my",
-        export_params={k: v for k, v in filters.items() if v},
+        export_params={**{k: v for k, v in filters.items() if v}, **sorting_params},
         can_create_payment=_can_create_payment(),
         can_export_payments=_can_export_payments(
             {
@@ -1699,6 +1734,7 @@ def list_all():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     projects, request_types, status_choices = _get_filter_lists()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
     allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
     role_name = _get_role()
@@ -1710,7 +1746,9 @@ def list_all():
     )
 
     pagination, page, per_page = _paginate_payments_query(q)
+    sorting_params = _sorting_query_params()
     query_params = {k: v for k, v in filters.items() if v}
+    query_params.update(sorting_params)
     query_params["page"] = page
     query_params["per_page"] = per_page
 
@@ -1722,10 +1760,11 @@ def list_all():
         page_title="جميع الدفعات",
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
         export_endpoint="payments.export_all",
-        export_params={k: v for k, v in filters.items() if v},
+        export_params={**{k: v for k, v in filters.items() if v}, **sorting_params},
         can_create_payment=_can_create_payment(),
         can_export_payments=_can_export_payments(
             {
@@ -1766,9 +1805,16 @@ def pm_review():
     pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     filters = _default_filters()
     filters["status"] = STATUS_PENDING_PM
-    query_params = {"page": page, "per_page": per_page, "status": STATUS_PENDING_PM}
+    sorting_params = _sorting_query_params()
+    query_params = {
+        "page": page,
+        "per_page": per_page,
+        "status": STATUS_PENDING_PM,
+        **sorting_params,
+    }
 
     return render_template(
         "payments/list.html",
@@ -1778,12 +1824,13 @@ def pm_review():
         page_title="دفعات في انتظار مراجعة مدير المشروع",
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
         pagination_endpoint="payments.pm_review",
         return_to=_get_return_to(),
         export_endpoint=None,
-        export_params={},
+        export_params=sorting_params,
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
@@ -1800,9 +1847,16 @@ def eng_review():
     pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     filters = _default_filters()
     filters["status"] = STATUS_PENDING_ENG
-    query_params = {"page": page, "per_page": per_page, "status": STATUS_PENDING_ENG}
+    sorting_params = _sorting_query_params()
+    query_params = {
+        "page": page,
+        "per_page": per_page,
+        "status": STATUS_PENDING_ENG,
+        **sorting_params,
+    }
 
     return render_template(
         "payments/list.html",
@@ -1812,12 +1866,13 @@ def eng_review():
         page_title="دفعات في انتظار الإدارة الهندسية",
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
         pagination_endpoint="payments.eng_review",
         return_to=_get_return_to(),
         export_endpoint=None,
-        export_params={},
+        export_params=sorting_params,
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,
@@ -1845,8 +1900,10 @@ def list_finance_review():
     pagination, page, per_page = _paginate_payments_query(q)
 
     projects, request_types, status_choices = _get_filter_lists()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     filters = _default_filters()
-    query_params = {"page": page, "per_page": per_page}
+    sorting_params = _sorting_query_params()
+    query_params = {"page": page, "per_page": per_page, **sorting_params}
 
     return render_template(
         "payments/list.html",
@@ -1856,12 +1913,13 @@ def list_finance_review():
         page_title="جميع دفعات المالية",
         filters=filters,
         projects=projects,
+        suppliers=suppliers,
         request_types=request_types,
         status_choices=status_choices,
         pagination_endpoint="payments.list_finance_review",
         return_to=_get_return_to(),
         export_endpoint=None,
-        export_params={},
+        export_params=sorting_params,
         can_create_payment=_can_create_payment(),
         can_export_payments=False,
         can_edit_payment=_can_edit_payment,

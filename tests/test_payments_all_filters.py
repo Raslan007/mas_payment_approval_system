@@ -121,6 +121,42 @@ class PaymentsAllFiltersTestCase(unittest.TestCase):
             rf'data-payment-id="{payments[1].id}"|data-payment-id="{payments[0].id}"',
         )
 
+    def test_sorting_by_vendor_name(self):
+        alpha_supplier = Supplier(name="Alpha Vendor", supplier_type="contractor")
+        zulu_supplier = Supplier(name="zulu vendor", supplier_type="contractor")
+        db.session.add_all([alpha_supplier, zulu_supplier])
+        db.session.commit()
+
+        alpha_payment = PaymentRequest(
+            project=self.project,
+            supplier=alpha_supplier,
+            request_type="contractor",
+            amount=200,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=self.admin.id,
+        )
+        zulu_payment = PaymentRequest(
+            project=self.project,
+            supplier=zulu_supplier,
+            request_type="contractor",
+            amount=300,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=self.admin.id,
+        )
+        db.session.add_all([alpha_payment, zulu_payment])
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get("/payments/all?sort=vendor&dir=asc")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        alpha_index = body.find(f'data-payment-id="{alpha_payment.id}"')
+        zulu_index = body.find(f'data-payment-id="{zulu_payment.id}"')
+        self.assertNotEqual(alpha_index, -1)
+        self.assertNotEqual(zulu_index, -1)
+        self.assertLess(alpha_index, zulu_index)
+
 
 if __name__ == "__main__":
     unittest.main()
