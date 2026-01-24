@@ -24,6 +24,8 @@
 {% set current_date_from = filters.get('date_from') or request.args.get('date_from', '') %}
 {% set current_date_to = filters.get('date_to') or request.args.get('date_to', '') %}
 {% set current_per_page = (pagination.per_page if pagination else None) or request.args.get('per_page', '') %}
+{% set current_sort = query_params.get('sort', '') %}
+{% set current_dir = query_params.get('dir', 'asc') if current_sort else '' %}
 {% set current_query_string = request.query_string.decode('utf-8') if request.query_string else '' %}
 {% set selected_supplier_name = '' %}
 {% if suppliers %}
@@ -179,6 +181,10 @@
             {% if current_status_group %}
                 <input type="hidden" name="status_group" value="{{ current_status_group }}">
             {% endif %}
+            {% if current_sort %}
+                <input type="hidden" name="sort" value="{{ current_sort }}">
+                <input type="hidden" name="dir" value="{{ current_dir }}">
+            {% endif %}
 
             <div class="col-12 text-end mt-2">
                 <button type="submit" class="btn btn-primary btn-sm">
@@ -248,7 +254,22 @@
                 <tr>
                     <th class="text-center text-muted small">#</th>
                     <th>المشروع</th>
-                    <th>المورد / المقاول</th>
+                    <th>
+                        {% set is_vendor_sort = current_sort == 'vendor' %}
+                        {% set next_vendor_dir = 'desc' if is_vendor_sort and current_dir == 'asc' else 'asc' %}
+                        {% set sort_params = pagination_view_args.copy() %}
+                        {% set _ = sort_params.update(query_params) %}
+                        {% set _ = sort_params.pop('page', None) %}
+                        {% set _ = sort_params.update({'sort': 'vendor', 'dir': next_vendor_dir}) %}
+                        <a href="{{ url_for(pagination_endpoint, **sort_params) }}" class="text-decoration-none">
+                            المورد / المقاول
+                            {% if is_vendor_sort %}
+                                <span class="text-muted small ms-1">
+                                    {{ "▼" if current_dir == 'desc' else "▲" }}
+                                </span>
+                            {% endif %}
+                        </a>
+                    </th>
                     <th class="text-nowrap">نوع الدفعة</th>
                     <th class="text-end text-nowrap">المبلغ (ج.م)</th>
                     <th class="text-nowrap">نسبة الإنجاز</th>
