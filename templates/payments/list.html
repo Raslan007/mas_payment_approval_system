@@ -253,7 +253,22 @@
                 <thead class="table-light">
                 <tr>
                     <th class="text-center text-muted small">#</th>
-                    <th>المشروع</th>
+                    <th>
+                        {% set is_project_sort = current_sort == 'project' %}
+                        {% set next_project_dir = 'desc' if is_project_sort and current_dir == 'asc' else 'asc' %}
+                        {% set project_sort_params = pagination_view_args.copy() %}
+                        {% set _ = project_sort_params.update(query_params) %}
+                        {% set _ = project_sort_params.pop('page', None) %}
+                        {% set _ = project_sort_params.update({'sort': 'project', 'dir': next_project_dir}) %}
+                        <a href="{{ url_for(pagination_endpoint, **project_sort_params) }}" class="text-decoration-none">
+                            المشروع
+                            {% if is_project_sort %}
+                                <span class="text-muted small ms-1">
+                                    {{ "▼" if current_dir == 'desc' else "▲" }}
+                                </span>
+                            {% endif %}
+                        </a>
+                    </th>
                     <th>
                         {% set is_vendor_sort = current_sort == 'vendor' %}
                         {% set next_vendor_dir = 'desc' if is_vendor_sort and current_dir == 'asc' else 'asc' %}

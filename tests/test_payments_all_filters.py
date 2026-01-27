@@ -157,6 +157,42 @@ class PaymentsAllFiltersTestCase(unittest.TestCase):
         self.assertNotEqual(zulu_index, -1)
         self.assertLess(alpha_index, zulu_index)
 
+    def test_sorting_by_project_name(self):
+        alpha_project = Project(project_name="Alpha Project")
+        zulu_project = Project(project_name="zulu project")
+        db.session.add_all([alpha_project, zulu_project])
+        db.session.commit()
+
+        alpha_payment = PaymentRequest(
+            project=alpha_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=200,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=self.admin.id,
+        )
+        zulu_payment = PaymentRequest(
+            project=zulu_project,
+            supplier=self.supplier,
+            request_type="contractor",
+            amount=300,
+            status=payment_routes.STATUS_PENDING_PM,
+            created_by=self.admin.id,
+        )
+        db.session.add_all([alpha_payment, zulu_payment])
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get("/payments/all?sort=project&dir=asc")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        alpha_index = body.find(f'data-payment-id="{alpha_payment.id}"')
+        zulu_index = body.find(f'data-payment-id="{zulu_payment.id}"')
+        self.assertNotEqual(alpha_index, -1)
+        self.assertNotEqual(zulu_index, -1)
+        self.assertLess(alpha_index, zulu_index)
+
 
 if __name__ == "__main__":
     unittest.main()
