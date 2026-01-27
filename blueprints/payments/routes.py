@@ -100,7 +100,7 @@ ALLOWED_STATUSES: set[str] = {
 
 EXPORT_ROW_LIMIT = 10000
 
-ALLOWED_SORT_FIELDS: set[str] = {"vendor"}
+ALLOWED_SORT_FIELDS: set[str] = {"vendor", "project"}
 
 ALLOWED_SAVED_VIEW_ENDPOINTS: set[str] = {
     "payments.index",
@@ -906,6 +906,15 @@ def _paginate_payments_query(q, *, default_per_page: int = 20):
         else:
             order_column = order_column.asc()
         ordered_q = q.outerjoin(PaymentRequest.supplier).order_by(
+            order_column, PaymentRequest.id.desc()
+        )
+    elif sort_field in ALLOWED_SORT_FIELDS and sort_field == "project":
+        order_column = func.lower(Project.project_name)
+        if sort_dir == "desc":
+            order_column = order_column.desc()
+        else:
+            order_column = order_column.asc()
+        ordered_q = q.outerjoin(PaymentRequest.project).order_by(
             order_column, PaymentRequest.id.desc()
         )
     else:
