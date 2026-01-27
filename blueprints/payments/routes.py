@@ -578,9 +578,10 @@ def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
     new_reserved = _quantize_amount(current_reserved - amount_to_apply)
     purchase_order.reserved_amount = new_reserved
 
-    current_remaining = _purchase_order_remaining_amount(purchase_order)
-    new_remaining = _quantize_amount(current_remaining - amount_to_apply)
-    purchase_order.remaining_amount = new_remaining
+    current_paid = _quantize_amount(
+        Decimal(str(purchase_order.paid_amount or Decimal("0.00")))
+    )
+    purchase_order.paid_amount = _quantize_amount(current_paid + amount_to_apply)
 
     payment.purchase_order_reserved_amount = None
     payment.purchase_order_finalized_at = datetime.utcnow()

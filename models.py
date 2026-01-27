@@ -495,7 +495,9 @@ class PurchaseOrder(db.Model):
         advance = Decimal(str(self.advance_amount or Decimal("0.00")))
         reserved = Decimal(str(self.reserved_amount or Decimal("0.00")))
         paid = Decimal(str(self.paid_amount or Decimal("0.00")))
-        remaining = total - advance - reserved - paid
+        applied = reserved + paid
+        advance_offset = min(advance, applied)
+        remaining = total - advance - (applied - advance_offset)
         if remaining < 0:
             remaining = Decimal("0.00")
         self.remaining_amount = remaining
