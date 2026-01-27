@@ -1,5 +1,6 @@
 import re
 import unittest
+from datetime import datetime, timedelta
 
 from config import Config
 from app import create_app
@@ -192,6 +193,62 @@ class PaymentsAllFiltersTestCase(unittest.TestCase):
         self.assertNotEqual(alpha_index, -1)
         self.assertNotEqual(zulu_index, -1)
         self.assertLess(alpha_index, zulu_index)
+
+    def test_week_number_omitted_does_not_apply_filter(self):
+        payments = [
+            PaymentRequest(
+                project=self.project,
+                supplier=self.supplier,
+                request_type="contractor",
+                amount=10 + i,
+                status=payment_routes.STATUS_PENDING_PM,
+                created_by=self.admin.id,
+            )
+            for i in range(2)
+        ]
+        db.session.add_all(payments)
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get("/payments/all?per_page=1")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotRegex(body, r"week_number=")
+
+    def test_invalid_week_number_does_not_filter_results(self):
+        now = datetime.utcnow()
+        earlier = now - timedelta(weeks=10)
+        payments = [
+            PaymentRequest(
+                project=self.project,
+                supplier=self.supplier,
+                request_type="contractor",
+                amount=500,
+                status=payment_routes.STATUS_PENDING_PM,
+                created_by=self.admin.id,
+                created_at=earlier,
+            ),
+            PaymentRequest(
+                project=self.project,
+                supplier=self.supplier,
+                request_type="contractor",
+                amount=600,
+                status=payment_routes.STATUS_PENDING_PM,
+                created_by=self.admin.id,
+                created_at=now,
+            ),
+        ]
+        db.session.add_all(payments)
+        db.session.commit()
+
+        self._login(self.admin)
+        response = self.client.get("/payments/all?week_number=abc")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, rf'data-payment-id="{payments[0].id}"')
+        self.assertRegex(body, rf'data-payment-id="{payments[1].id}"')
 
 
 if __name__ == "__main__":

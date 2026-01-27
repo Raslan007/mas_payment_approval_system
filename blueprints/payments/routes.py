@@ -834,15 +834,17 @@ def _apply_filters(q, *, role_name: str | None, allowed_request_types: set[str],
             filters["status_group"] = status_group
             q = q.filter(PaymentRequest.status.in_(STATUS_GROUPS[status_group]))
 
-    raw_week = (request.args.get("week_number") or "").strip()
+    week_number_raw = request.args.get("week_number")
     week_number: int | None = None
-    if raw_week:
-        try:
-            parsed_week = int(raw_week)
-            if 1 <= parsed_week <= 53:
+    if week_number_raw is not None:
+        week_number_raw = week_number_raw.strip()
+        if week_number_raw:
+            try:
+                parsed_week = int(week_number_raw)
+            except (TypeError, ValueError):
+                parsed_week = None
+            if parsed_week is not None and 1 <= parsed_week <= 53:
                 week_number = parsed_week
-        except (TypeError, ValueError):
-            pass
 
     if week_number is not None:
         filters["week_number"] = str(week_number)
