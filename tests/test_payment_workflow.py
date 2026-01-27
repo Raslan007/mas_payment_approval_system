@@ -819,6 +819,115 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         )
         self.assertEqual(PaymentRequest.query.count(), 1)
 
+    def test_purchase_order_remaining_advance_reservation_keeps_balance(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("100.00"),
+            advance_amount=Decimal("40.00"),
+        )
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("40.00"),
+            description="advance reserve",
+            status=payment_routes.STATUS_DRAFT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        db.session.refresh(purchase_order)
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("60.00"))
+
+    def test_purchase_order_full_advance_total_keeps_zero_remaining(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("50.00"),
+            advance_amount=Decimal("50.00"),
+        )
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("50.00"),
+            description="full advance",
+            status=payment_routes.STATUS_DRAFT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        db.session.refresh(purchase_order)
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("0.00"))
+
+    def test_purchase_order_remaining_reduces_after_advance_threshold(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("100.00"),
+            advance_amount=Decimal("40.00"),
+        )
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("60.00"),
+            description="post advance reserve",
+            status=payment_routes.STATUS_DRAFT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        db.session.refresh(purchase_order)
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("40.00"))
+
+    def test_purchase_order_finalize_keeps_remaining_consistent(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("100.00"),
+            advance_amount=Decimal("40.00"),
+        )
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("40.00"),
+            description="advance finalize",
+            status=payment_routes.STATUS_READY_FOR_PAYMENT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+            self.assertTrue(payment_routes._po_finalize(payment, Decimal("40.00")))
+            db.session.commit()
+
+        db.session.refresh(purchase_order)
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("60.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("0.00"))
+        self.assertEqual(Decimal(str(purchase_order.paid_amount)), Decimal("40.00"))
+
     def test_engineer_cannot_edit_payment_to_other_project(self):
         payment = self._make_payment(payment_routes.STATUS_DRAFT, self.users["engineer"].id)
         self._login(self.users["engineer"])
