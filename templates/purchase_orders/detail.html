@@ -22,6 +22,15 @@
                 تعديل
             </a>
         {% endif %}
+        {% if can_clone %}
+            <form action="{{ url_for('purchase_orders.clone_for_other_vendor', id=purchase_order.id) }}" method="post" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-files ms-1"></i>
+                    إنشاء أمر شراء لمورد آخر لنفس المشروع
+                </button>
+            </form>
+        {% endif %}
         {% if can_submit %}
             <form action="{{ url_for('purchase_orders.submit', id=purchase_order.id) }}" method="post" class="d-inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -61,6 +70,10 @@
                         <div class="text-muted xsmall">المورد</div>
                         <div class="fw-semibold">{{ purchase_order.supplier.name if purchase_order.supplier else purchase_order.supplier_name }}</div>
                     </div>
+                    <div class="col-12">
+                        <div class="text-muted xsmall">الوصف</div>
+                        <div class="fw-semibold">{{ purchase_order.description or '-' }}</div>
+                    </div>
                     <div class="col-12 col-md-4">
                         <div class="text-muted xsmall">إجمالي المبلغ</div>
                         <div class="fw-semibold">{{ purchase_order.total_amount | num(2) }}</div>
@@ -86,6 +99,12 @@
                     <div class="text-muted xsmall">رقم BO</div>
                     <div class="fw-semibold">{{ purchase_order.bo_number }}</div>
                 </div>
+                {% if purchase_order.reference_po_number %}
+                    <div class="mb-2">
+                        <div class="text-muted xsmall">المرجع</div>
+                        <div class="fw-semibold">مرجع: {{ purchase_order.reference_po_number }}</div>
+                    </div>
+                {% endif %}
                 <div class="mb-2">
                     <div class="text-muted xsmall">تاريخ الإنشاء</div>
                     <div class="fw-semibold">{{ purchase_order.created_at.strftime('%Y-%m-%d %H:%M') if purchase_order.created_at else '-' }}</div>
