@@ -148,6 +148,15 @@ def _parse_decimal_amount(value: str | None) -> Decimal | None:
     return parsed
 
 
+def _sanitize_text(value: str | None, max_length: int) -> str:
+    if value is None:
+        return ""
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    return trimmed[:max_length]
+
+
 def _parse_due_date(value: str | None) -> date | None:
     if value is None:
         return None
@@ -355,6 +364,13 @@ def new():
     projects = _load_projects(normalized_role, scoped_ids)
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     back_url = _get_return_to()
+    prefill_project_id = request.args.get("project_id", type=int)
+    prefill_description = _sanitize_text(request.args.get("description"), 2000)
+    prefill_reference = _sanitize_text(request.args.get("reference_po_number"), 50)
+    if prefill_project_id:
+        _enforce_project_scope(prefill_project_id, normalized_role, scoped_ids)
+        if not any(project.id == prefill_project_id for project in projects):
+            prefill_project_id = None
 
     return render_template(
         "purchase_orders/form.html",
@@ -365,6 +381,9 @@ def new():
         action_url=url_for("purchase_orders.create"),
         submit_label="إضافة أمر شراء",
         back_url=back_url,
+        prefill_project_id=prefill_project_id,
+        prefill_description=prefill_description,
+        prefill_reference_po_number=prefill_reference,
         page_title="إضافة أمر شراء",
     )
 
@@ -375,6 +394,8 @@ def create():
     normalized_role, scoped_ids = _scoped_project_ids()
 
     bo_number = (request.form.get("bo_number") or "").strip()
+    description = _sanitize_text(request.form.get("description"), 2000) or None
+    reference_po_number = _sanitize_text(request.form.get("reference_po_number"), 50) or None
     supplier_id = request.form.get("supplier_id", type=int)
     supplier_name = normalize_supplier_name(request.form.get("supplier_name") or "")
     project_id = request.form.get("project_id", type=int)
@@ -446,13 +467,22 @@ def create():
     if errors:
         for message in errors:
             flash(message, "danger")
-        return redirect(url_for("purchase_orders.new"))
+        query_params: dict[str, str | int] = {}
+        if project_id:
+            query_params["project_id"] = project_id
+        if description:
+            query_params["description"] = description
+        if reference_po_number:
+            query_params["reference_po_number"] = reference_po_number
+        return redirect(url_for("purchase_orders.new", **query_params))
 
     remaining_amount = (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
     remaining_amount = _quantize_amount(remaining_amount)
 
     purchase_order = PurchaseOrder(
         bo_number=bo_number,
+        description=description,
+        reference_po_number=reference_po_number,
         project_id=project_id,
         supplier_id=supplier.id,
         supplier_name=supplier.name,
@@ -467,6 +497,12 @@ def create():
     db.session.add(purchase_order)
     db.session.commit()
     flash("تم إنشاء أمر الشراء بنجاح.", "success")
+    if reference_po_number and supplier is not None:
+        source_po = PurchaseOrder.query.filter(
+            func.lower(PurchaseOrder.bo_number) == reference_po_number.lower()
+        ).first()
+        if source_po and source_po.supplier_id == supplier.id:
+            flash("تنبيه: تم اختيار نفس المورد الموجود في أمر الشراء المرجعي.", "warning")
     if due_date is None:
         flash("يفضل إضافة تاريخ الاستحقاق لتسهيل المتابعة.", "warning")
     return redirect(url_for("purchase_orders.detail", id=purchase_order.id))
@@ -491,6 +527,7 @@ def detail(id: int):
     can_reject = approval_target is not None
     can_edit = _can_edit_purchase_order(purchase_order, normalized_role)
     can_submit = normalized_role in EDIT_ROLES and purchase_order.status == PURCHASE_ORDER_STATUS_DRAFT
+    can_clone = normalized_role in EDIT_ROLES
     is_proxy_action = (
         normalized_role == "engineering_manager"
         and approval_required_role == "project_manager"
@@ -507,11 +544,30 @@ def detail(id: int):
         is_proxy_action=is_proxy_action,
         can_edit=can_edit,
         can_submit=can_submit,
+        can_clone=can_clone,
         can_approve=can_approve,
         can_reject=can_reject,
         back_url=back_url,
         page_title=f"أمر شراء رقم {purchase_order.bo_number}",
     )
+
+
+@purchase_orders_bp.route("/<int:id>/clone_for_other_vendor", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def clone_for_other_vendor(id: int):
+    purchase_order = _active_purchase_orders_query().filter(PurchaseOrder.id == id).first_or_404()
+    normalized_role, scoped_ids = _scoped_project_ids()
+    _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
+    reference_po_number = _sanitize_text(purchase_order.bo_number, 50)
+    description = _sanitize_text(purchase_order.description, 2000)
+    query_params: dict[str, str | int] = {
+        "project_id": purchase_order.project_id,
+    }
+    if description:
+        query_params["description"] = description
+    if reference_po_number:
+        query_params["reference_po_number"] = reference_po_number
+    return redirect(url_for("purchase_orders.new", **query_params))
 
 
 @purchase_orders_bp.route("/<int:id>/edit")
@@ -551,6 +607,8 @@ def update(id: int):
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
     bo_number = (request.form.get("bo_number") or "").strip()
+    description = _sanitize_text(request.form.get("description"), 2000) or None
+    reference_po_number = _sanitize_text(request.form.get("reference_po_number"), 50) or None
     supplier_id = request.form.get("supplier_id", type=int)
     supplier_name = normalize_supplier_name(request.form.get("supplier_name") or "")
     project_id = request.form.get("project_id", type=int)
@@ -625,6 +683,8 @@ def update(id: int):
         return redirect(url_for("purchase_orders.edit", id=id))
 
     purchase_order.bo_number = bo_number
+    purchase_order.description = description
+    purchase_order.reference_po_number = reference_po_number
     purchase_order.project_id = project_id
     purchase_order.supplier_id = supplier.id
     purchase_order.supplier_name = supplier.name

@@ -4,6 +4,9 @@
 {% block content %}
 {% set is_edit = purchase_order is not none %}
 {% set due_date_missing = (not is_edit) or (purchase_order and not purchase_order.due_date) %}
+{% set selected_project_id = purchase_order.project_id if is_edit else prefill_project_id %}
+{% set description_value = purchase_order.description if is_edit else (prefill_description or '') %}
+{% set reference_value = purchase_order.reference_po_number if is_edit else (prefill_reference_po_number or '') %}
 
 <div class="mb-3">
     <h1 class="h5 mb-1">{{ page_title or ("تعديل أمر شراء" if is_edit else "إضافة أمر شراء") }}</h1>
@@ -21,6 +24,7 @@
         {% endif %}
         <form method="post" action="{{ action_url }}" class="row g-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="reference_po_number" value="{{ reference_value }}">
 
             {% if is_edit %}
                 <div class="col-12">
@@ -28,6 +32,13 @@
                         <span class="text-muted xsmall">الحالة الحالية:</span>
                         {% set status_info = status_meta if status_meta is mapping else {'label': purchase_order.status, 'class': 'bg-secondary'} %}
                         <span class="badge {{ status_info.class }}">{{ status_info.label }}</span>
+                    </div>
+                </div>
+            {% endif %}
+            {% if reference_value %}
+                <div class="col-12">
+                    <div class="alert alert-info small mb-0" role="alert">
+                        مرجع: {{ reference_value }}
                     </div>
                 </div>
             {% endif %}
@@ -48,7 +59,7 @@
                 <select class="form-select" id="project_id" name="project_id" required>
                     <option value="">اختر مشروعاً</option>
                     {% for project in projects %}
-                        <option value="{{ project.id }}" {% if is_edit and purchase_order.project_id == project.id %}selected{% endif %}>
+                        <option value="{{ project.id }}" {% if selected_project_id == project.id %}selected{% endif %}>
                             {{ project.project_name }}
                         </option>
                     {% endfor %}
@@ -76,6 +87,15 @@
                     id="supplier_name"
                     name="supplier_name"
                     value="{% if is_edit and not purchase_order.supplier_id %}{{ purchase_order.supplier_name }}{% endif %}">
+            </div>
+
+            <div class="col-12">
+                <label for="description" class="form-label">الوصف</label>
+                <textarea
+                    class="form-control"
+                    id="description"
+                    name="description"
+                    rows="3">{{ description_value }}</textarea>
             </div>
 
             <div class="col-12 col-md-4">
