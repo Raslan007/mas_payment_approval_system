@@ -411,6 +411,8 @@ class PurchaseOrder(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     bo_number = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    reference_po_number = db.Column(db.String(50), nullable=True)
     project_id = db.Column(
         db.Integer,
         db.ForeignKey("projects.id"),
