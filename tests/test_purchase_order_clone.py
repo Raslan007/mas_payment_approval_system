@@ -188,6 +188,85 @@ class PurchaseOrderCloneTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_edit_form_bo_number_is_readonly(self):
+        self._login(self.procurement_user)
+        response = self.client.get(f"/purchase-orders/{self.source_po.id}/edit")
+        body = html.unescape(response.get_data(as_text=True))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(body, r'<input[^>]*name="bo_number"[^>]*readonly')
+
+    def test_update_rejects_bo_number_change(self):
+        self._login(self.procurement_user)
+        response = self.client.post(
+            f"/purchase-orders/{self.source_po.id}/update",
+            data={
+                "bo_number": "BO99999",
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "supplier_name": "",
+                "total_amount": "500.00",
+                "advance_amount": "50.00",
+                "due_date": "",
+                "description": "محاولة تحديث غير مسموحة",
+                "reference_po_number": "",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("لا يمكن تعديل رقم BO بعد الإنشاء.", response.get_data(as_text=True))
+        updated_po = db.session.get(PurchaseOrder, self.source_po.id)
+        self.assertEqual(updated_po.bo_number, self.source_po.bo_number)
+        self.assertEqual(updated_po.description, self.source_po.description)
+
+    def test_update_allows_same_bo_number(self):
+        self._login(self.procurement_user)
+        response = self.client.post(
+            f"/purchase-orders/{self.source_po.id}/update",
+            data={
+                "bo_number": self.source_po.bo_number,
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "supplier_name": "",
+                "total_amount": "600.00",
+                "advance_amount": "50.00",
+                "due_date": "",
+                "description": "تحديث الوصف",
+                "reference_po_number": "",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("تم تحديث أمر الشراء بنجاح.", response.get_data(as_text=True))
+        updated_po = db.session.get(PurchaseOrder, self.source_po.id)
+        self.assertEqual(updated_po.bo_number, self.source_po.bo_number)
+        self.assertEqual(updated_po.description, "تحديث الوصف")
+
+    def test_update_allows_missing_bo_number_field(self):
+        self._login(self.procurement_user)
+        response = self.client.post(
+            f"/purchase-orders/{self.source_po.id}/update",
+            data={
+                "project_id": self.project.id,
+                "supplier_id": self.supplier.id,
+                "supplier_name": "",
+                "total_amount": "650.00",
+                "advance_amount": "50.00",
+                "due_date": "",
+                "description": "تحديث بدون رقم BO",
+                "reference_po_number": "",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("تم تحديث أمر الشراء بنجاح.", response.get_data(as_text=True))
+        updated_po = db.session.get(PurchaseOrder, self.source_po.id)
+        self.assertEqual(updated_po.bo_number, self.source_po.bo_number)
+        self.assertEqual(updated_po.description, "تحديث بدون رقم BO")
+
 
 if __name__ == "__main__":
     unittest.main()
