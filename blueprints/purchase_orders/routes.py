@@ -606,7 +606,7 @@ def update(id: int):
         return redirect(url_for("purchase_orders.detail", id=id))
     _enforce_project_scope(purchase_order.project_id, normalized_role, scoped_ids)
 
-    bo_number = (request.form.get("bo_number") or "").strip()
+    posted_bo_number = (request.form.get("bo_number") or "").strip()
     description = _sanitize_text(request.form.get("description"), 2000) or None
     reference_po_number = _sanitize_text(request.form.get("reference_po_number"), 50) or None
     supplier_id = request.form.get("supplier_id", type=int)
@@ -626,8 +626,9 @@ def update(id: int):
         advance_amount = _quantize_amount(advance_amount)
 
     errors: list[str] = []
-    if not bo_number:
-        errors.append("يرجى إدخال رقم BO.")
+    original_bo_number = (purchase_order.bo_number or "").strip()
+    if posted_bo_number and posted_bo_number.lower() != original_bo_number.lower():
+        errors.append("لا يمكن تعديل رقم BO بعد الإنشاء.")
     if not supplier_id and not supplier_name:
         errors.append("يرجى اختيار المورد أو إدخال اسم مورد جديد.")
     if not project_id:
@@ -669,20 +670,12 @@ def update(id: int):
                 supplier.name,
             )
 
-    if bo_number:
-        existing = PurchaseOrder.query.filter(
-            func.lower(PurchaseOrder.bo_number) == bo_number.lower(),
-            PurchaseOrder.id != purchase_order.id,
-        ).first()
-        if existing:
-            errors.append("رقم BO مستخدم مسبقاً.")
-
     if errors:
         for message in errors:
             flash(message, "danger")
         return redirect(url_for("purchase_orders.edit", id=id))
 
-    purchase_order.bo_number = bo_number
+    purchase_order.bo_number = original_bo_number
     purchase_order.description = description
     purchase_order.reference_po_number = reference_po_number
     purchase_order.project_id = project_id

@@ -51,7 +51,11 @@
                     id="bo_number"
                     name="bo_number"
                     value="{{ purchase_order.bo_number if is_edit else '' }}"
+                    {% if is_edit %}readonly{% endif %}
                     required>
+                {% if is_edit %}
+                    <div class="form-text">رقم BO لا يمكن تعديله بعد الإنشاء.</div>
+                {% endif %}
             </div>
 
             <div class="col-12 col-md-4">
