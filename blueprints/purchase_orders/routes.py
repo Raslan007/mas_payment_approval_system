@@ -476,8 +476,7 @@ def create():
             query_params["reference_po_number"] = reference_po_number
         return redirect(url_for("purchase_orders.new", **query_params))
 
-    remaining_amount = (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
-    remaining_amount = _quantize_amount(remaining_amount)
+    remaining_amount = _quantize_amount(total_amount or Decimal("0.00"))
 
     purchase_order = PurchaseOrder(
         bo_number=bo_number,
@@ -684,9 +683,7 @@ def update(id: int):
     purchase_order.total_amount = total_amount
     purchase_order.advance_amount = advance_amount
     purchase_order.due_date = due_date
-    purchase_order.remaining_amount = _quantize_amount(
-        (total_amount or Decimal("0.00")) - (advance_amount or Decimal("0.00"))
-    )
+    purchase_order.remaining_amount = _quantize_amount(total_amount or Decimal("0.00"))
 
     db.session.commit()
     flash("تم تحديث أمر الشراء بنجاح.", "success")

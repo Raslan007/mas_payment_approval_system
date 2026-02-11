@@ -149,7 +149,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
             )
         remaining_amount_value = remaining_amount
         if remaining_amount_value is None:
-            remaining_amount_value = total_amount_value - advance_amount_value
+            remaining_amount_value = total_amount_value
         bo_number_value = bo_number or f"PO-{1000 + PurchaseOrder.query.count() + 1}"
         purchase_order = PurchaseOrder(
             bo_number=bo_number_value,
@@ -599,7 +599,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["supplier_id"], str(self.supplier.id))
         self.assertEqual(payload["amount"], "12000.00")
-        self.assertEqual(payload["remaining_amount"], "38000.00")
+        self.assertEqual(payload["remaining_amount"], "50000.00")
 
     def test_purchase_order_prefill_rejects_missing_advance(self):
         purchase_order = self._make_purchase_order(
@@ -744,7 +744,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         )
         self.assertEqual(PaymentRequest.query.count(), 0)
 
-    def test_create_purchase_order_payment_rejects_advance_exceeds_remaining(self):
+    def test_create_purchase_order_payment_allows_advance_when_no_actual_payments_exist(self):
         purchase_order = self._make_purchase_order(
             total_amount=Decimal("50000.00"),
             advance_amount=Decimal("30000.00"),
@@ -763,12 +763,10 @@ class PaymentWorkflowTestCase(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "رصيد أمر الشراء المتاح غير كافٍ لهذه الدفعة.".encode("utf-8"),
-            response.data,
-        )
-        self.assertEqual(PaymentRequest.query.count(), 0)
+        self.assertEqual(response.status_code, 302)
+        payment = PaymentRequest.query.order_by(PaymentRequest.id.desc()).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(Decimal(str(payment.amount)), Decimal("30000.00"))
 
     def test_create_purchase_order_payment_allows_full_advance_once(self):
         purchase_order = self._make_purchase_order(
@@ -814,7 +812,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         self.assertEqual(response_second.status_code, 200)
         self.assertIn(
-            "تم صرف كامل مبلغ أمر الشراء ولا يمكن إضافة دفعة أخرى.".encode("utf-8"),
+            "رصيد أمر الشراء المتاح غير كافٍ لهذه الدفعة.".encode("utf-8"),
             response_second.data,
         )
         self.assertEqual(PaymentRequest.query.count(), 1)
@@ -844,6 +842,7 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         db.session.refresh(purchase_order)
         self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("60.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("40.00"))
 
     def test_purchase_order_full_advance_total_keeps_zero_remaining(self):
         purchase_order = self._make_purchase_order(
@@ -870,17 +869,21 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         db.session.refresh(purchase_order)
         self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("0.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("50.00"))
 
-    def test_purchase_order_remaining_reduces_after_advance_threshold(self):
+    def test_purchase_order_prevents_reservation_over_actual_available(self):
         purchase_order = self._make_purchase_order(
             total_amount=Decimal("100.00"),
             advance_amount=Decimal("40.00"),
         )
+        purchase_order.reserved_amount = Decimal("40.00")
+        db.session.commit()
+
         payment = PaymentRequest(
             project=self.project,
             supplier=self.supplier,
             request_type=PURCHASE_ORDER_REQUEST_TYPE,
-            amount=Decimal("60.00"),
+            amount=Decimal("61.00"),
             description="post advance reserve",
             status=payment_routes.STATUS_DRAFT,
             purchase_order_id=purchase_order.id,
@@ -891,11 +894,12 @@ class PaymentWorkflowTestCase(unittest.TestCase):
 
         with self.app.test_request_context():
             login_user(self.users["admin"])
-            self.assertTrue(payment_routes._po_reserve(payment))
-            db.session.commit()
+            self.assertFalse(payment_routes._po_reserve(payment))
+            db.session.rollback()
 
         db.session.refresh(purchase_order)
-        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("40.00"))
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("60.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("40.00"))
 
     def test_purchase_order_finalize_keeps_remaining_consistent(self):
         purchase_order = self._make_purchase_order(
