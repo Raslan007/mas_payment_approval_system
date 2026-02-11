@@ -151,6 +151,10 @@ class SupplierLedgerEntry(db.Model):
     __table_args__ = (
         db.Index("ix_supplier_ledger_entries_supplier_date", "supplier_id", "entry_date"),
         db.Index("ix_supplier_ledger_entries_project_id", "project_id"),
+        db.UniqueConstraint(
+            "payment_request_id",
+            name="uq_supplier_ledger_entries_payment_request_id",
+        ),
         db.CheckConstraint("amount > 0", name="ck_supplier_ledger_entries_amount_positive"),
         db.CheckConstraint(
             "direction in ('debit','credit')",
@@ -170,6 +174,12 @@ class SupplierLedgerEntry(db.Model):
         index=True,
     )
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=True)
+    payment_request_id = db.Column(
+        db.Integer,
+        db.ForeignKey("payment_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     entry_type = db.Column(db.String(30), nullable=False)
     direction = db.Column(db.String(10), nullable=False)
     amount = db.Column(db.Numeric(14, 2), nullable=False)
@@ -182,6 +192,7 @@ class SupplierLedgerEntry(db.Model):
 
     supplier = db.relationship("Supplier", back_populates="ledger_entries")
     project = db.relationship("Project")
+    payment_request = db.relationship("PaymentRequest", backref="settlement_ledger_entry")
     created_by = db.relationship("User", foreign_keys=[created_by_id])
     voided_by = db.relationship("User", foreign_keys=[voided_by_id])
 

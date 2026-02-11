@@ -42,6 +42,7 @@ from models import (
     SavedView,
     user_projects,
     PurchaseOrder,
+    SupplierLedgerEntry,
     PURCHASE_ORDER_REQUEST_TYPE,
     PURCHASE_ORDER_STATUS_DRAFT,
     PURCHASE_ORDER_STATUS_REJECTED,
@@ -58,6 +59,8 @@ from .inbox_queries import (
 
 logger = logging.getLogger(__name__)
 
+
+LEGACY_SETTLEMENT_REQUEST_TYPES: set[str] = {"تسوية مديونية", "مستحقات سابقة"}
 
 # تعريف ثوابت الحالات المستخدمة في النظام
 STATUS_DRAFT = "draft"
@@ -198,6 +201,82 @@ def _is_purchase_order_type(request_type: str | None) -> bool:
 
 def _is_purchase_order(payment: PaymentRequest) -> bool:
     return _is_purchase_order_type(payment.request_type) or bool(payment.purchase_order_id)
+
+
+def _is_legacy_settlement_request_type(request_type: str | None) -> bool:
+    return (request_type or "").strip() in LEGACY_SETTLEMENT_REQUEST_TYPES
+
+
+def _is_legacy_settlement_payment(payment: PaymentRequest) -> bool:
+    return (
+        payment.purchase_order_id is None
+        and _is_legacy_settlement_request_type(payment.request_type)
+    )
+
+
+def _build_settlement_note(payment: PaymentRequest) -> str:
+    base_note = f"Settlement via PaymentRequest #{payment.id}"
+    details: list[str] = []
+
+    project = getattr(payment, "project", None)
+    project_code = (getattr(project, "code", None) or "").strip() if project else ""
+    if project_code:
+        details.append(f"Project {project_code}")
+
+    supplier = getattr(payment, "supplier", None)
+    supplier_name = (getattr(supplier, "name", None) or "").strip() if supplier else ""
+    if supplier_name:
+        details.append(f"Supplier {supplier_name}")
+
+    if details:
+        return f"{base_note} | {' | '.join(details)}"
+    return base_note
+
+
+def _create_settlement_ledger_entry_if_needed(
+    payment: PaymentRequest,
+    finance_amount: Decimal,
+) -> SupplierLedgerEntry | None:
+    if not _is_legacy_settlement_payment(payment):
+        return None
+
+    existing_entry = SupplierLedgerEntry.query.filter(
+        SupplierLedgerEntry.payment_request_id == payment.id
+    ).first()
+    if existing_entry is not None:
+        return existing_entry
+
+    created_by_id = current_user.id if current_user.is_authenticated else payment.created_by
+    if created_by_id is None:
+        raise ValueError("Unable to determine created_by_id for settlement ledger entry.")
+
+    settlement_entry = SupplierLedgerEntry(
+        supplier_id=payment.supplier_id,
+        project_id=payment.project_id,
+        payment_request_id=payment.id,
+        entry_type="adjustment",
+        direction="credit",
+        amount=finance_amount,
+        entry_date=date.today(),
+        note=_build_settlement_note(payment),
+        created_by_id=created_by_id,
+    )
+    db.session.add(settlement_entry)
+    db.session.flush()
+    return settlement_entry
+
+
+def _void_settlement_ledger_entry(payment: PaymentRequest) -> None:
+    entry = SupplierLedgerEntry.query.filter(
+        SupplierLedgerEntry.payment_request_id == payment.id,
+        SupplierLedgerEntry.voided_at.is_(None),
+    ).first()
+    if entry is None:
+        return
+
+    entry.voided_at = datetime.utcnow()
+    if current_user.is_authenticated:
+        entry.voided_by_id = current_user.id
 
 
 def _procurement_project_ids() -> list[int]:
@@ -1347,7 +1426,7 @@ def _get_filter_lists():
         .order_by(PaymentRequest.request_type.asc())
         .all()
     )
-    request_types = [r[0] for r in rt_rows if r[0]]
+    request_types = sorted(set([r[0] for r in rt_rows if r[0]]) | LEGACY_SETTLEMENT_REQUEST_TYPES)
 
     status_choices = [
         ("", "الكل"),
@@ -1721,7 +1800,7 @@ def list_all():
     projects, request_types, status_choices = _get_filter_lists()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
-    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"} | LEGACY_SETTLEMENT_REQUEST_TYPES
     role_name = _get_role()
 
     q, filters = _apply_filters(
@@ -1769,7 +1848,7 @@ def export_all():
     q = PaymentRequest.query.options(*PAYMENT_RELATION_OPTIONS)
 
     _, request_types, _ = _get_filter_lists()
-    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"} | LEGACY_SETTLEMENT_REQUEST_TYPES
     role_name = _get_role()
 
     q, _ = _apply_filters(
@@ -1918,7 +1997,7 @@ def _finance_ready_query(base_query):
     projects = Project.query.order_by(Project.project_name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     _, request_types, _ = _get_filter_lists()
-    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"}
+    allowed_request_types = set(filter(None, request_types)) | {"مقاول", "مشتريات", "عهدة"} | LEGACY_SETTLEMENT_REQUEST_TYPES
 
     filters = {"project_id": "", "supplier_id": "", "request_type": "", "date_from": "", "date_to": ""}
 
@@ -3075,6 +3154,8 @@ def delete_payment(payment_id):
     ):
         _po_release(payment)
 
+    _void_settlement_ledger_entry(payment)
+
     # حذف سجلات الاعتماد المرتبطة
     PaymentApproval.query.filter_by(
         payment_request_id=payment.id
@@ -3389,6 +3470,13 @@ def mark_paid(payment_id):
 
     if not _po_finalize(payment, finance_amount):
         return _redirect_with_return_to("payments.detail", payment_id=payment.id)
+
+    if _is_legacy_settlement_payment(payment):
+        try:
+            _create_settlement_ledger_entry_if_needed(payment, finance_amount)
+        except ValueError:
+            flash("تعذر إنشاء قيد تسوية المديونية بسبب نقص بيانات المستخدم.", "danger")
+            return _redirect_with_return_to("payments.detail", payment_id=payment.id)
 
     old_status = payment.status
     payment.finance_amount = finance_amount
