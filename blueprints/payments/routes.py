@@ -326,8 +326,24 @@ def _get_valid_purchase_order(
 
 
 def _purchase_order_remaining_amount(purchase_order: PurchaseOrder) -> Decimal:
+    """Remaining field persisted on PO (kept for UI/backward compatibility)."""
     remaining_amount = Decimal(str(purchase_order.remaining_amount or Decimal("0.00")))
     return _quantize_amount(remaining_amount)
+
+
+def _purchase_order_available_amount(purchase_order: PurchaseOrder) -> Decimal:
+    """Actual available amount for new/ongoing payments: total - reserved - paid."""
+    total_amount = _purchase_order_total_amount(purchase_order)
+    reserved_amount = _quantize_amount(
+        Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+    )
+    paid_amount = _quantize_amount(
+        Decimal(str(purchase_order.paid_amount or Decimal("0.00")))
+    )
+    available_amount = total_amount - reserved_amount - paid_amount
+    if available_amount < Decimal("0.00"):
+        return Decimal("0.00")
+    return _quantize_amount(available_amount)
 
 
 def _purchase_order_total_amount(purchase_order: PurchaseOrder) -> Decimal:
@@ -340,48 +356,17 @@ def _purchase_order_advance_amount(purchase_order: PurchaseOrder) -> Decimal:
     return _quantize_amount(advance_amount)
 
 
-def _purchase_order_has_active_payments(
-    purchase_order_id: int,
-    *,
-    exclude_payment_id: int | None = None,
-) -> bool:
-    query = PaymentRequest.query.filter(
-        PaymentRequest.purchase_order_id == purchase_order_id,
-        PaymentRequest.status != STATUS_REJECTED,
-    )
-    if exclude_payment_id is not None:
-        query = query.filter(PaymentRequest.id != exclude_payment_id)
-    return db.session.query(query.exists()).scalar()
-
-
 def _validate_purchase_order_amount(
     purchase_order: PurchaseOrder,
     amount_decimal: Decimal,
     *,
     payment_id: int | None = None,
 ) -> tuple[bool, str, str]:
+    del payment_id
     amount_decimal = _quantize_amount(Decimal(str(amount_decimal)))
-    remaining_amount = _purchase_order_remaining_amount(purchase_order)
-    advance_amount = _purchase_order_advance_amount(purchase_order)
-    total_amount = _purchase_order_total_amount(purchase_order)
+    available_amount = _purchase_order_available_amount(purchase_order)
 
-    if remaining_amount >= amount_decimal:
-        return True, "", ""
-
-    if (
-        remaining_amount == Decimal("0.00")
-        and amount_decimal == advance_amount
-        and amount_decimal == total_amount
-    ):
-        if _purchase_order_has_active_payments(
-            purchase_order.id,
-            exclude_payment_id=payment_id,
-        ):
-            return (
-                False,
-                "full_advance_already_paid",
-                "تم صرف كامل مبلغ أمر الشراء ولا يمكن إضافة دفعة أخرى.",
-            )
+    if available_amount >= amount_decimal:
         return True, "", ""
 
     return (
@@ -477,12 +462,6 @@ def _po_reserve(payment: PaymentRequest) -> bool:
     )
     if not allowed:
         flash(message, "danger")
-        if reason == "full_advance_already_paid":
-            logger.info(
-                "PO reserve blocked reason=advance_already_paid purchase_order_id=%s payment_id=%s",
-                purchase_order.id,
-                payment.id,
-            )
         return False
 
     current_reserved = _quantize_amount(
@@ -558,12 +537,6 @@ def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
     )
     if not allowed:
         flash(message, "danger")
-        if reason == "full_advance_already_paid":
-            logger.info(
-                "PO finalize blocked reason=advance_already_paid purchase_order_id=%s payment_id=%s",
-                purchase_order.id,
-                payment.id,
-            )
         return False
 
     current_reserved = _quantize_amount(
