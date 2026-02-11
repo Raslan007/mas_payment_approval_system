@@ -464,3 +464,166 @@ def test_dc_cannot_view_legacy_liabilities_kpi(client, user_factory, login, supp
     login(dc_user)
     response = client.get("/overview")
     assert response.status_code == 403
+
+
+def test_mark_paid_creates_single_ledger_entry_for_legacy_settlement(
+    client,
+    user_factory,
+    login,
+    supplier,
+    project,
+):
+    finance_user = user_factory("finance")
+    payment = PaymentRequest(
+        project_id=project.id,
+        supplier_id=supplier.id,
+        request_type="تسوية مديونية",
+        amount=Decimal("150.00"),
+        status="ready_for_payment",
+        created_by=finance_user.id,
+    )
+    db.session.add(payment)
+    db.session.commit()
+
+    login(finance_user)
+
+    response = client.post(
+        f"/payments/{payment.id}/mark_paid",
+        data={"finance_amount": "150.00"},
+    )
+    assert response.status_code == 302
+
+    entries = SupplierLedgerEntry.query.filter_by(payment_request_id=payment.id).all()
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.direction == "credit"
+    assert entry.entry_type == "adjustment"
+    assert entry.amount == Decimal("150.00")
+
+
+def test_mark_paid_retry_does_not_create_duplicate_settlement_ledger_entry(
+    client,
+    user_factory,
+    login,
+    supplier,
+    project,
+):
+    finance_user = user_factory("finance")
+    payment = PaymentRequest(
+        project_id=project.id,
+        supplier_id=supplier.id,
+        request_type="مستحقات سابقة",
+        amount=Decimal("120.00"),
+        status="ready_for_payment",
+        created_by=finance_user.id,
+    )
+    db.session.add(payment)
+    db.session.commit()
+
+    login(finance_user)
+    response = client.post(
+        f"/payments/{payment.id}/mark_paid",
+        data={"finance_amount": "120.00"},
+    )
+    assert response.status_code == 302
+
+    first_count = SupplierLedgerEntry.query.filter_by(payment_request_id=payment.id).count()
+    assert first_count == 1
+
+    response_retry = client.post(
+        f"/payments/{payment.id}/mark_paid",
+        data={"finance_amount": "120.00"},
+    )
+    assert response_retry.status_code == 302
+
+    second_count = SupplierLedgerEntry.query.filter_by(payment_request_id=payment.id).count()
+    assert second_count == 1
+
+
+def test_mark_paid_po_payment_does_not_write_supplier_ledger_entry(
+    client,
+    user_factory,
+    login,
+    supplier,
+    project,
+):
+    finance_user = user_factory("finance")
+    purchase_order = PurchaseOrder(
+        bo_number="BO-PO-SETTLE-1",
+        project_id=project.id,
+        supplier_id=supplier.id,
+        supplier_name=supplier.name,
+        total_amount=Decimal("1000.00"),
+        advance_amount=Decimal("0.00"),
+        reserved_amount=Decimal("200.00"),
+        paid_amount=Decimal("0.00"),
+        remaining_amount=Decimal("800.00"),
+        status=PURCHASE_ORDER_STATUS_SUBMITTED,
+        created_by_id=finance_user.id,
+    )
+    db.session.add(purchase_order)
+    db.session.flush()
+
+    payment = PaymentRequest(
+        project_id=project.id,
+        supplier_id=supplier.id,
+        purchase_order_id=purchase_order.id,
+        request_type="مشتريات",
+        amount=Decimal("200.00"),
+        status="ready_for_payment",
+        created_by=finance_user.id,
+        purchase_order_reserved_amount=Decimal("200.00"),
+        purchase_order_reserved_at=datetime.utcnow(),
+    )
+    db.session.add(payment)
+    db.session.commit()
+
+    login(finance_user)
+    response = client.post(
+        f"/payments/{payment.id}/mark_paid",
+        data={"finance_amount": "200.00"},
+    )
+    assert response.status_code == 302
+
+    assert SupplierLedgerEntry.query.filter_by(payment_request_id=payment.id).count() == 0
+
+
+def test_delete_paid_settlement_payment_voids_related_ledger_entry(
+    client,
+    user_factory,
+    login,
+    supplier,
+    project,
+):
+    admin_user = user_factory("admin")
+    payment = PaymentRequest(
+        project_id=project.id,
+        supplier_id=supplier.id,
+        request_type="تسوية مديونية",
+        amount=Decimal("90.00"),
+        status="draft",
+        created_by=admin_user.id,
+    )
+    db.session.add(payment)
+    db.session.flush()
+
+    entry = SupplierLedgerEntry(
+        supplier_id=supplier.id,
+        project_id=project.id,
+        payment_request_id=payment.id,
+        entry_type="adjustment",
+        direction="credit",
+        amount=Decimal("90.00"),
+        entry_date=date.today(),
+        created_by_id=admin_user.id,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    login(admin_user)
+    response = client.post(f"/payments/{payment.id}/delete")
+    assert response.status_code == 302
+
+    db.session.refresh(entry)
+    assert entry.voided_at is not None
+    assert supplier.legacy_balance == Decimal("0.00")
