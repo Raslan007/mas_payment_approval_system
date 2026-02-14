@@ -440,10 +440,32 @@ def _validate_purchase_order_amount(
     amount_decimal: Decimal,
     *,
     payment_id: int | None = None,
+    reserved_to_ignore: Decimal | None = None,
 ) -> tuple[bool, str, str]:
     del payment_id
     amount_decimal = _quantize_amount(Decimal(str(amount_decimal)))
-    available_amount = _purchase_order_available_amount(purchase_order)
+
+    if reserved_to_ignore is None:
+        available_amount = _purchase_order_available_amount(purchase_order)
+    else:
+        total_amount = _purchase_order_total_amount(purchase_order)
+        reserved_amount = _quantize_amount(
+            Decimal(str(purchase_order.reserved_amount or Decimal("0.00")))
+        )
+        paid_amount = _quantize_amount(
+            Decimal(str(purchase_order.paid_amount or Decimal("0.00")))
+        )
+        ignored_reserved_amount = _quantize_amount(Decimal(str(reserved_to_ignore)))
+        if ignored_reserved_amount < Decimal("0.00"):
+            ignored_reserved_amount = Decimal("0.00")
+        if ignored_reserved_amount > reserved_amount:
+            ignored_reserved_amount = reserved_amount
+
+        effective_reserved_amount = reserved_amount - ignored_reserved_amount
+        available_amount = total_amount - effective_reserved_amount - paid_amount
+        if available_amount < Decimal("0.00"):
+            available_amount = Decimal("0.00")
+        available_amount = _quantize_amount(available_amount)
 
     if available_amount >= amount_decimal:
         return True, "", ""
@@ -609,10 +631,19 @@ def _po_finalize(payment: PaymentRequest, amount_to_apply: Decimal) -> bool:
         flash("أمر الشراء المحدد غير موجود أو لم يعد متاحاً.", "danger")
         return False
 
+    reserved_to_ignore: Decimal | None = None
+    if (
+        reserved_amount is not None
+        and reserved_amount > Decimal("0.00")
+        and payment.purchase_order_reserved_at is not None
+    ):
+        reserved_to_ignore = reserved_amount
+
     allowed, reason, message = _validate_purchase_order_amount(
         purchase_order,
         amount_to_apply,
         payment_id=payment.id,
+        reserved_to_ignore=reserved_to_ignore,
     )
     if not allowed:
         flash(message, "danger")
