@@ -871,6 +871,67 @@ class PaymentWorkflowTestCase(unittest.TestCase):
         self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("0.00"))
         self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("50.00"))
 
+    def test_purchase_order_finalize_full_reserved_payment_succeeds(self):
+        purchase_order = self._make_purchase_order(
+            total_amount=Decimal("100.00"),
+            advance_amount=Decimal("100.00"),
+        )
+        payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("100.00"),
+            description="full advance reserve and finalize",
+            status=payment_routes.STATUS_READY_FOR_PAYMENT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertTrue(payment_routes._po_reserve(payment))
+            db.session.commit()
+
+        db.session.refresh(purchase_order)
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("0.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("100.00"))
+        self.assertEqual(Decimal(str(purchase_order.paid_amount)), Decimal("0.00"))
+
+        second_payment = PaymentRequest(
+            project=self.project,
+            supplier=self.supplier,
+            request_type=PURCHASE_ORDER_REQUEST_TYPE,
+            amount=Decimal("1.00"),
+            description="must not reserve over full po",
+            status=payment_routes.STATUS_DRAFT,
+            purchase_order_id=purchase_order.id,
+            created_by=self.users["admin"].id,
+        )
+        db.session.add(second_payment)
+        db.session.commit()
+
+        with self.app.test_request_context():
+            login_user(self.users["admin"])
+            self.assertFalse(payment_routes._po_reserve(second_payment))
+            db.session.rollback()
+
+        self._login(self.users["finance"])
+        response = self.client.post(
+            f"/payments/{payment.id}/mark_paid",
+            data={"finance_amount": "100"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        db.session.refresh(payment)
+        db.session.refresh(purchase_order)
+        self.assertEqual(payment.status, payment_routes.STATUS_PAID)
+        self.assertEqual(Decimal(str(payment.finance_amount)), Decimal("100.00"))
+        self.assertEqual(Decimal(str(purchase_order.reserved_amount)), Decimal("0.00"))
+        self.assertEqual(Decimal(str(purchase_order.paid_amount)), Decimal("100.00"))
+        self.assertEqual(Decimal(str(purchase_order.remaining_amount)), Decimal("0.00"))
+
     def test_purchase_order_prevents_reservation_over_actual_available(self):
         purchase_order = self._make_purchase_order(
             total_amount=Decimal("100.00"),
